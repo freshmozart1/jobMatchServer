@@ -1,20 +1,82 @@
-import puppeteer, { type Browser, type Page } from "puppeteer";
+import type { Request, Response } from "express";
+import { type Browser, type Page } from "puppeteer";
 
-import type { ScrapedAnchor, ScrapeJobLinksResult } from "./types.js";
+import type {
+    LinkedInJobLinkSearchParams,
+    LinkedInJobLinksByKeyword,
+    ScrapedAnchor,
+} from "#types";
+import waitForLinkedInPage from "./waitForLinkedInPage.js";
 
-const DEFAULT_NAVIGATION_TIMEOUT_MS = 30_000;
-const DEFAULT_PAGE_TIMEOUT_MS = 15_000;
-const OBSERVED_PATTERN_LIMIT = 30;
-const SIGN_IN_MODAL_DISMISS_SELECTOR = ".modal__dismiss";
-const SIGN_IN_MODAL_TIMEOUT_MS = 3_000;
-const SIGN_IN_MODAL_SETTLE_MS = 300;
+const LINKEDIN_JOB_SEARCH_URL = "https://www.linkedin.com/jobs/search";
 
 type InspectedPage = {
-    pageText: string;
     anchors: ScrapedAnchor[];
 };
 
-export function isSupportedLinkedInJobSearchUrl(searchUrl: string): boolean {
+export async function scrapeLinkedInJobLinks(request: Request, response: Response): Promise<void> {
+    const searchParams = getLinkedInJobLinkSearchParamsFromBody(request.body);
+
+    if (!searchParams) {
+        response.status(400).json({
+            error: "Request body must include keywords as a non-empty string or non-empty string array, location as a non-empty string, and distance as a positive integer.",
+        });
+        return;
+    }
+
+    const keywordSearchUrls = searchParams.keywords.map((keyword) => ({
+        keyword,
+        searchUrl: buildLinkedInJobSearchUrl(keyword, searchParams.location, searchParams.distance),
+    }));
+
+    for (const keywordSearchUrl of keywordSearchUrls) {
+        if (!isSupportedLinkedInUrl(keywordSearchUrl.searchUrl)) {
+            response.status(422).json({ error: "Only LinkedIn jobs search URLs are supported." });
+            return;
+        }
+    }
+
+    try {
+        const jobLinksByKeyword: LinkedInJobLinksByKeyword = Object.create(null) as LinkedInJobLinksByKeyword;
+
+        for (const keywordSearchUrl of keywordSearchUrls) {
+            let browser: Browser | null = null;
+            try {
+                const { browser: renderedBrowser, page } = await waitForLinkedInPage(keywordSearchUrl.searchUrl);
+                browser = renderedBrowser;
+
+                const inspectedPage = await inspectRenderedAnchors(page);
+
+                jobLinksByKeyword[keywordSearchUrl.keyword] = extractLinkedInJobLinks(inspectedPage.anchors);
+            } finally {
+                if (browser) {
+                    await browser.close();
+                }
+            }
+        }
+
+        response.status(200).json(jobLinksByKeyword);
+    } catch (error) {
+        response.status(getScraperErrorStatus(error)).json({
+            error: "Failed to scrape LinkedIn job links.",
+            message: getErrorMessage(error),
+        });
+    }
+}
+
+export function getScraperErrorStatus(error: unknown): number {
+    if (error instanceof Error && error.message.toLowerCase().includes("timeout")) {
+        return 504;
+    }
+
+    return 502;
+}
+
+export function getErrorMessage(error: unknown): string {
+    return error instanceof Error ? error.message : "Unknown scraper error.";
+}
+
+export function isSupportedLinkedInUrl(searchUrl: string): boolean {
     try {
         const url = new URL(searchUrl);
 
@@ -28,101 +90,74 @@ export function isSupportedLinkedInJobSearchUrl(searchUrl: string): boolean {
     }
 }
 
-export async function scrapeLinkedInJobLinks(searchUrl: string): Promise<ScrapeJobLinksResult> {
-    if (!isSupportedLinkedInJobSearchUrl(searchUrl)) {
-        throw new Error("Unsupported LinkedIn job search URL.");
+function getLinkedInJobLinkSearchParamsFromBody(body: unknown): LinkedInJobLinkSearchParams | null {
+    if (!body || typeof body !== "object" || !("keywords" in body) || !("location" in body) || !("distance" in body)) {
+        return null;
     }
 
-    let browser: Browser | null = null;
+    const keywords = body.keywords;
+    const location = body.location;
+    const distance = body.distance;
 
-    try {
-        browser = await puppeteer.launch({
-            headless: true,
-            defaultViewport: {
-                width: 1366,
-                height: 900,
-            },
-            args: ["--disable-dev-shm-usage"],
-        });
-
-        const page = await browser.newPage();
-        await configurePage(page);
-
-        const response = await page.goto(searchUrl, {
-            waitUntil: "domcontentloaded",
-            timeout: DEFAULT_NAVIGATION_TIMEOUT_MS,
-        });
-
-        await dismissLinkedInSignInModal(page);
-        await waitForRenderedContent(page);
-
-        const inspectedPage = await inspectRenderedAnchors(page);
-        const jobLinks = extractLinkedInJobLinks(inspectedPage.anchors);
-        const isGated = isLikelyLinkedInGate(inspectedPage.pageText);
-
-        return {
-            searchUrl,
-            finalUrl: page.url(),
-            pageTitle: await page.title(),
-            httpStatus: response?.status() ?? null,
-            jobLinks,
-            count: jobLinks.length,
-            isGated,
-            inspectedAnchorCount: inspectedPage.anchors.length,
-            observedLinkPatterns: getObservedLinkPatterns(inspectedPage.anchors),
-        };
-    } finally {
-        if (browser) {
-            await browser.close();
-        }
+    if (typeof location !== "string") {
+        return null;
     }
+
+    const trimmedKeywords = getTrimmedUniqueKeywords(keywords);
+    const trimmedLocation = location.trim();
+
+    if (!trimmedKeywords || trimmedLocation.length === 0) {
+        return null;
+    }
+
+    if (typeof distance !== "number" || !Number.isFinite(distance) || !Number.isInteger(distance) || distance <= 0) {
+        return null;
+    }
+
+    return {
+        keywords: trimmedKeywords,
+        location: trimmedLocation,
+        distance,
+    };
 }
 
-async function configurePage(page: Page): Promise<void> {
-    page.setDefaultNavigationTimeout(DEFAULT_NAVIGATION_TIMEOUT_MS);
-    page.setDefaultTimeout(DEFAULT_PAGE_TIMEOUT_MS);
+function getTrimmedUniqueKeywords(keywords: unknown): string[] | null {
+    const keywordValues = typeof keywords === "string" ? [keywords] : keywords;
 
-    await page.setUserAgent(
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) " +
-        "AppleWebKit/537.36 (KHTML, like Gecko) " +
-        "Chrome/124.0.0.0 Safari/537.36",
-    );
-}
+    if (!Array.isArray(keywordValues) || keywordValues.length === 0) {
+        return null;
+    }
 
-async function dismissLinkedInSignInModal(page: Page): Promise<boolean> {
-    try {
-        const dismissButton = await page.waitForSelector(SIGN_IN_MODAL_DISMISS_SELECTOR, {
-            timeout: SIGN_IN_MODAL_TIMEOUT_MS,
-            visible: true,
-        });
+    const trimmedKeywords: string[] = [];
 
-        if (!dismissButton) {
-            return false;
+    for (const keywordValue of keywordValues) {
+        if (typeof keywordValue !== "string") {
+            return null;
         }
 
-        await dismissButton.click();
-        await delay(SIGN_IN_MODAL_SETTLE_MS);
+        const trimmedKeyword = keywordValue.trim();
 
-        return true;
-    } catch {
-        return false;
+        if (trimmedKeyword.length === 0) {
+            return null;
+        }
+
+        if (!trimmedKeywords.includes(trimmedKeyword)) {
+            trimmedKeywords.push(trimmedKeyword);
+        }
     }
+
+    return trimmedKeywords;
 }
 
-async function waitForRenderedContent(page: Page): Promise<void> {
-    await page.waitForSelector("body", { timeout: DEFAULT_PAGE_TIMEOUT_MS });
-    await delay(750);
+function buildLinkedInJobSearchUrl(keyword: string, location: string, distance: number): string {
+    const url = new URL(LINKEDIN_JOB_SEARCH_URL);
+    const encodedKeywordSpaces = keyword.replace(/\s+/g, "+");
 
-    for (let scrollAttempt = 0; scrollAttempt < 3; scrollAttempt += 1) {
-        await page.evaluate(() => {
-            window.scrollBy(0, window.innerHeight);
-        });
-        await delay(500);
-    }
+    url.searchParams.set("keywords", encodedKeywordSpaces);
+    url.searchParams.set("location", location);
+    url.searchParams.set("distance", distance.toString());
 
-    await page.evaluate(() => {
-        window.scrollTo(0, 0);
-    });
+    return url.toString() + '&f_TPR=r86400';
 }
 
 async function inspectRenderedAnchors(page: Page): Promise<InspectedPage> {
@@ -144,10 +179,7 @@ async function inspectRenderedAnchors(page: Page): Promise<InspectedPage> {
             };
         });
 
-        return {
-            pageText: document.body?.innerText ?? "",
-            anchors,
-        };
+        return { anchors };
     });
 }
 
@@ -191,44 +223,4 @@ function isLinkedInHost(hostname: string): boolean {
     const normalizedHostname = hostname.toLowerCase();
 
     return normalizedHostname === "linkedin.com" || normalizedHostname.endsWith(".linkedin.com");
-}
-
-function isLikelyLinkedInGate(pageText: string): boolean {
-    const normalizedPageText = pageText.toLowerCase();
-
-    return (
-        normalizedPageText.includes("sign in to view more jobs") ||
-        (normalizedPageText.includes("sign in with email") && normalizedPageText.includes("new to linkedin"))
-    );
-}
-
-function getObservedLinkPatterns(anchors: ScrapedAnchor[]): string[] {
-    const patterns = new Set<string>();
-
-    for (const anchor of anchors) {
-        const pattern = getLinkPattern(anchor.href);
-
-        if (pattern) {
-            patterns.add(pattern);
-        }
-    }
-
-    return Array.from(patterns).sort().slice(0, OBSERVED_PATTERN_LIMIT);
-}
-
-function getLinkPattern(href: string): string | null {
-    try {
-        const url = new URL(href);
-        const pathname = url.pathname.replace(/\d{4,}/g, ":id");
-
-        return `${url.hostname}${pathname}`;
-    } catch {
-        return null;
-    }
-}
-
-function delay(milliseconds: number): Promise<void> {
-    return new Promise((resolve) => {
-        setTimeout(resolve, milliseconds);
-    });
 }

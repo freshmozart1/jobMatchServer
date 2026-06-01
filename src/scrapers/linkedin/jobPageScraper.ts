@@ -1,59 +1,31 @@
-import puppeteer, { type Browser, type Page } from "puppeteer";
+import type { Request, Response } from "express";
+import { type Browser, type Page } from "puppeteer";
 
-import type { ScrapedJob } from "./types.js";
+import getLinkedInJobPathSegment from "./getLinkedInJobPathSegment.js";
+import { getErrorMessage, getScraperErrorStatus } from "./jobLinkScraper.js";
+import isLinkedInHost from "./isLinkedInHost.js";
+import type { ScrapedJob, ExtractedLinkedInJobPage } from "#types";
+import waitForLinkedInPage from "./waitForLinkedInPage.js";
+import isSupportedLinkedInUrl from "./isSupportedLinkedInUrl.js";
 
-const DEFAULT_NAVIGATION_TIMEOUT_MS = 30_000;
-const DEFAULT_PAGE_TIMEOUT_MS = 15_000;
-const SIGN_IN_MODAL_DISMISS_SELECTOR = ".modal__dismiss";
-const SIGN_IN_MODAL_TIMEOUT_MS = 3_000;
-const SIGN_IN_MODAL_SETTLE_MS = 300;
+export async function scrapeLinkedInJobPage(request: Request, response: Response): Promise<void> {
+    const jobUrl = getUrlFromBody(request.body);
 
-type ExtractedLinkedInJobPage = {
-    title: string | null;
-    company: string | null;
-    location: string | null;
-    descriptionText: string | null;
-    postedAt: string | null;
-    tags: string[];
-};
-
-export function isSupportedLinkedInJobPageUrl(jobUrl: string): boolean {
-    try {
-        const url = new URL(jobUrl);
-
-        return url.protocol === "https:" && isLinkedInHost(url.hostname) && getLinkedInJobPathSegment(url) !== null;
-    } catch {
-        return false;
+    if (!jobUrl) {
+        response.status(400).json({ error: "Request body must include a valid string url." });
+        return;
     }
-}
 
-export async function scrapeLinkedInJobPage(jobUrl: string): Promise<ScrapedJob> {
-    if (!isSupportedLinkedInJobPageUrl(jobUrl)) {
-        throw new Error("Unsupported LinkedIn job page URL.");
+    if (!isSupportedLinkedInUrl(jobUrl, "jobPage")) {
+        response.status(422).json({ error: "No job page scraper is registered for this URL." });
+        return;
     }
 
     let browser: Browser | null = null;
 
     try {
-        browser = await puppeteer.launch({
-            headless: true,
-            defaultViewport: {
-                width: 1366,
-                height: 900,
-            },
-            args: ["--disable-dev-shm-usage"],
-        });
-
-        const page = await browser.newPage();
-        await configurePage(page);
-
-        await page.goto(jobUrl, {
-            waitUntil: "domcontentloaded",
-            timeout: DEFAULT_NAVIGATION_TIMEOUT_MS,
-        });
-
-        await dismissLinkedInSignInModal(page);
-        await waitForRenderedContent(page);
+        const { browser: renderedBrowser, page } = await waitForLinkedInPage(jobUrl);
+        browser = renderedBrowser;
 
         const extractedJobPage = await extractLinkedInJobPage(page);
         const pageTitle = await page.title();
@@ -69,7 +41,7 @@ export async function scrapeLinkedInJobPage(jobUrl: string): Promise<ScrapedJob>
         const company = coalesceText(extractedJobPage.company, getCompanyFromPageTitle(pageTitle));
         const descriptionText = normalizeDescription(extractedJobPage.descriptionText);
 
-        return {
+        const scrapedJob: ScrapedJob = {
             sourceHostname: canonicalUrlObject.hostname,
             ...(sourceJobId ? { sourceJobId } : {}),
             sourceUrl: canonicalUrl,
@@ -82,6 +54,13 @@ export async function scrapeLinkedInJobPage(jobUrl: string): Promise<ScrapedJob>
             ...(extractedJobPage.tags.length > 0 ? { tags: extractedJobPage.tags } : {}),
             duplicateKey: sourceJobId ? `linkedin:${sourceJobId}` : canonicalUrl,
         };
+
+        response.status(200).json(scrapedJob);
+    } catch (error) {
+        response.status(getScraperErrorStatus(error)).json({
+            error: "Failed to scrape job page.",
+            message: getErrorMessage(error),
+        });
     } finally {
         if (browser) {
             await browser.close();
@@ -89,40 +68,22 @@ export async function scrapeLinkedInJobPage(jobUrl: string): Promise<ScrapedJob>
     }
 }
 
-async function configurePage(page: Page): Promise<void> {
-    page.setDefaultNavigationTimeout(DEFAULT_NAVIGATION_TIMEOUT_MS);
-    page.setDefaultTimeout(DEFAULT_PAGE_TIMEOUT_MS);
-
-    await page.setUserAgent(
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) " +
-        "AppleWebKit/537.36 (KHTML, like Gecko) " +
-        "Chrome/124.0.0.0 Safari/537.36",
-    );
-}
-
-async function dismissLinkedInSignInModal(page: Page): Promise<boolean> {
-    try {
-        const dismissButton = await page.waitForSelector(SIGN_IN_MODAL_DISMISS_SELECTOR, {
-            timeout: SIGN_IN_MODAL_TIMEOUT_MS,
-            visible: true,
-        });
-
-        if (!dismissButton) {
-            return false;
-        }
-
-        await dismissButton.click();
-        await delay(SIGN_IN_MODAL_SETTLE_MS);
-
-        return true;
-    } catch {
-        return false;
+export function getUrlFromBody(body: unknown): string | null {
+    if (!body || typeof body !== "object" || !("url" in body)) {
+        return null;
     }
-}
 
-async function waitForRenderedContent(page: Page): Promise<void> {
-    await page.waitForSelector("body", { timeout: DEFAULT_PAGE_TIMEOUT_MS });
-    await delay(750);
+    const url = body.url;
+
+    if (typeof url !== "string" || url.trim().length === 0) {
+        return null;
+    }
+
+    try {
+        return new URL(url.trim()).toString();
+    } catch {
+        return null;
+    }
 }
 
 async function extractLinkedInJobPage(page: Page): Promise<ExtractedLinkedInJobPage> {
@@ -337,11 +298,11 @@ async function extractLinkedInJobPage(page: Page): Promise<ExtractedLinkedInJobP
         }
 
         const jobPosting = getJobPostingJsonLd();
-    const title = getString(jobPosting?.["title"]) ?? getMetaContent(["og:title", "twitter:title"]) ?? getFirstText(titleSelectors);
+        const title = getString(jobPosting?.["title"]) ?? getMetaContent(["og:title", "twitter:title"]) ?? getFirstText(titleSelectors);
         const company = getHiringOrganizationName(jobPosting) ?? getFirstText(companySelectors);
         const location = getLocation(jobPosting) ?? getFirstText(locationSelectors);
-    const descriptionText = stripHtml(getString(jobPosting?.["description"])) ?? getMetaContent(["description", "og:description"]) ?? getFirstText(descriptionSelectors);
-    const postedAt = getString(jobPosting?.["datePosted"]) ?? getFirstText(postedAtSelectors);
+        const descriptionText = stripHtml(getString(jobPosting?.["description"])) ?? getMetaContent(["description", "og:description"]) ?? getFirstText(descriptionSelectors);
+        const postedAt = getString(jobPosting?.["datePosted"]) ?? getFirstText(postedAtSelectors);
 
         return {
             title,
@@ -369,16 +330,6 @@ function normalizeLinkedInJobPageUrl(jobUrl: string): string | null {
     }
 }
 
-function getLinkedInJobPathSegment(url: URL): string | null {
-    const pathParts = url.pathname.split("/").filter(Boolean);
-
-    if (pathParts.length < 3 || pathParts[0] !== "jobs" || pathParts[1] !== "view") {
-        return null;
-    }
-
-    return pathParts[2] || null;
-}
-
 function extractLinkedInJobId(jobUrl: string): string | null {
     try {
         const url = new URL(jobUrl);
@@ -389,12 +340,6 @@ function extractLinkedInJobId(jobUrl: string): string | null {
     } catch {
         return null;
     }
-}
-
-function isLinkedInHost(hostname: string): boolean {
-    const normalizedHostname = hostname.toLowerCase();
-
-    return normalizedHostname === "linkedin.com" || normalizedHostname.endsWith(".linkedin.com");
 }
 
 function coalesceText(...values: Array<string | null | undefined>): string {
@@ -451,12 +396,6 @@ function isModalOrLegalText(value: string): boolean {
     return (
         normalizedValue.includes("einloggen") && normalizedValue.includes("linkedin") && normalizedValue.includes("mitglied werden")
     ) || (
-        normalizedValue.includes("sign in") && normalizedValue.includes("linkedin") && normalizedValue.includes("join now")
-    );
-}
-
-function delay(milliseconds: number): Promise<void> {
-    return new Promise((resolve) => {
-        setTimeout(resolve, milliseconds);
-    });
+            normalizedValue.includes("sign in") && normalizedValue.includes("linkedin") && normalizedValue.includes("join now")
+        );
 }

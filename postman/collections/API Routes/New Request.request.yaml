@@ -1,8 +1,8 @@
 $kind: http-request
 name: New Request
-url: http://localhost:3000/scrape/job-page
+url: "{{scrape}}job-page"
 method: POST
 body:
   type: json
-  content: '{"url":"https://de.linkedin.com/jobs/view/web-developer-m-w-d-at-yootheme-4302641323?position=1&pageNum=0&refId=WdRxYQpg4kqDzW5N7YPKGg%3D%3D&trackingId=IdULDrVZpNO9H345reQ6xQ%3D%3D"}'
+  content: '{"url":"https://de.linkedin.com/jobs/view/ohne-berufserfahrung-durchstarten-werde-fachkraft-f%C3%BCr-ki-integration-und-prozessautomatisierung-m-w-d-100%25-homeoffice-at-forward-education-institute-gmbh-4421260757/"}'
 order: 1780133523601

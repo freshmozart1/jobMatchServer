@@ -1,0 +1,13 @@
+$kind: http-request
+name: http://localhost:3000
+url: http://localhost:3000/scrape/linkedin/job-links
+method: POST
+body:
+  type: json
+  content: |-
+    {
+        "keywords": ["Full Stack Engineer"],
+        "location": "Hamburg",
+        "distance": 25
+    }
+order: 367464549942399

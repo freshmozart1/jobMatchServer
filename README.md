@@ -105,35 +105,40 @@ Example response:
 
 ### `POST /scrape/linkedin/job-links`
 
-Opens a LinkedIn jobs search URL with Puppeteer, tries to dismiss LinkedIn's public sign-in modal, inspects the rendered anchors, and returns the individual LinkedIn job posting links that are visible to an unauthenticated browser session.
+Builds LinkedIn jobs search URLs from search parameters, opens each one with Puppeteer, tries to dismiss LinkedIn's public sign-in modal, inspects the rendered anchors, and returns the individual LinkedIn job posting links visible to an unauthenticated browser session.
 
 Example request:
 
 ```bash
 curl -X POST http://localhost:3000/scrape/linkedin/job-links \
   -H "Content-Type: application/json" \
-  -d '{"searchUrl":"https://www.linkedin.com/jobs/search?keywords=Web%20Development&location=Hamburg&geoId=106430557&f_C=41629%2C11010661%2C162679%2C11146938%2C234280&distance=25&f_E=1%2C2&f_PP=106430557&f_TPR=&position=1&pageNum=0"}'
+  -d '{"keywords":"Full Stack Engineer","location":"Hamburg","distance":25}'
+```
+
+`keywords` can also be an array. Duplicate keywords are trimmed and deduplicated before scraping.
+
+```bash
+curl -X POST http://localhost:3000/scrape/linkedin/job-links \
+  -H "Content-Type: application/json" \
+  -d '{"keywords":["Full Stack Engineer","React Developer"],"location":"Hamburg","distance":25}'
 ```
 
 Example response shape:
 
 ```json
 {
-  "searchUrl": "https://www.linkedin.com/jobs/search?keywords=Web%20Development&location=Hamburg&geoId=106430557&f_C=41629%2C11010661%2C162679%2C11146938%2C234280&distance=25&f_E=1%2C2&f_PP=106430557&f_TPR=&position=1&pageNum=0",
-  "finalUrl": "https://www.linkedin.com/jobs/search?...",
-  "pageTitle": "LinkedIn Job Search",
-  "httpStatus": 200,
-  "jobLinks": [
-    "https://de.linkedin.com/jobs/view/software-engineer-smalltalk-all-genders-at-adesso-se-4415925121/"
+  "Full Stack Engineer": [
+    "https://de.linkedin.com/jobs/view/shopify-developer-fullstack-m-w-d-in-vollzeit-at-we-site-gmbh-shopify-agentur-4416820566/"
   ],
-  "count": 1,
-  "isGated": true,
-  "inspectedAnchorCount": 131,
-  "observedLinkPatterns": ["de.linkedin.com/jobs/view/software-engineer-smalltalk-all-genders-at-adesso-se-:id"]
+  "React Developer": [
+    "https://de.linkedin.com/jobs/view/senior-react-developer-at-example-4419579781/"
+  ]
 }
 ```
 
-The endpoint is intentionally unauthenticated. LinkedIn may show a sign-in prompt while still exposing some public job links. In that case, `isGated` can be `true` and `jobLinks` can still contain the links visible on the rendered page. If LinkedIn does not expose individual job posting links, the response returns an empty `jobLinks` array instead of pretending that scraping succeeded.
+The request body must include `keywords` as a non-empty string or a non-empty array of non-empty strings, `location` as a non-empty string, and `distance` as a positive integer number. The server builds a LinkedIn search URL for each keyword before scraping. The response always uses the keyword text as the object key, even when the request contains a single keyword string.
+
+The endpoint is intentionally unauthenticated. LinkedIn may show a sign-in prompt while still exposing some public job links. If LinkedIn does not expose individual job posting links for a keyword, that keyword maps to an empty array instead of pretending that scraping succeeded.
 
 ### `POST /scrape/job-page`
 

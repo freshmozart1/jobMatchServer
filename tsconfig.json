@@ -4,6 +4,14 @@
     // File Layout
     "rootDir": "./src",
     "outDir": "./dist",
+    "paths": {
+      "#scrapers/*": [
+        "./src/scrapers/*"
+      ],
+      "#types": [
+        "./src/types.ts"
+      ]
+    },
     // Environment Settings
     // See also https://aka.ms/tsconfig/module
     "module": "nodenext",
@@ -37,5 +45,6 @@
     "noUncheckedSideEffectImports": true,
     "moduleDetection": "force",
     "skipLibCheck": true,
+    "moduleResolution": "nodenext",
   }
 }

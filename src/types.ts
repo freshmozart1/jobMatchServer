@@ -1,3 +1,13 @@
+export type LinkedInUrlVariant = "jobPage" | "jobSearchPage";
+
+export type LinkedInJobLinkSearchParams = {
+    keywords: string[];
+    location: string;
+    distance: number;
+};
+
+export type LinkedInJobLinksByKeyword = Record<string, string[]>;
+
 export type ScrapedAnchor = {
     href: string;
     text: string;
@@ -30,4 +40,13 @@ export type ScrapedJob = {
     scrapedAt: string;
     tags?: string[];
     duplicateKey: string;
+};
+
+export type ExtractedLinkedInJobPage = {
+    title: string | null;
+    company: string | null;
+    location: string | null;
+    descriptionText: string | null;
+    postedAt: string | null;
+    tags: string[];
 };
