@@ -10,6 +10,12 @@
       ],
       "#types": [
         "./src/types.ts"
+      ],
+      "#database/*": [
+        "./src/database/*"
+      ],
+      "#index": [
+        "./src/index.ts"
       ]
     },
     // Environment Settings
@@ -21,7 +27,8 @@
       "dom"
     ],
     "types": [
-      "node"
+      "node",
+      "jest"
     ],
     // Other Outputs
     "sourceMap": true,

@@ -16,30 +16,48 @@
       "types": "./src/types.ts",
       "development": "./src/types.ts",
       "default": "./dist/types.js"
+    },
+    "#database": {
+      "types": "./src/database/*",
+      "development": "./src/database/*",
+      "default": "./dist/database/*"
+    },
+    "#index": {
+      "types": "./src/index.ts",
+      "development": "./src/index.ts",
+      "default": "./dist/index.js"
     }
   },
   "scripts": {
     "dev": "nodemon",
     "build": "tsc",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "mongo": "mongod --dbpath /opt/homebrew/var/mongodb",
+    "test": "npm run test:watch",
+    "test:once": "npm run build && node --experimental-vm-modules ./node_modules/jest/bin/jest.js --config jest.config.mjs",
+    "test:watch": "nodemon --watch src --watch jest.config.mjs --watch package.json --ext ts,mjs,json --exec \"npm run test:once\""
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/express": "^5.0.6",
+    "@types/jest": "^30.0.0",
     "@types/node": "^25.9.1",
+    "@types/supertest": "^7.2.0",
     "@typescript-eslint/eslint-plugin": "^8.60.0",
     "@typescript-eslint/parser": "^8.60.0",
     "eslint": "^10.4.1",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-prettier": "^5.5.6",
+    "jest": "^30.4.2",
     "nodemon": "^3.1.14",
     "prettier": "^3.8.3",
+    "supertest": "^7.2.2",
     "ts-node": "^10.9.2",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.60.0"
   },
   "dependencies": {
     "express": "^5.2.1",
+    "mongodb": "^7.2.0",
     "puppeteer": "^25.1.0"
   }
 }

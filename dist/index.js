@@ -1,41 +1,32 @@
-import express, { type Request, type Response } from "express";
-
+import express, {} from "express";
 import { scrapeLinkedInJobPage } from "#scrapers/linkedin/jobPageScraper.js";
 import { scrapeLinkedInJobLinks } from "#scrapers/linkedin/jobLinkScraper.js";
 import createJobInDatabase from "#database/createJobInDatabase.js";
-
 export const app = express();
-
 const START_PORT = 3000;
-
 app.use(express.json({ limit: "64kb" }));
-
-app.get("/health", (_request: Request, response: Response): void => {
+app.get("/health", (_request, response) => {
     response.status(200).json({ status: "ok" });
 });
-
 app.post("/scrape/linkedin/job-links", scrapeLinkedInJobLinks);
-
 app.post("/scrape/linkedin/job-page", scrapeLinkedInJobPage);
-
 app.post('/create/job', createJobInDatabase);
-
-function listenWithFallback(port: number) {
+function listenWithFallback(port) {
     const server = app
         .listen(port)
         .on("listening", () => {
-            console.log(`Server running on http://localhost:${port}`);
-        })
-        .on("error", (err: unknown) => {
-            if (err && typeof err === "object" && "code" in err && err.code === "EADDRINUSE") {
-                console.log(`Port ${port} in use, trying ${port + 1}...`);
-                listenWithFallback(port + 1);
-            } else {
-                console.error(err);
-            }
-        });
-
+        console.log(`Server running on http://localhost:${port}`);
+    })
+        .on("error", (err) => {
+        if (err && typeof err === "object" && "code" in err && err.code === "EADDRINUSE") {
+            console.log(`Port ${port} in use, trying ${port + 1}...`);
+            listenWithFallback(port + 1);
+        }
+        else {
+            console.error(err);
+        }
+    });
     return server;
 }
-
 listenWithFallback(START_PORT);
+//# sourceMappingURL=index.js.map
