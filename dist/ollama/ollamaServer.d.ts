@@ -12,5 +12,7 @@ type StartOllamaOptions = {
 };
 export declare function isOllamaAvailable(fetchImpl?: FetchLike): Promise<boolean>;
 export declare function startOllamaIfUnavailable(options?: StartOllamaOptions): Promise<void>;
+export declare function tryStartOllama(options?: StartOllamaOptions): Promise<boolean>;
+export declare function clearTrackedOllamaProcess(): void;
 export {};
 //# sourceMappingURL=ollamaServer.d.ts.map

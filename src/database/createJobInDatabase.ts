@@ -2,6 +2,9 @@ import type { Request, Response } from "express";
 import type { CreateJobInDatabaseRequestBody, StoredScrapedJob } from "#types";
 import { MongoClient } from "mongodb";
 import { createJobEmbedding } from "../embeddings/jobEmbedding.js";
+import { isOllamaAvailable } from "../ollama/ollamaServer.js";
+
+const ollamaUnavailableResponse = { message: "Ollama not available" };
 
 function isValidCreateJobRequestBody(body: unknown): body is CreateJobInDatabaseRequestBody {
     return typeof body === "object"
@@ -19,13 +22,27 @@ export default async function createJobInDatabase(request: Request<object, objec
         return;
     }
 
+    const { job, like } = request.body;
+
+    if (!(await isOllamaAvailable())) {
+        response.status(503).json(ollamaUnavailableResponse);
+        return;
+    }
+
+    let embedding: StoredScrapedJob["embedding"];
+
+    try {
+        embedding = await createJobEmbedding(job);
+    } catch {
+        response.status(503).json(ollamaUnavailableResponse);
+        return;
+    }
+
     const mongoDbConnectionString = "mongodb://127.0.0.1:27017/?directConnection=true&serverSelectionTimeoutMS=2000";
     const client = new MongoClient(mongoDbConnectionString);
     try {
         const database = client.db('jobMatch');
         const jobsCollection = database.collection<StoredScrapedJob>('jobs');
-        const { job, like } = request.body;
-        const embedding = await createJobEmbedding(job);
         const jobData: StoredScrapedJob = { ...job, like, embedding };
         const result = await jobsCollection.insertOne(jobData);
         response.status(201).json({ message: "Job created", jobId: result.insertedId });

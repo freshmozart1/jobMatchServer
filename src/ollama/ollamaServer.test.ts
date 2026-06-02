@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, jest } from "@jest/globals";
 import type { ChildProcess } from "node:child_process";
 import type { SpawnOllama } from "./ollamaServer.js";
 
-const { isOllamaAvailable, startOllamaIfUnavailable } = await import("./ollamaServer.js");
+const { clearTrackedOllamaProcess, isOllamaAvailable, startOllamaIfUnavailable, tryStartOllama } = await import("./ollamaServer.js");
 
 function createFetchResponse(ok: boolean): Response {
     return { ok } as Response;
@@ -33,6 +33,7 @@ function createSpawnMock(): jest.MockedFunction<SpawnOllama> {
 describe("ollamaServer", () => {
     beforeEach(() => {
         jest.clearAllMocks();
+        clearTrackedOllamaProcess();
     });
 
     it("reports Ollama as available when the version endpoint responds ok", async () => {
@@ -76,5 +77,40 @@ describe("ollamaServer", () => {
             startupTimeoutMs: 0,
             pollIntervalMs: 0,
         })).rejects.toThrow("Ollama did not become available after starting `ollama serve`");
+    });
+
+    it("returns true from best-effort startup when Ollama is already available", async () => {
+        const fetchMock = createFetchMock([true]);
+        const spawnMock = createSpawnMock();
+
+        await expect(tryStartOllama({ fetchImpl: fetchMock, spawnImpl: spawnMock })).resolves.toBe(true);
+
+        expect(spawnMock).not.toHaveBeenCalled();
+    });
+
+    it("returns true from best-effort startup after spawning Ollama successfully", async () => {
+        const fetchMock = createFetchMock([false, false, true]);
+        const spawnMock = createSpawnMock();
+
+        await expect(tryStartOllama({
+            fetchImpl: fetchMock,
+            spawnImpl: spawnMock,
+            startupTimeoutMs: 100,
+            pollIntervalMs: 0,
+        })).resolves.toBe(true);
+
+        expect(spawnMock).toHaveBeenCalledWith("ollama", ["serve"], { stdio: "ignore" });
+    });
+
+    it("returns false from best-effort startup when Ollama does not become available", async () => {
+        const fetchMock = createFetchMock([false, false, false]);
+        const spawnMock = createSpawnMock();
+
+        await expect(tryStartOllama({
+            fetchImpl: fetchMock,
+            spawnImpl: spawnMock,
+            startupTimeoutMs: 0,
+            pollIntervalMs: 0,
+        })).resolves.toBe(false);
     });
 });

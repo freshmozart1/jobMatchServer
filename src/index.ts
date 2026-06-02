@@ -3,7 +3,7 @@ import express, { type Request, type Response } from "express";
 import { scrapeLinkedInJobPage } from "#scrapers/linkedin/jobPageScraper.js";
 import { scrapeLinkedInJobLinks } from "#scrapers/linkedin/jobLinkScraper.js";
 import createJobInDatabase from "#database/createJobInDatabase.js";
-import { startOllamaIfUnavailable } from "./ollama/ollamaServer.js";
+import { tryStartOllama } from "./ollama/ollamaServer.js";
 
 export const app = express();
 
@@ -40,13 +40,13 @@ function listenWithFallback(port: number) {
 }
 
 async function startServer(): Promise<void> {
-    try {
-        await startOllamaIfUnavailable();
-        listenWithFallback(START_PORT);
-    } catch (error) {
-        console.error(error);
-        process.exitCode = 1;
+    const isOllamaReady = await tryStartOllama();
+
+    if (!isOllamaReady) {
+        console.warn("Ollama not available. /create/job will return 503 until Ollama is available.");
     }
+
+    listenWithFallback(START_PORT);
 }
 
 void startServer();

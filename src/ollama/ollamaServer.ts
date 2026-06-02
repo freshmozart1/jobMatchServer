@@ -69,3 +69,17 @@ export async function startOllamaIfUnavailable(options: StartOllamaOptions = {})
 
     throw new Error("Ollama did not become available after starting `ollama serve`");
 }
+
+export async function tryStartOllama(options: StartOllamaOptions = {}): Promise<boolean> {
+    try {
+        await startOllamaIfUnavailable(options);
+
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+export function clearTrackedOllamaProcess(): void {
+    ollamaProcess = null;
+}

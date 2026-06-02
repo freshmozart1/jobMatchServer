@@ -38,4 +38,16 @@ export async function startOllamaIfUnavailable(options = {}) {
     }
     throw new Error("Ollama did not become available after starting `ollama serve`");
 }
+export async function tryStartOllama(options = {}) {
+    try {
+        await startOllamaIfUnavailable(options);
+        return true;
+    }
+    catch {
+        return false;
+    }
+}
+export function clearTrackedOllamaProcess() {
+    ollamaProcess = null;
+}
 //# sourceMappingURL=ollamaServer.js.map
