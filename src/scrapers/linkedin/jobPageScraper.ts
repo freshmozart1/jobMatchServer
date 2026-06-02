@@ -87,6 +87,8 @@ export function getUrlFromBody(body: unknown): string | null {
 }
 
 async function extractLinkedInJobPage(page: Page): Promise<ExtractedLinkedInJobPage> {
+    await page.click('#base-contextual-sign-in-modal > div > section > button');
+    await page.click('button.show-more-less-button');
     return page.evaluate(() => {
         type JsonRecord = Record<string, unknown>;
 

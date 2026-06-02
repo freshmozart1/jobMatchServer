@@ -72,6 +72,8 @@ export function getUrlFromBody(body) {
     }
 }
 async function extractLinkedInJobPage(page) {
+    await page.click('#base-contextual-sign-in-modal > div > section > button');
+    await page.click('button.show-more-less-button');
     return page.evaluate(() => {
         const titleSelectors = [
             "h1.top-card-layout__title",
