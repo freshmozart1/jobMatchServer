@@ -1,5 +1,5 @@
 $kind: http-request
-name: http://localhost:3000
+name: job-links
 url: http://localhost:3000/scrape/linkedin/job-links
 method: POST
 body:
@@ -10,4 +10,4 @@ body:
         "location": "Hamburg",
         "distance": 25
     }
-order: 367464549942399
+order: 1199279532930212

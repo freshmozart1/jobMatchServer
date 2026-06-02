@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, jest } from "@jest/globals";
 import type { Request, Response } from "express";
-import type { ScrapedJob } from "#types";
+import type { CreateJobInDatabaseRequestBody, ScrapedJob, StoredScrapedJob, TextEmbedding } from "#types";
 
 const mongoDbConnectionString = "mongodb://127.0.0.1:27017/?directConnection=true&serverSelectionTimeoutMS=2000";
 
@@ -9,7 +9,7 @@ type InsertOneResult = {
 };
 
 type JobsCollectionMock = {
-    insertOne: ReturnType<typeof jest.fn<(jobData: ScrapedJob) => Promise<InsertOneResult>>>;
+    insertOne: ReturnType<typeof jest.fn<(jobData: StoredScrapedJob) => Promise<InsertOneResult>>>;
 };
 
 type DatabaseMock = {
@@ -22,14 +22,20 @@ type MongoClientMock = {
 };
 
 const insertedJobId = "inserted-job-id";
-const insertOne = jest.fn<(jobData: ScrapedJob) => Promise<InsertOneResult>>();
+const embedding = [0.1, 0.2, 0.3] satisfies TextEmbedding;
+const insertOne = jest.fn<(jobData: StoredScrapedJob) => Promise<InsertOneResult>>();
 const collection = jest.fn<(collectionName: string) => JobsCollectionMock>();
 const db = jest.fn<(databaseName: string) => DatabaseMock>();
 const close = jest.fn<() => Promise<void>>();
 const mongoClientConstructor = jest.fn<(connectionString: string) => MongoClientMock>();
+const createJobEmbedding = jest.fn<(job: ScrapedJob) => Promise<TextEmbedding>>();
 
 jest.unstable_mockModule("mongodb", () => ({
     MongoClient: mongoClientConstructor,
+}));
+
+jest.unstable_mockModule("../embeddings/jobEmbedding.js", () => ({
+    createJobEmbedding,
 }));
 
 const { default: createJobInDatabase } = await import("./createJobInDatabase.js");
@@ -50,8 +56,8 @@ function createScrapedJob(): ScrapedJob {
     } satisfies ScrapedJob;
 }
 
-function createRequest(body: ScrapedJob): Request<object, object, ScrapedJob> {
-    return { body } as Request<object, object, ScrapedJob>;
+function createRequest(body: unknown): Request<object, object, CreateJobInDatabaseRequestBody> {
+    return { body } as Request<object, object, CreateJobInDatabaseRequestBody>;
 }
 
 function createResponse(): {
@@ -78,11 +84,13 @@ describe("createJobInDatabase", () => {
         db.mockReturnValue({ collection });
         close.mockResolvedValue();
         mongoClientConstructor.mockReturnValue({ db, close });
+        createJobEmbedding.mockResolvedValue(embedding);
     });
 
-    it("inserts the ScrapedJob request body and responds with the new job id", async () => {
-        const jobData = createScrapedJob();
-        const request = createRequest(jobData);
+    it("embeds the ScrapedJob request body, stores the flattened job, and responds with the new job id", async () => {
+        const job = createScrapedJob();
+        const like = true;
+        const request = createRequest({ job, like });
         const { response, status, json } = createResponse();
 
         await createJobInDatabase(request, response);
@@ -90,7 +98,8 @@ describe("createJobInDatabase", () => {
         expect(mongoClientConstructor).toHaveBeenCalledWith(mongoDbConnectionString);
         expect(db).toHaveBeenCalledWith("jobMatch");
         expect(collection).toHaveBeenCalledWith("jobs");
-        expect(insertOne).toHaveBeenCalledWith(jobData);
+        expect(createJobEmbedding).toHaveBeenCalledWith(job);
+        expect(insertOne).toHaveBeenCalledWith({ ...job, like, embedding });
         expect(status).toHaveBeenCalledWith(201);
         expect(json).toHaveBeenCalledWith({ message: "Job created", jobId: insertedJobId });
         expect(close).toHaveBeenCalledTimes(1);
@@ -98,7 +107,7 @@ describe("createJobInDatabase", () => {
 
     it("closes the MongoDB client when insertion fails", async () => {
         const insertionError = new Error("Insert failed");
-        const request = createRequest(createScrapedJob());
+        const request = createRequest({ job: createScrapedJob(), like: false });
         const { response } = createResponse();
 
         insertOne.mockRejectedValue(insertionError);
@@ -106,5 +115,44 @@ describe("createJobInDatabase", () => {
         await expect(createJobInDatabase(request, response)).rejects.toThrow(insertionError);
 
         expect(close).toHaveBeenCalledTimes(1);
+    });
+
+    it("does not insert when embedding creation fails", async () => {
+        const embeddingError = new Error("Embedding failed");
+        const request = createRequest({ job: createScrapedJob(), like: true });
+        const { response } = createResponse();
+
+        createJobEmbedding.mockRejectedValue(embeddingError);
+
+        await expect(createJobInDatabase(request, response)).rejects.toThrow(embeddingError);
+
+        expect(insertOne).not.toHaveBeenCalled();
+        expect(close).toHaveBeenCalledTimes(1);
+    });
+
+    it("returns 400 when the request body does not include a job object", async () => {
+        const request = createRequest({ like: true });
+        const { response, status, json } = createResponse();
+
+        await createJobInDatabase(request, response);
+
+        expect(status).toHaveBeenCalledWith(400);
+        expect(json).toHaveBeenCalledWith({ message: "Request body must include job and boolean like fields" });
+        expect(createJobEmbedding).not.toHaveBeenCalled();
+        expect(mongoClientConstructor).not.toHaveBeenCalled();
+        expect(insertOne).not.toHaveBeenCalled();
+    });
+
+    it("returns 400 when like is not a boolean", async () => {
+        const request = createRequest({ job: createScrapedJob(), like: "true" });
+        const { response, status, json } = createResponse();
+
+        await createJobInDatabase(request, response);
+
+        expect(status).toHaveBeenCalledWith(400);
+        expect(json).toHaveBeenCalledWith({ message: "Request body must include job and boolean like fields" });
+        expect(createJobEmbedding).not.toHaveBeenCalled();
+        expect(mongoClientConstructor).not.toHaveBeenCalled();
+        expect(insertOne).not.toHaveBeenCalled();
     });
 });

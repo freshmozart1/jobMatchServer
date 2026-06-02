@@ -2,6 +2,7 @@ import express, {} from "express";
 import { scrapeLinkedInJobPage } from "#scrapers/linkedin/jobPageScraper.js";
 import { scrapeLinkedInJobLinks } from "#scrapers/linkedin/jobLinkScraper.js";
 import createJobInDatabase from "#database/createJobInDatabase.js";
+import { startOllamaIfUnavailable } from "./ollama/ollamaServer.js";
 export const app = express();
 const START_PORT = 3000;
 app.use(express.json({ limit: "64kb" }));
@@ -28,5 +29,15 @@ function listenWithFallback(port) {
     });
     return server;
 }
-listenWithFallback(START_PORT);
+async function startServer() {
+    try {
+        await startOllamaIfUnavailable();
+        listenWithFallback(START_PORT);
+    }
+    catch (error) {
+        console.error(error);
+        process.exitCode = 1;
+    }
+}
+void startServer();
 //# sourceMappingURL=index.js.map

@@ -17,7 +17,7 @@
       "development": "./src/types.ts",
       "default": "./dist/types.js"
     },
-    "#database": {
+    "#database/*": {
       "types": "./src/database/*",
       "development": "./src/database/*",
       "default": "./dist/database/*"
@@ -58,6 +58,7 @@
   "dependencies": {
     "express": "^5.2.1",
     "mongodb": "^7.2.0",
+    "ollama": "^0.6.3",
     "puppeteer": "^25.1.0"
   }
 }

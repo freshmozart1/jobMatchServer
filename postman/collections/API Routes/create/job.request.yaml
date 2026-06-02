@@ -1,0 +1,29 @@
+$kind: http-request
+name: job
+url: http://localhost:3000/create/job
+method: POST
+body:
+  type: json
+  content: >-
+    {
+        "job": {
+            "sourceHostname": "de.linkedin.com",
+            "sourceJobId": "4422110097",
+            "sourceUrl": "https://de.linkedin.com/jobs/view/junior-frontend-developer-m-w-d-e-commerce-in-hamburg-at-detlev-louis-motorrad-vertriebsgesellschaft-mbh-4422110097/",
+            "title": "Detlev Louis Motorrad-Vertriebsgesellschaft mbH sucht Junior Frontend Developer (m/w/d) E-Commerce in Hamburg in Hamburg | LinkedIn",
+            "company": "Detlev Louis Motorrad-Vertriebsgesellschaft mbH",
+            "location": "Hamburg",
+            "descriptionText": "19:56:23 gepostet. Du willst nicht nur Websites bauen, sondern digitale Erlebnisse auf mehreren Plattformen…. Sehen Sie sich dieses und weitere Jobangebote auf LinkedIn an.",
+            "postedAt": "Vor 8 Monaten",
+            "scrapedAt": "2026-06-02T12:46:03.877Z",
+            "tags": [
+                "Berufseinstieg",
+                "Vollzeit",
+                "Ingenieurwesen und IT",
+                "Einzelhandel"
+            ],
+            "duplicateKey": "linkedin:4422110097"
+        },
+        "like": true
+    }
+order: 1780404289802
