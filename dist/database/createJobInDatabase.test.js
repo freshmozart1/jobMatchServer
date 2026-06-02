@@ -1,13 +1,22 @@
 import { beforeEach, describe, expect, it, jest } from "@jest/globals";
 const mongoDbConnectionString = "mongodb://127.0.0.1:27017/?directConnection=true&serverSelectionTimeoutMS=2000";
 const insertedJobId = "inserted-job-id";
+const embedding = [0.1, 0.2, 0.3];
 const insertOne = jest.fn();
 const collection = jest.fn();
 const db = jest.fn();
 const close = jest.fn();
 const mongoClientConstructor = jest.fn();
+const createJobEmbedding = jest.fn();
+const isOllamaAvailable = jest.fn();
 jest.unstable_mockModule("mongodb", () => ({
     MongoClient: mongoClientConstructor,
+}));
+jest.unstable_mockModule("../embeddings/jobEmbedding.js", () => ({
+    createJobEmbedding,
+}));
+jest.unstable_mockModule("../ollama/ollamaServer.js", () => ({
+    isOllamaAvailable,
 }));
 const { default: createJobInDatabase } = await import("./createJobInDatabase.js");
 function createScrapedJob() {
@@ -44,27 +53,86 @@ describe("createJobInDatabase", () => {
         db.mockReturnValue({ collection });
         close.mockResolvedValue();
         mongoClientConstructor.mockReturnValue({ db, close });
+        createJobEmbedding.mockResolvedValue(embedding);
+        isOllamaAvailable.mockResolvedValue(true);
     });
-    it("inserts the ScrapedJob request body and responds with the new job id", async () => {
-        const jobData = createScrapedJob();
-        const request = createRequest(jobData);
+    it("embeds the ScrapedJob request body, stores the flattened job, and responds with the new job id", async () => {
+        const job = createScrapedJob();
+        const like = true;
+        const request = createRequest({ job, like });
         const { response, status, json } = createResponse();
         await createJobInDatabase(request, response);
         expect(mongoClientConstructor).toHaveBeenCalledWith(mongoDbConnectionString);
         expect(db).toHaveBeenCalledWith("jobMatch");
         expect(collection).toHaveBeenCalledWith("jobs");
-        expect(insertOne).toHaveBeenCalledWith(jobData);
+        expect(createJobEmbedding).toHaveBeenCalledWith(job);
+        expect(insertOne).toHaveBeenCalledWith({ ...job, like, embedding });
         expect(status).toHaveBeenCalledWith(201);
         expect(json).toHaveBeenCalledWith({ message: "Job created", jobId: insertedJobId });
         expect(close).toHaveBeenCalledTimes(1);
     });
     it("closes the MongoDB client when insertion fails", async () => {
         const insertionError = new Error("Insert failed");
-        const request = createRequest(createScrapedJob());
+        const request = createRequest({ job: createScrapedJob(), like: false });
         const { response } = createResponse();
         insertOne.mockRejectedValue(insertionError);
         await expect(createJobInDatabase(request, response)).rejects.toThrow(insertionError);
         expect(close).toHaveBeenCalledTimes(1);
+    });
+    it("returns 503 and does not insert when Ollama is unavailable", async () => {
+        const request = createRequest({ job: createScrapedJob(), like: true });
+        const { response, status, json } = createResponse();
+        isOllamaAvailable.mockResolvedValue(false);
+        await createJobInDatabase(request, response);
+        expect(status).toHaveBeenCalledWith(503);
+        expect(json).toHaveBeenCalledWith({ message: "Ollama not available" });
+        expect(createJobEmbedding).not.toHaveBeenCalled();
+        expect(mongoClientConstructor).not.toHaveBeenCalled();
+        expect(insertOne).not.toHaveBeenCalled();
+    });
+    it("returns 503 and does not insert when embedding creation fails", async () => {
+        const embeddingError = new Error("Embedding failed");
+        const request = createRequest({ job: createScrapedJob(), like: true });
+        const { response, status, json } = createResponse();
+        createJobEmbedding.mockRejectedValue(embeddingError);
+        await createJobInDatabase(request, response);
+        expect(status).toHaveBeenCalledWith(503);
+        expect(json).toHaveBeenCalledWith({ message: "Ollama not available" });
+        expect(insertOne).not.toHaveBeenCalled();
+        expect(mongoClientConstructor).not.toHaveBeenCalled();
+    });
+    it("returns 400 when the request body does not include a job object", async () => {
+        const request = createRequest({ like: true });
+        const { response, status, json } = createResponse();
+        await createJobInDatabase(request, response);
+        expect(status).toHaveBeenCalledWith(400);
+        expect(json).toHaveBeenCalledWith({ message: "Request body must include job and boolean like fields" });
+        expect(createJobEmbedding).not.toHaveBeenCalled();
+        expect(isOllamaAvailable).not.toHaveBeenCalled();
+        expect(mongoClientConstructor).not.toHaveBeenCalled();
+        expect(insertOne).not.toHaveBeenCalled();
+    });
+    it("returns 400 when like is not a boolean", async () => {
+        const request = createRequest({ job: createScrapedJob(), like: "true" });
+        const { response, status, json } = createResponse();
+        await createJobInDatabase(request, response);
+        expect(status).toHaveBeenCalledWith(400);
+        expect(json).toHaveBeenCalledWith({ message: "Request body must include job and boolean like fields" });
+        expect(createJobEmbedding).not.toHaveBeenCalled();
+        expect(isOllamaAvailable).not.toHaveBeenCalled();
+        expect(mongoClientConstructor).not.toHaveBeenCalled();
+        expect(insertOne).not.toHaveBeenCalled();
+    });
+    it("returns 400 before checking Ollama when the body is invalid", async () => {
+        const request = createRequest(null);
+        const { response, status, json } = createResponse();
+        isOllamaAvailable.mockResolvedValue(false);
+        await createJobInDatabase(request, response);
+        expect(status).toHaveBeenCalledWith(400);
+        expect(json).toHaveBeenCalledWith({ message: "Request body must include job and boolean like fields" });
+        expect(isOllamaAvailable).not.toHaveBeenCalled();
+        expect(createJobEmbedding).not.toHaveBeenCalled();
+        expect(mongoClientConstructor).not.toHaveBeenCalled();
     });
 });
 //# sourceMappingURL=createJobInDatabase.test.js.map

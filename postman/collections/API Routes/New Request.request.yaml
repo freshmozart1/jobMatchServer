@@ -1,8 +1,0 @@
-$kind: http-request
-name: New Request
-url: "{{scrape}}job-page"
-method: POST
-body:
-  type: json
-  content: '{"url":"https://de.linkedin.com/jobs/view/ohne-berufserfahrung-durchstarten-werde-fachkraft-f%C3%BCr-ki-integration-und-prozessautomatisierung-m-w-d-100%25-homeoffice-at-forward-education-institute-gmbh-4421260757/"}'
-order: 1780133523601

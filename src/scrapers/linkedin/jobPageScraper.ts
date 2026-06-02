@@ -87,6 +87,8 @@ export function getUrlFromBody(body: unknown): string | null {
 }
 
 async function extractLinkedInJobPage(page: Page): Promise<ExtractedLinkedInJobPage> {
+    await page.click('#base-contextual-sign-in-modal > div > section > button');
+    await page.click('button.show-more-less-button');
     return page.evaluate(() => {
         type JsonRecord = Record<string, unknown>;
 
@@ -127,6 +129,19 @@ async function extractLinkedInJobPage(page: Page): Promise<ExtractedLinkedInJobP
 
         function normalizeText(value: string | null | undefined): string | null {
             const normalizedValue = value?.replace(/\s+/g, " ").trim() ?? "";
+
+            return normalizedValue.length > 0 ? normalizedValue : null;
+        }
+
+        function normalizeRenderedDescription(value: string): string | null {
+            const normalizedValue = value
+                .replace(/\u00a0/g, " ")
+                .replace(/\r\n?/g, "\n")
+                .replace(/[\t ]+\n/g, "\n")
+                .replace(/\n[\t ]+/g, "\n")
+                .replace(/[\t ]{2,}/g, " ")
+                .replace(/\n{3,}/g, "\n\n")
+                .trim();
 
             return normalizedValue.length > 0 ? normalizedValue : null;
         }
@@ -194,7 +209,70 @@ async function extractLinkedInJobPage(page: Page): Promise<ExtractedLinkedInJobP
             const template = document.createElement("template");
             template.innerHTML = value;
 
-            return normalizeText(template.content.textContent);
+            return normalizeRenderedDescription(renderDescriptionNodes(Array.from(template.content.childNodes)));
+        }
+
+        function wrapFormattedDescriptionText(marker: string, value: string): string {
+            const normalizedValue = value.replace(/\u00a0/g, " ").replace(/[\t ]+/g, " ");
+            const leadingSpace = /^[\t ]/.test(normalizedValue) ? " " : "";
+            const trailingNewlines = normalizedValue.match(/\n+$/)?.[0] ?? "";
+            const trailingSpace = trailingNewlines ? "" : /[\t ]$/.test(normalizedValue) ? " " : "";
+            const content = normalizedValue.trim();
+
+            return content ? `${leadingSpace}${marker}${content}${marker}${trailingNewlines}${trailingSpace}` : "";
+        }
+
+        function renderDescriptionNode(node: Node): string {
+            if (node.nodeType === Node.TEXT_NODE) {
+                return node.textContent ?? "";
+            }
+
+            if (!(node instanceof HTMLElement)) {
+                return "";
+            }
+
+            const tagName = node.tagName.toLowerCase();
+
+            if (tagName === "br") {
+                return "\n";
+            }
+
+            const renderedChildren = renderDescriptionNodes(Array.from(node.childNodes));
+
+            if (tagName === "strong" || tagName === "b") {
+                return wrapFormattedDescriptionText("**", renderedChildren);
+            }
+
+            if (tagName === "em" || tagName === "i") {
+                return wrapFormattedDescriptionText("*", renderedChildren);
+            }
+
+            if (tagName === "li") {
+                return `\n- ${normalizeRenderedDescription(renderedChildren) ?? ""}`;
+            }
+
+            if (tagName === "ul" || tagName === "ol") {
+                return `\n${renderedChildren}\n\n`;
+            }
+
+            return renderedChildren;
+        }
+
+        function renderDescriptionNodes(nodes: Node[]): string {
+            return nodes.map(renderDescriptionNode).join("");
+        }
+
+        function getFirstDescription(selectors: string[]): string | null {
+            for (const selector of selectors) {
+                const element = document.querySelector(selector);
+                const description = element ? normalizeRenderedDescription(renderDescriptionNode(element)) : null;
+
+                if (description) {
+                    return description;
+                }
+            }
+
+            return null;
         }
 
         function getJobPostingJsonLd(): JsonRecord | null {
@@ -301,7 +379,7 @@ async function extractLinkedInJobPage(page: Page): Promise<ExtractedLinkedInJobP
         const title = getString(jobPosting?.["title"]) ?? getMetaContent(["og:title", "twitter:title"]) ?? getFirstText(titleSelectors);
         const company = getHiringOrganizationName(jobPosting) ?? getFirstText(companySelectors);
         const location = getLocation(jobPosting) ?? getFirstText(locationSelectors);
-        const descriptionText = stripHtml(getString(jobPosting?.["description"])) ?? getMetaContent(["description", "og:description"]) ?? getFirstText(descriptionSelectors);
+        const descriptionText = getFirstDescription(descriptionSelectors) ?? stripHtml(getString(jobPosting?.["description"])) ?? getMetaContent(["description", "og:description"]);
         const postedAt = getString(jobPosting?.["datePosted"]) ?? getFirstText(postedAtSelectors);
 
         return {
@@ -355,13 +433,25 @@ function coalesceText(...values: Array<string | null | undefined>): string {
 }
 
 function normalizeDescription(value: string | null): string | null {
-    const normalizedValue = normalizeText(value);
+    const normalizedValue = normalizeMultilineText(value);
 
     if (!normalizedValue || isModalOrLegalText(normalizedValue)) {
         return null;
     }
 
     return normalizedValue;
+}
+
+function normalizeMultilineText(value: string | null | undefined): string | null {
+    const normalizedValue = value
+        ?.replace(/\r\n?/g, "\n")
+        .replace(/[\t ]+\n/g, "\n")
+        .replace(/\n[\t ]+/g, "\n")
+        .replace(/[\t ]{2,}/g, " ")
+        .replace(/\n{3,}/g, "\n\n")
+        .trim() ?? "";
+
+    return normalizedValue.length > 0 ? normalizedValue : null;
 }
 
 function normalizeText(value: string | null | undefined): string | null {
