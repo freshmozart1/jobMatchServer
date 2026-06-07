@@ -5,9 +5,25 @@ const DEFAULT_PAGE_TIMEOUT_MS = 15_000;
 const SIGN_IN_MODAL_DISMISS_SELECTOR = ".modal__dismiss";
 const SIGN_IN_MODAL_TIMEOUT_MS = 5_000;
 const SIGN_IN_MODAL_SETTLE_MS = 300;
-const TIME_POSTED_FILTER_INPUT_ID = "f_TPR-3";
-const TIME_POSTED_FILTER_LABEL_SELECTOR = `label[for="${TIME_POSTED_FILTER_INPUT_ID}"]`;
-const TIME_POSTED_SCROLL_SETTLE_MS = 300;
+const LINKEDIN_SEE_MORE_JOB_POSTINGS_PATH = "/jobs-guest/jobs/api/seeMoreJobPostings/search";
+const LAZY_LOAD_RESPONSE_TIMEOUT_MS = 5_000;
+const LAZY_LOAD_SCROLL_SETTLE_MS = 300;
+const LAZY_LOAD_MAX_SCROLL_ATTEMPTS = 80;
+const SCROLL_BOTTOM_TOLERANCE_PX = 32;
+
+type LinkedInLazyLoadResponse = {
+    url(): string;
+    status(): number;
+    request(): {
+        method(): string;
+    };
+};
+
+type LinkedInLazyLoadScrollOptions = {
+    maxScrollAttempts?: number;
+    responseTimeoutMs?: number;
+    scrollSettleMs?: number;
+};
 
 export default async function waitForLinkedInPage(url: string): Promise<{ browser: Browser; page: Page }> {
     const browser = await puppeteer.launch({
@@ -40,7 +56,7 @@ export default async function waitForLinkedInPage(url: string): Promise<{ browse
         await page.waitForSelector("body", { timeout: DEFAULT_PAGE_TIMEOUT_MS });
         await new Promise((resolve) => setTimeout(resolve, 750));
 
-        await scrollByTimePostedResultCountIfPresent(page);
+        await scrollLinkedInLazyLoadedJobsUntilComplete(page);
 
         return { browser, page };
     } catch (error) {
@@ -69,50 +85,98 @@ async function dismissLinkedInSignInModalIfPresent(page: Page): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, SIGN_IN_MODAL_SETTLE_MS));
 }
 
-async function scrollByTimePostedResultCountIfPresent(page: Page): Promise<void> {
-    const labelText = await page.evaluate(
-        ({ inputId, labelSelector }) => {
-            const inputElement = document.getElementById(inputId);
-            const associatedLabel = inputElement instanceof HTMLInputElement ? inputElement.labels?.[0] ?? null : null;
-            const fallbackLabel = document.querySelector<HTMLLabelElement>(labelSelector);
+export async function scrollLinkedInLazyLoadedJobsUntilComplete(
+    page: Page,
+    options: LinkedInLazyLoadScrollOptions = {},
+): Promise<void> {
+    const maxScrollAttempts = options.maxScrollAttempts ?? LAZY_LOAD_MAX_SCROLL_ATTEMPTS;
+    const responseTimeoutMs = options.responseTimeoutMs ?? LAZY_LOAD_RESPONSE_TIMEOUT_MS;
+    const scrollSettleMs = options.scrollSettleMs ?? LAZY_LOAD_SCROLL_SETTLE_MS;
 
-            return (associatedLabel ?? fallbackLabel)?.textContent?.replace(/\s+/g, " ").trim() || null;
-        },
-        {
-            inputId: TIME_POSTED_FILTER_INPUT_ID,
-            labelSelector: TIME_POSTED_FILTER_LABEL_SELECTOR,
-        },
-    );
+    for (let scrollAttempt = 0; scrollAttempt < maxScrollAttempts; scrollAttempt += 1) {
+        const responsePromise = page.waitForResponse(isLinkedInSeeMoreJobPostingsResponse, {
+            timeout: responseTimeoutMs,
+        });
 
-    if (!labelText) {
-        return;
+        const scrollState = await scrollToPageBottom(page);
+        const response = await responsePromise.catch((error: unknown) => {
+            if (isResponseWaitTimeoutError(error)) {
+                return null;
+            }
+
+            throw error;
+        });
+
+        if (!response) {
+            console.debug(
+                `No LinkedIn lazy-load request detected after bottom scroll, scrollAttempt: ${scrollAttempt}, distanceToBottom: ${scrollState.distanceToBottom}`,
+            );
+            return;
+        }
+
+        assertSuccessfulLinkedInSeeMoreJobPostingsResponse(response);
+
+        const start = extractLinkedInLazyLoadStart(response.url());
+
+        console.debug(
+            `LinkedIn lazy-load response received, scrollAttempt: ${scrollAttempt}, status: ${response.status()}, start: ${start ?? "unknown"}`,
+        );
+
+        if (scrollSettleMs > 0) {
+            await new Promise((resolve) => setTimeout(resolve, scrollSettleMs));
+        }
     }
 
-    const resultCount = extractParenthesizedCount(labelText);
+    throw new Error(`Max LinkedIn lazy-load scroll attempts reached: ${maxScrollAttempts}`);
+}
 
-    if (resultCount === null) {
-        throw new Error(`Could not extract result count from LinkedIn time posted label: ${labelText}`);
-    }
+export function isLinkedInSeeMoreJobPostingsResponse(response: LinkedInLazyLoadResponse): boolean {
+    try {
+        const url = new URL(response.url());
 
-    for (let scrollIndex = 0; scrollIndex < resultCount; scrollIndex += 1) {
-        await new Promise((resolve) => setTimeout(resolve, TIME_POSTED_SCROLL_SETTLE_MS));
-        await page.evaluate(() => window.scrollBy(0, 160));
-        console.debug(`Scrolled time posted filter results, scrollIndex: ${scrollIndex}, totalResults: ${resultCount}, scrollProgress: ${((scrollIndex + 1) / resultCount * 100).toFixed(2)}%`);
+        return response.request().method() === "GET" && url.pathname === LINKEDIN_SEE_MORE_JOB_POSTINGS_PATH;
+    } catch {
+        return false;
     }
 }
 
-function extractParenthesizedCount(labelText: string): number | null {
-    const countMatch = labelText.match(/\(([\d,]+)\)\s*$/);
-    const countText = countMatch?.[1]?.replace(/,/g, "");
+async function scrollToPageBottom(page: Page): Promise<{ distanceToBottom: number }> {
+    return page.evaluate((bottomTolerancePx) => {
+        const scrollElement = document.scrollingElement ?? document.documentElement;
 
-    if (!countText) {
-        return null;
+        window.scrollTo(0, scrollElement.scrollHeight);
+
+        const distanceToBottom = Math.max(0, scrollElement.scrollHeight - window.scrollY - window.innerHeight);
+
+        return {
+            distanceToBottom: distanceToBottom <= bottomTolerancePx ? 0 : distanceToBottom,
+        };
+    }, SCROLL_BOTTOM_TOLERANCE_PX);
+}
+
+function assertSuccessfulLinkedInSeeMoreJobPostingsResponse(response: LinkedInLazyLoadResponse): void {
+    const status = response.status();
+
+    if (status >= 200 && status < 300) {
+        return;
     }
 
-    const count = Number.parseInt(countText, 10);
-    console.debug(`Extracted time posted result count: ${count} from label text: "${labelText}"`);
+    throw new Error(`LinkedIn lazy-load request failed with status ${status}: ${response.url()}`);
+}
 
-    return Number.isFinite(count) ? count : null;
+function extractLinkedInLazyLoadStart(responseUrl: string): string | null {
+    try {
+        return new URL(responseUrl).searchParams.get("start");
+    } catch {
+        return null;
+    }
+}
+
+function isResponseWaitTimeoutError(error: unknown): boolean {
+    return (
+        error instanceof Error &&
+        (error.name === "TimeoutError" || error.message.includes("Timed out") || error.message.includes("waiting for response"))
+    );
 }
 
 function isOptionalSignInModalWaitError(error: unknown): boolean {
