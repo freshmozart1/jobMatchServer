@@ -1,0 +1,86 @@
+$kind: http-example
+request:
+  url: http://localhost:3000/scrape/linkedin/job-page
+  method: POST
+  body:
+    type: json
+    content: '{"url":"https://de.linkedin.com/jobs/view/junior-frontend-developer-m-w-d-e-commerce-in-hamburg-at-detlev-louis-motorrad-vertriebsgesellschaft-mbh-4422110097/"}'
+response:
+  statusCode: 200
+  statusText: OK
+  headers:
+    x-powered-by: Express
+    content-type: application/json; charset=utf-8
+    content-length: "4621"
+    etag: W/"120d-eA819f1unneRBX50Iz0W1oQU+7I"
+    date: Mon, 08 Jun 2026 10:33:26 GMT
+    connection: keep-alive
+    keep-alive: timeout=5
+  body:
+    type: json
+    content: '{"sourceHostname":"de.linkedin.com","sourceJobId":"4422110097","sourceUrl":"https://de.linkedin.com/jobs/view/junior-frontend-developer-m-w-d-e-commerce-in-hamburg-at-detlev-louis-motorrad-vertriebsgesellschaft-mbh-4422110097/","title":"Detlev
+      Louis Motorrad-Vertriebsgesellschaft mbH sucht Junior Frontend Developer
+      (m/w/d) E-Commerce in Hamburg in Hamburg | LinkedIn","company":"Detlev
+      Louis Motorrad-Vertriebsgesellschaft
+      mbH","location":"Hamburg","descriptionText":"**Du willst nicht nur
+      Websites bauen, sondern digitale Erlebnisse auf mehreren Plattformen
+      mitgestalten?**\n\n**Dann bist du bei uns genau richtig.**\n\nAls Frontend
+      Developer (m/w/d) arbeitest du in *Hamburg* eng mit erfahrenen
+      Entwicklerinnen und Entwicklern zusammen und entwickelst unsere digitalen
+      Touchpoints weiter: vom Webshop bis zur App.\n\n**Was dich bei uns
+      erwartet**:\n\n- Die Möglichkeit, an einer der größten
+      E-Commerce-Plattformen im Motorradbereich mitzuwirken – im Web und in der
+      App.\n- Ein erfahrenes Team, das dich unterstützt und dir hilft, dich
+      fachlich und persönlich weiterzuentwickeln.\n- Moderne Technologien und
+      die Chance, dich in Richtung Web- und App-Entwicklung
+      weiterzuentwickeln.\n- Echte Produktverantwortung und sichtbaren Impact
+      auf das Kundenerlebnis.\n- Eine offene, pragmatische und
+      lösungsorientierte Arbeitskultur.\n\n**Wir bieten**\n\n- Duzkultur und
+      offene Bürotüren\n- Work-Life-Balance dank Mobile Working, flexiblen
+      Arbeitszeiten innerhalb einer 37 Stunden Woche (Gleitzeit) und
+      individuellen Arbeitszeitmodellen\n- Innovative Besprechungsräume,
+      zusätzliches City Office in der Hamburger Innenstadt\n- Feste,
+      wöchentliche Lernzeit via E-Learning, regelmäßige Learning Nuggets sowie
+      vielfältige Kollaborationstools\n- Individuelles Onboarding inkl. Einblick
+      in andere Abteilungen\n- Louis Welcome Kit zum Start\n- Bezahlung oder
+      Ausgleich von Überstunden sowie 30 Tage Urlaub\n- Urlaubs- und
+      Weihnachtsgeld sowie VL und BAV\n- Gesundheitsvorsorge, JobRad, Hansefit,
+      Rabatt für Mitarbeitende, corporate benefits sowie zahlreiche weitere
+      Vorteile bei Partnerunternehmen\n- Kantine, ausreichend Parkplätze für 2
+      und 4 Rad, die öffentlichen Verkehrsmittel direkt vor der Tür sowie
+      Bezuschussung des Deutschland Tickets\n\n**Deine Aufgaben**\n\n- Du
+      entwickelst moderne Frontends für unsere E-Commerce-Plattform: im Web und
+      perspektivisch auch für unsere mobile App (Flutter).\n- Du setzt
+      Anforderungen aus Design und Product Management technisch um und bringst
+      eigene Ideen mit ein.\n- Du arbeitest an der Weiterentwicklung unserer
+      Frontend-Architektur und lernst Best Practices für Web und Mobile
+      kennen.\n- Du achtest auf sauberen, wartbaren Code und entwickelst ein
+      Verständnis für Performance und User Experience.\n- Du arbeitest eng mit
+      UX, Backend-Entwicklung und Product Ownern zusammen.\n- Du lernst unsere
+      Technologien, Tools und Prozesse Schritt für Schritt kennen und
+      entwickelst dich kontinuierlich weiter.\n\n**Dein Profil**\n\n- Du hast
+      ein Studium im Bereich Informatik, Medieninformatik oder eine
+      vergleichbare Ausbildung oder du bist Quereinsteiger mit entsprechender
+      Erfahrung.\n- Du bringst erste praktische Erfahrung in der Webentwicklung
+      (z. B. durch Praktika, Werkstudententätigkeiten oder eigene Projekte) mit
+      und hast Interesse an modernen Frontend-Technologien und
+      Cross-Plattform-Entwicklung.\n- Du bringst Grundkenntnisse in HTML, CSS
+      und JavaScript mit.\n- Idealerweise hast du erste Berührungspunkte mit
+      Flutter oder mobiler App-Entwicklung oder große Lust, dich in diesem
+      Bereich einzuarbeiten.\n- Du arbeitest strukturiert und hast Spaß daran,
+      im Team zu arbeiten.\n\n**Über uns**\n\nAls modernes
+      Cross-Channel-Unternehmen sind wir Europas größte Einkaufswelt für
+      Motorradbekleidung und -technik. Mit knapp 90 Filialen in Deutschland,
+      Österreich, der Schweiz und den Niederlanden sowie bald 18
+      Online-Ländershops bieten wir unserer **Community** ein unvergleichliches
+      Einkaufserlebnis. Bei uns findest du mehr als nur einen Job – wir bieten
+      dir sichere Arbeitsplätze, attraktive Konditionen und eine motivierende
+      Arbeitsatmosphäre. Unsere vielseitigen Aufgabenbereiche und
+      Entwicklungsmöglichkeiten sorgen dafür, dass du jeden Tag dein Bestes
+      geben kannst. Über 2.400 teamorientierte Mitarbeitende freuen sich auf
+      dich. Werde Teil der **Louis Familie** und erlebe, was es heißt, in einem
+      dynamischen und zukunftsorientierten Unternehmen zu
+      arbeiten.","postedAt":"Vor 2
+      Wochen","scrapedAt":"2026-06-08T10:33:26.350Z","tags":["Berufseinstieg","Vollzeit","Ingenieurwesen
+      und IT","Einzelhandel"],"duplicateKey":"linkedin:4422110097"}'
+order: 1780914817356

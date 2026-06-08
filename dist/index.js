@@ -6,6 +6,21 @@ import filterJobLinks from "#database/filterJobLinks.js";
 import { tryStartOllama } from "./ollama/ollamaServer.js";
 export const app = express();
 const START_PORT = 3000;
+const ALLOWED_ORIGINS = new Set(["http://localhost:5173", "http://127.0.0.1:5173"]);
+app.use((request, response, next) => {
+    const origin = request.get("origin");
+    if (origin && ALLOWED_ORIGINS.has(origin)) {
+        response.setHeader("Access-Control-Allow-Origin", origin);
+        response.setHeader("Vary", "Origin");
+    }
+    response.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+    response.setHeader("Access-Control-Allow-Headers", "Content-Type");
+    if (request.method === "OPTIONS") {
+        response.sendStatus(204);
+        return;
+    }
+    next();
+});
 app.use(express.json({ limit: "64kb" }));
 app.get("/health", (_request, response) => {
     response.status(200).json({ status: "ok" });

@@ -6,3 +6,4 @@ body:
   type: json
   content: '{"url":"https://de.linkedin.com/jobs/view/junior-frontend-developer-m-w-d-e-commerce-in-hamburg-at-detlev-louis-motorrad-vertriebsgesellschaft-mbh-4422110097/"}'
 order: 1780404170417
+examples: ./.resources/job-page.resources/examples
