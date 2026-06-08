@@ -1,7 +1,5 @@
-import ollama from "ollama";
 import type { ScrapedJob, TextEmbedding } from "#types";
-
-export const JOB_EMBEDDING_MODEL = "embeddinggemma";
+import { embed } from "./embeddings.js";
 
 export function buildJobEmbeddingInput(job: ScrapedJob): string {
     const fields = [
@@ -24,17 +22,5 @@ export function buildJobEmbeddingInput(job: ScrapedJob): string {
 }
 
 export async function createJobEmbedding(job: ScrapedJob): Promise<TextEmbedding> {
-    const input = buildJobEmbeddingInput(job);
-    const response = await ollama.embed({
-        model: JOB_EMBEDDING_MODEL,
-        input,
-        truncate: true,
-    });
-    const embedding = response.embeddings[0];
-
-    if (!embedding) {
-        throw new Error("Ollama did not return a job embedding");
-    }
-
-    return embedding;
+    return embed(buildJobEmbeddingInput(job));
 }

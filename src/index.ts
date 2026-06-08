@@ -5,6 +5,7 @@ import { scrapeLinkedInJobLinks } from "#scrapers/linkedin/jobLinkScraper.js";
 import createJobInDatabase from "#database/createJobInDatabase.js";
 import filterJobLinks from "#database/filterJobLinks.js";
 import { tryStartOllama } from "./ollama/ollamaServer.js";
+import uploadCoverLetterAsText from "#database/uploadCoverLetterAsText.js";
 
 export const app = express();
 
@@ -43,6 +44,8 @@ app.post("/scrape/linkedin/job-page", scrapeLinkedInJobPage);
 app.post('/jobs/create', createJobInDatabase);
 
 app.post('/jobs/filter-job-links', filterJobLinks);
+
+app.post('/cover-letters/upload/text', uploadCoverLetterAsText);
 
 function listenWithFallback(port: number) {
     const server = app

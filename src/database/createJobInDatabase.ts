@@ -2,9 +2,7 @@ import type { Request, Response } from "express";
 import type { CreateJobInDatabaseRequestBody, StoredScrapedJob } from "#types";
 import { client, jobsCollection } from "./database.js";
 import { createJobEmbedding } from "../embeddings/jobEmbedding.js";
-import { isOllamaAvailable } from "../ollama/ollamaServer.js";
-
-const ollamaUnavailableResponse = { message: "Ollama not available" };
+import { isOllamaAvailable, sendOllamaUnavailableResponse } from "../ollama/ollamaServer.js";
 
 function isValidCreateJobRequestBody(body: unknown): body is CreateJobInDatabaseRequestBody {
     return typeof body === "object"
@@ -24,17 +22,14 @@ export default async function createJobInDatabase(request: Request<object, objec
 
     const { job, like } = request.body;
 
-    if (!(await isOllamaAvailable())) {
-        response.status(503).json(ollamaUnavailableResponse);
-        return;
-    }
+    if (!(await isOllamaAvailable())) sendOllamaUnavailableResponse(response);
 
     let embedding: StoredScrapedJob["embedding"];
 
     try {
         embedding = await createJobEmbedding(job);
     } catch {
-        response.status(503).json(ollamaUnavailableResponse);
+        sendOllamaUnavailableResponse(response);
         return;
     }
 

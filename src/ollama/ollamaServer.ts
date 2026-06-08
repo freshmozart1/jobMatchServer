@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import type { ChildProcess } from "node:child_process";
+import type { Response } from "express";
 
 const OLLAMA_VERSION_URL = "http://127.0.0.1:11434/api/version";
 const DEFAULT_STARTUP_TIMEOUT_MS = 10_000;
@@ -28,6 +29,10 @@ type StartOllamaOptions = {
     startupTimeoutMs?: number;
     pollIntervalMs?: number;
 };
+
+export function sendOllamaUnavailableResponse(response: Response): void {
+    response.status(503).json({ message: "Ollama not available" });
+}
 
 export async function isOllamaAvailable(fetchImpl: FetchLike = fetch): Promise<boolean> {
     try {
