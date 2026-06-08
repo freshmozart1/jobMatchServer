@@ -7,6 +7,7 @@ import getTopXSimilarCoverLetters from "#database/getTopXSimilarCoverLetters.js"
 import filterJobLinks from "#database/filterJobLinks.js";
 import { tryStartOllama } from "./ollama/ollamaServer.js";
 import uploadCoverLetterAsText from "#database/uploadCoverLetterAsText.js";
+import generateCoverLetterAsText from "./ollama/generateCoverLettersAsText.js";
 
 export const app = express();
 
@@ -49,6 +50,8 @@ app.post('/jobs/filter-job-links', filterJobLinks);
 app.get('/jobs/top-x-similar-cover-letters', getTopXSimilarCoverLetters);
 
 app.post('/cover-letters/upload/text', uploadCoverLetterAsText);
+
+app.post('/cover-letters/create/text', generateCoverLetterAsText);
 
 function listenWithFallback(port: number) {
     const server = app

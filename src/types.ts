@@ -44,6 +44,11 @@ export type ScrapedJob = {
 
 export type TextEmbedding = number[];
 
+export type StoredCoverLetter = {
+    coverLetterText: string;
+    embedding: TextEmbedding;
+};
+
 export type CreateJobInDatabaseRequestBody = {
     job: ScrapedJob;
     like: boolean;

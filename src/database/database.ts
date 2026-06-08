@@ -1,8 +1,8 @@
-import type { StoredScrapedJob, TextEmbedding } from "#types";
+import type { StoredScrapedJob, StoredCoverLetter } from "#types";
 import { MongoClient } from "mongodb";
 
 const mongoDbConnectionString = "mongodb://127.0.0.1:27017/?directConnection=true&serverSelectionTimeoutMS=2000";
 export const client = new MongoClient(mongoDbConnectionString);
 export const database = client.db('jobMatch');
 export const jobsCollection = database.collection<StoredScrapedJob>('jobs');
-export const coverLettersCollection = database.collection<{ coverLetterText: string; embedding: TextEmbedding }>('coverLetters');
+export const coverLettersCollection = database.collection<StoredCoverLetter>('coverLetters');
