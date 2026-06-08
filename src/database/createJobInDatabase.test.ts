@@ -2,8 +2,6 @@ import { beforeEach, describe, expect, it, jest } from "@jest/globals";
 import type { Request, Response } from "express";
 import type { CreateJobInDatabaseRequestBody, ScrapedJob, StoredScrapedJob, TextEmbedding } from "#types";
 
-const mongoDbConnectionString = "mongodb://127.0.0.1:27017/?directConnection=true&serverSelectionTimeoutMS=2000";
-
 type InsertOneResult = {
     insertedId: string;
 };
@@ -12,27 +10,16 @@ type JobsCollectionMock = {
     insertOne: ReturnType<typeof jest.fn<(jobData: StoredScrapedJob) => Promise<InsertOneResult>>>;
 };
 
-type DatabaseMock = {
-    collection: ReturnType<typeof jest.fn<(collectionName: string) => JobsCollectionMock>>;
-};
-
-type MongoClientMock = {
-    db: ReturnType<typeof jest.fn<(databaseName: string) => DatabaseMock>>;
-    close: ReturnType<typeof jest.fn<() => Promise<void>>>;
-};
-
 const insertedJobId = "inserted-job-id";
 const embedding = [0.1, 0.2, 0.3] satisfies TextEmbedding;
 const insertOne = jest.fn<(jobData: StoredScrapedJob) => Promise<InsertOneResult>>();
-const collection = jest.fn<(collectionName: string) => JobsCollectionMock>();
-const db = jest.fn<(databaseName: string) => DatabaseMock>();
 const close = jest.fn<() => Promise<void>>();
-const mongoClientConstructor = jest.fn<(connectionString: string) => MongoClientMock>();
 const createJobEmbedding = jest.fn<(job: ScrapedJob) => Promise<TextEmbedding>>();
 const isOllamaAvailable = jest.fn<() => Promise<boolean>>();
 
-jest.unstable_mockModule("mongodb", () => ({
-    MongoClient: mongoClientConstructor,
+jest.unstable_mockModule("./database.js", () => ({
+    client: { close },
+    jobsCollection: { insertOne } satisfies JobsCollectionMock,
 }));
 
 jest.unstable_mockModule("../embeddings/jobEmbedding.js", () => ({
@@ -85,10 +72,7 @@ describe("createJobInDatabase", () => {
         jest.clearAllMocks();
 
         insertOne.mockResolvedValue({ insertedId: insertedJobId });
-        collection.mockReturnValue({ insertOne });
-        db.mockReturnValue({ collection });
         close.mockResolvedValue();
-        mongoClientConstructor.mockReturnValue({ db, close });
         createJobEmbedding.mockResolvedValue(embedding);
         isOllamaAvailable.mockResolvedValue(true);
     });
@@ -101,9 +85,6 @@ describe("createJobInDatabase", () => {
 
         await createJobInDatabase(request, response);
 
-        expect(mongoClientConstructor).toHaveBeenCalledWith(mongoDbConnectionString);
-        expect(db).toHaveBeenCalledWith("jobMatch");
-        expect(collection).toHaveBeenCalledWith("jobs");
         expect(createJobEmbedding).toHaveBeenCalledWith(job);
         expect(insertOne).toHaveBeenCalledWith({ ...job, like, embedding });
         expect(status).toHaveBeenCalledWith(201);
@@ -134,8 +115,8 @@ describe("createJobInDatabase", () => {
         expect(status).toHaveBeenCalledWith(503);
         expect(json).toHaveBeenCalledWith({ message: "Ollama not available" });
         expect(createJobEmbedding).not.toHaveBeenCalled();
-        expect(mongoClientConstructor).not.toHaveBeenCalled();
         expect(insertOne).not.toHaveBeenCalled();
+        expect(close).not.toHaveBeenCalled();
     });
 
     it("returns 503 and does not insert when embedding creation fails", async () => {
@@ -150,7 +131,7 @@ describe("createJobInDatabase", () => {
         expect(status).toHaveBeenCalledWith(503);
         expect(json).toHaveBeenCalledWith({ message: "Ollama not available" });
         expect(insertOne).not.toHaveBeenCalled();
-        expect(mongoClientConstructor).not.toHaveBeenCalled();
+        expect(close).not.toHaveBeenCalled();
     });
 
     it("returns 400 when the request body does not include a job object", async () => {
@@ -163,8 +144,8 @@ describe("createJobInDatabase", () => {
         expect(json).toHaveBeenCalledWith({ message: "Request body must include job and boolean like fields" });
         expect(createJobEmbedding).not.toHaveBeenCalled();
         expect(isOllamaAvailable).not.toHaveBeenCalled();
-        expect(mongoClientConstructor).not.toHaveBeenCalled();
         expect(insertOne).not.toHaveBeenCalled();
+        expect(close).not.toHaveBeenCalled();
     });
 
     it("returns 400 when like is not a boolean", async () => {
@@ -177,8 +158,8 @@ describe("createJobInDatabase", () => {
         expect(json).toHaveBeenCalledWith({ message: "Request body must include job and boolean like fields" });
         expect(createJobEmbedding).not.toHaveBeenCalled();
         expect(isOllamaAvailable).not.toHaveBeenCalled();
-        expect(mongoClientConstructor).not.toHaveBeenCalled();
         expect(insertOne).not.toHaveBeenCalled();
+        expect(close).not.toHaveBeenCalled();
     });
 
     it("returns 400 before checking Ollama when the body is invalid", async () => {
@@ -193,6 +174,7 @@ describe("createJobInDatabase", () => {
         expect(json).toHaveBeenCalledWith({ message: "Request body must include job and boolean like fields" });
         expect(isOllamaAvailable).not.toHaveBeenCalled();
         expect(createJobEmbedding).not.toHaveBeenCalled();
-        expect(mongoClientConstructor).not.toHaveBeenCalled();
+        expect(insertOne).not.toHaveBeenCalled();
+        expect(close).not.toHaveBeenCalled();
     });
 });

@@ -11,3 +11,4 @@ body:
         "distance": 25
     }
 order: 1199279532930212
+examples: ./.resources/job-links.resources/examples

@@ -2,6 +2,7 @@ import express, {} from "express";
 import { scrapeLinkedInJobPage } from "#scrapers/linkedin/jobPageScraper.js";
 import { scrapeLinkedInJobLinks } from "#scrapers/linkedin/jobLinkScraper.js";
 import createJobInDatabase from "#database/createJobInDatabase.js";
+import filterJobLinks from "#database/filterJobLinks.js";
 import { tryStartOllama } from "./ollama/ollamaServer.js";
 export const app = express();
 const START_PORT = 3000;
@@ -11,7 +12,8 @@ app.get("/health", (_request, response) => {
 });
 app.post("/scrape/linkedin/job-links", scrapeLinkedInJobLinks);
 app.post("/scrape/linkedin/job-page", scrapeLinkedInJobPage);
-app.post('/create/job', createJobInDatabase);
+app.post('/jobs/create', createJobInDatabase);
+app.post('/jobs/filter-job-links', filterJobLinks);
 function listenWithFallback(port) {
     const server = app
         .listen(port)
@@ -32,7 +34,7 @@ function listenWithFallback(port) {
 async function startServer() {
     const isOllamaReady = await tryStartOllama();
     if (!isOllamaReady) {
-        console.warn("Ollama not available. /create/job will return 503 until Ollama is available.");
+        console.warn("Ollama not available. /jobs/create will return 503 until Ollama is available.");
     }
     listenWithFallback(START_PORT);
 }

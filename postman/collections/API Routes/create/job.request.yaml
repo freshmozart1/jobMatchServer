@@ -1,6 +1,6 @@
 $kind: http-request
 name: job
-url: http://localhost:3000/create/job
+url: http://localhost:3000/jobs/create
 method: POST
 body:
   type: json

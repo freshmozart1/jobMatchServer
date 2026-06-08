@@ -1,6 +1,6 @@
 import type { Request, Response } from "express";
 import type { CreateJobInDatabaseRequestBody, StoredScrapedJob } from "#types";
-import { MongoClient } from "mongodb";
+import {client, jobsCollection} from "./database.js";
 import { createJobEmbedding } from "../embeddings/jobEmbedding.js";
 import { isOllamaAvailable } from "../ollama/ollamaServer.js";
 
@@ -38,13 +38,9 @@ export default async function createJobInDatabase(request: Request<object, objec
         return;
     }
 
-    const mongoDbConnectionString = "mongodb://127.0.0.1:27017/?directConnection=true&serverSelectionTimeoutMS=2000";
-    const client = new MongoClient(mongoDbConnectionString);
+    
     try {
-        const database = client.db('jobMatch');
-        const jobsCollection = database.collection<StoredScrapedJob>('jobs');
-        const jobData: StoredScrapedJob = { ...job, like, embedding };
-        const result = await jobsCollection.insertOne(jobData);
+        const result = await jobsCollection.insertOne({ ...job, like, embedding });
         response.status(201).json({ message: "Job created", jobId: result.insertedId });
     }
     finally {
