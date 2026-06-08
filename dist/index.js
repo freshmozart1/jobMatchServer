@@ -4,8 +4,8 @@ import { scrapeLinkedInJobLinks } from "#scrapers/linkedin/jobLinkScraper.js";
 import createJobInDatabase from "#database/createJobInDatabase.js";
 import getTopXSimilarCoverLetters from "#database/getTopXSimilarCoverLetters.js";
 import filterJobLinks from "#database/filterJobLinks.js";
-import { tryStartOllama } from "./ollama/ollamaServer.js";
 import uploadCoverLetterAsText from "#database/uploadCoverLetterAsText.js";
+import generateCoverLetterAsText from "./ollama/generateCoverLettersAsText.js";
 export const app = express();
 const START_PORT = 3000;
 const ALLOWED_ORIGINS = new Set(["http://localhost:5173", "http://127.0.0.1:5173"]);
@@ -33,6 +33,7 @@ app.post('/jobs/create', createJobInDatabase);
 app.post('/jobs/filter-job-links', filterJobLinks);
 app.get('/jobs/top-x-similar-cover-letters', getTopXSimilarCoverLetters);
 app.post('/cover-letters/upload/text', uploadCoverLetterAsText);
+app.post('/cover-letters/create/text', generateCoverLetterAsText);
 function listenWithFallback(port) {
     const server = app
         .listen(port)
@@ -50,12 +51,5 @@ function listenWithFallback(port) {
     });
     return server;
 }
-async function startServer() {
-    const isOllamaReady = await tryStartOllama();
-    if (!isOllamaReady) {
-        console.warn("Ollama not available. /jobs/create will return 503 until Ollama is available.");
-    }
-    listenWithFallback(START_PORT);
-}
-void startServer();
+void listenWithFallback(START_PORT);
 //# sourceMappingURL=index.js.map

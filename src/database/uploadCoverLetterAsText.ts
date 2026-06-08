@@ -1,6 +1,5 @@
 import type { Request, Response } from "express";
 import { embed } from "../embeddings/embeddings.js";
-import { isOllamaAvailable, sendOllamaUnavailableResponse } from "../ollama/ollamaServer.js";
 import type { TextEmbedding } from "#types";
 import { client, coverLettersCollection } from "./database.js";
 
@@ -24,15 +23,7 @@ export default async function uploadCoverLetterAsText(request: Request<object, o
 
     const { coverLetterText } = request.body;
 
-    let embedding: TextEmbedding;
-
-    try {
-        if (!(await isOllamaAvailable())) throw {};
-        embedding = await embed(coverLetterText);
-    } catch {
-        sendOllamaUnavailableResponse(response);
-        return;
-    }
+    const embedding: TextEmbedding = await embed(coverLetterText);
 
     await client.connect();
 

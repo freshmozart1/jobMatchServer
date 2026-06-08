@@ -15,7 +15,6 @@ const embedding = [0.1, 0.2, 0.3] satisfies TextEmbedding;
 const insertOne = jest.fn<(jobData: StoredScrapedJob) => Promise<InsertOneResult>>();
 const connect = jest.fn<() => Promise<void>>();
 const createJobEmbedding = jest.fn<(job: ScrapedJob) => Promise<TextEmbedding>>();
-const isOllamaAvailable = jest.fn<() => Promise<boolean>>();
 
 jest.unstable_mockModule("./database.js", () => ({
     client: { connect },
@@ -24,10 +23,6 @@ jest.unstable_mockModule("./database.js", () => ({
 
 jest.unstable_mockModule("../embeddings/jobEmbedding.js", () => ({
     createJobEmbedding,
-}));
-
-jest.unstable_mockModule("../ollama/ollamaServer.js", () => ({
-    isOllamaAvailable,
 }));
 
 const { default: createJobInDatabase } = await import("./createJobInDatabase.js");
@@ -74,7 +69,6 @@ describe("createJobInDatabase", () => {
         insertOne.mockResolvedValue({ insertedId: insertedJobId });
     connect.mockResolvedValue();
         createJobEmbedding.mockResolvedValue(embedding);
-        isOllamaAvailable.mockResolvedValue(true);
     });
 
     it("embeds the ScrapedJob request body, stores the flattened job, and responds with the new job id", async () => {
@@ -104,36 +98,6 @@ describe("createJobInDatabase", () => {
         expect(connect).toHaveBeenCalledTimes(1);
     });
 
-    it("returns 503 and does not insert when Ollama is unavailable", async () => {
-        const request = createRequest({ job: createScrapedJob(), like: true });
-        const { response, status, json } = createResponse();
-
-        isOllamaAvailable.mockResolvedValue(false);
-
-        await createJobInDatabase(request, response);
-
-        expect(status).toHaveBeenCalledWith(503);
-        expect(json).toHaveBeenCalledWith({ message: "Ollama not available" });
-        expect(createJobEmbedding).not.toHaveBeenCalled();
-        expect(insertOne).not.toHaveBeenCalled();
-        expect(connect).not.toHaveBeenCalled();
-    });
-
-    it("returns 503 and does not insert when embedding creation fails", async () => {
-        const embeddingError = new Error("Embedding failed");
-        const request = createRequest({ job: createScrapedJob(), like: true });
-        const { response, status, json } = createResponse();
-
-        createJobEmbedding.mockRejectedValue(embeddingError);
-
-        await createJobInDatabase(request, response);
-
-        expect(status).toHaveBeenCalledWith(503);
-        expect(json).toHaveBeenCalledWith({ message: "Ollama not available" });
-        expect(insertOne).not.toHaveBeenCalled();
-        expect(connect).not.toHaveBeenCalled();
-    });
-
     it("returns 400 when the request body does not include a job object", async () => {
         const request = createRequest({ like: true });
         const { response, status, json } = createResponse();
@@ -143,7 +107,6 @@ describe("createJobInDatabase", () => {
         expect(status).toHaveBeenCalledWith(400);
         expect(json).toHaveBeenCalledWith({ message: "Request body must include job and boolean like fields" });
         expect(createJobEmbedding).not.toHaveBeenCalled();
-        expect(isOllamaAvailable).not.toHaveBeenCalled();
         expect(insertOne).not.toHaveBeenCalled();
         expect(connect).not.toHaveBeenCalled();
     });
@@ -156,23 +119,6 @@ describe("createJobInDatabase", () => {
 
         expect(status).toHaveBeenCalledWith(400);
         expect(json).toHaveBeenCalledWith({ message: "Request body must include job and boolean like fields" });
-        expect(createJobEmbedding).not.toHaveBeenCalled();
-        expect(isOllamaAvailable).not.toHaveBeenCalled();
-        expect(insertOne).not.toHaveBeenCalled();
-        expect(connect).not.toHaveBeenCalled();
-    });
-
-    it("returns 400 before checking Ollama when the body is invalid", async () => {
-        const request = createRequest(null);
-        const { response, status, json } = createResponse();
-
-        isOllamaAvailable.mockResolvedValue(false);
-
-        await createJobInDatabase(request, response);
-
-        expect(status).toHaveBeenCalledWith(400);
-        expect(json).toHaveBeenCalledWith({ message: "Request body must include job and boolean like fields" });
-        expect(isOllamaAvailable).not.toHaveBeenCalled();
         expect(createJobEmbedding).not.toHaveBeenCalled();
         expect(insertOne).not.toHaveBeenCalled();
         expect(connect).not.toHaveBeenCalled();

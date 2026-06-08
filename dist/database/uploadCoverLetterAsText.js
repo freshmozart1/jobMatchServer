@@ -1,5 +1,4 @@
 import { embed } from "../embeddings/embeddings.js";
-import { isOllamaAvailable, sendOllamaUnavailableResponse } from "../ollama/ollamaServer.js";
 import { client, coverLettersCollection } from "./database.js";
 function isValidCoverLetterAsTextRequestBody(body) {
     return typeof body === "object"
@@ -14,16 +13,7 @@ export default async function uploadCoverLetterAsText(request, response) {
         return;
     }
     const { coverLetterText } = request.body;
-    let embedding;
-    try {
-        if (!(await isOllamaAvailable()))
-            throw {};
-        embedding = await embed(coverLetterText);
-    }
-    catch {
-        sendOllamaUnavailableResponse(response);
-        return;
-    }
+    const embedding = await embed(coverLetterText);
     await client.connect();
     const result = await coverLettersCollection.insertOne({ coverLetterText, embedding });
     response.status(201).json({ message: "Cover letter uploaded", coverLetterId: result.insertedId });

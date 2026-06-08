@@ -27,3 +27,4 @@ body:
         "like": true
     }
 order: 3480184369547010
+examples: ./.resources/job.resources/examples

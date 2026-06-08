@@ -1,18 +1,18 @@
 import type { TextEmbedding } from "#types";
-import ollama from "ollama";
+import { OpenAI } from "openai";
 
-const EMBEDDING_MODEL = "embeddinggemma";
+const EMBEDDING_MODEL = "text-embedding-3-small";
 
 export async function embed(input: string): Promise<TextEmbedding> {
-    const response = await ollama.embed({
+    const client = new OpenAI();
+    const response = await client.embeddings.create({
         model: EMBEDDING_MODEL,
-        input,
-        truncate: true,
+        input
     });
-    const embedding = response.embeddings[0];
+    const embedding = response.data[0]?.embedding;
 
     if (!embedding) {
-        throw new Error("Ollama did not return an embedding");
+        throw new Error("OpenAI did not return an embedding");
     }
 
     return embedding;

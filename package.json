@@ -58,7 +58,7 @@
   "dependencies": {
     "express": "^5.2.1",
     "mongodb": "^7.2.0",
-    "ollama": "^0.6.3",
+    "openai": "^6.42.0",
     "puppeteer": "^25.1.0"
   }
 }
