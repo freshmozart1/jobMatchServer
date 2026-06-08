@@ -22,11 +22,10 @@ export default async function createJobInDatabase(request: Request<object, objec
 
     const { job, like } = request.body;
 
-    if (!(await isOllamaAvailable())) sendOllamaUnavailableResponse(response);
-
     let embedding: StoredScrapedJob["embedding"];
 
     try {
+        if (!(await isOllamaAvailable())) throw {};
         embedding = await createJobEmbedding(job);
     } catch {
         sendOllamaUnavailableResponse(response);

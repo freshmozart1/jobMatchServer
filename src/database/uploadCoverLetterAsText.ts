@@ -4,30 +4,30 @@ import { isOllamaAvailable, sendOllamaUnavailableResponse } from "../ollama/olla
 import type { TextEmbedding } from "#types";
 import { client, coverLettersCollection } from "./database.js";
 
-type CvAsTextRequestBody = {
+type CoverLetterAsTextRequestBody = {
     coverLetterText: string;
 };
 
-function isValidCvAsTextRequestBody(body: unknown): body is CvAsTextRequestBody {
+function isValidCoverLetterAsTextRequestBody(body: unknown): body is CoverLetterAsTextRequestBody {
     return typeof body === "object"
         && body !== null
         && "coverLetterText" in body
-        && typeof body.coverLetterText === "string";
+        && typeof body.coverLetterText === "string"
+        && body.coverLetterText.trim().length > 0;
 }
 
-export default async function uploadCoverLetterAsText(request: Request<object, object, CvAsTextRequestBody>, response: Response): Promise<void> {
-    if (!isValidCvAsTextRequestBody(request.body)) {
-        response.status(400).json({ message: "Request body must include coverLetterText field of type string" });
+export default async function uploadCoverLetterAsText(request: Request<object, object, CoverLetterAsTextRequestBody>, response: Response): Promise<void> {
+    if (!isValidCoverLetterAsTextRequestBody(request.body)) {
+        response.status(400).json({ message: "Request body must include coverLetterText field of type string and must not be empty" });
         return;
     }
 
     const { coverLetterText } = request.body;
 
-    if (!(await isOllamaAvailable())) sendOllamaUnavailableResponse(response);
-
     let embedding: TextEmbedding;
 
     try {
+        if (!(await isOllamaAvailable())) throw {};
         embedding = await embed(coverLetterText);
     } catch {
         sendOllamaUnavailableResponse(response);
