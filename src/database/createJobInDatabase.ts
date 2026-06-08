@@ -35,5 +35,7 @@ export default async function createJobInDatabase(request: Request<object, objec
     await client.connect();
 
     const result = await jobsCollection.insertOne({ ...job, like, embedding });
+
+    await client.close();
     response.status(201).json({ message: "Job created", jobId: result.insertedId });
 }

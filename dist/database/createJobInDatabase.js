@@ -1,7 +1,6 @@
 import { client, jobsCollection } from "./database.js";
 import { createJobEmbedding } from "../embeddings/jobEmbedding.js";
-import { isOllamaAvailable } from "../ollama/ollamaServer.js";
-const ollamaUnavailableResponse = { message: "Ollama not available" };
+import { isOllamaAvailable, sendOllamaUnavailableResponse } from "../ollama/ollamaServer.js";
 function isValidCreateJobRequestBody(body) {
     return typeof body === "object"
         && body !== null
@@ -17,20 +16,19 @@ export default async function createJobInDatabase(request, response) {
         return;
     }
     const { job, like } = request.body;
-    if (!(await isOllamaAvailable())) {
-        response.status(503).json(ollamaUnavailableResponse);
-        return;
-    }
     let embedding;
     try {
+        if (!(await isOllamaAvailable()))
+            throw {};
         embedding = await createJobEmbedding(job);
     }
     catch {
-        response.status(503).json(ollamaUnavailableResponse);
+        sendOllamaUnavailableResponse(response);
         return;
     }
     await client.connect();
     const result = await jobsCollection.insertOne({ ...job, like, embedding });
+    await client.close();
     response.status(201).json({ message: "Job created", jobId: result.insertedId });
 }
 //# sourceMappingURL=createJobInDatabase.js.map

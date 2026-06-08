@@ -11,7 +11,7 @@ const LAZY_LOAD_MAX_SCROLL_ATTEMPTS = 80;
 const SCROLL_BOTTOM_TOLERANCE_PX = 32;
 export default async function waitForLinkedInPage(url) {
     const browser = await puppeteer.launch({
-        headless: false,
+        headless: true,
         defaultViewport: {
             width: 1366,
             height: 900,

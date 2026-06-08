@@ -2,8 +2,10 @@ import express, {} from "express";
 import { scrapeLinkedInJobPage } from "#scrapers/linkedin/jobPageScraper.js";
 import { scrapeLinkedInJobLinks } from "#scrapers/linkedin/jobLinkScraper.js";
 import createJobInDatabase from "#database/createJobInDatabase.js";
+import getTopXSimilarCoverLetters from "#database/getTopXSimilarCoverLetters.js";
 import filterJobLinks from "#database/filterJobLinks.js";
 import { tryStartOllama } from "./ollama/ollamaServer.js";
+import uploadCoverLetterAsText from "#database/uploadCoverLetterAsText.js";
 export const app = express();
 const START_PORT = 3000;
 const ALLOWED_ORIGINS = new Set(["http://localhost:5173", "http://127.0.0.1:5173"]);
@@ -29,6 +31,8 @@ app.post("/scrape/linkedin/job-links", scrapeLinkedInJobLinks);
 app.post("/scrape/linkedin/job-page", scrapeLinkedInJobPage);
 app.post('/jobs/create', createJobInDatabase);
 app.post('/jobs/filter-job-links', filterJobLinks);
+app.get('/jobs/top-x-similar-cover-letters', getTopXSimilarCoverLetters);
+app.post('/cover-letters/upload/text', uploadCoverLetterAsText);
 function listenWithFallback(port) {
     const server = app
         .listen(port)

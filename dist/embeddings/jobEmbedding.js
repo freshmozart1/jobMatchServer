@@ -1,5 +1,4 @@
-import ollama from "ollama";
-export const JOB_EMBEDDING_MODEL = "embeddinggemma";
+import { embed } from "./embeddings.js";
 export function buildJobEmbeddingInput(job) {
     const fields = [
         ["Title", job.title],
@@ -19,16 +18,6 @@ export function buildJobEmbeddingInput(job) {
         .trim();
 }
 export async function createJobEmbedding(job) {
-    const input = buildJobEmbeddingInput(job);
-    const response = await ollama.embed({
-        model: JOB_EMBEDDING_MODEL,
-        input,
-        truncate: true,
-    });
-    const embedding = response.embeddings[0];
-    if (!embedding) {
-        throw new Error("Ollama did not return a job embedding");
-    }
-    return embedding;
+    return embed(buildJobEmbeddingInput(job));
 }
 //# sourceMappingURL=jobEmbedding.js.map

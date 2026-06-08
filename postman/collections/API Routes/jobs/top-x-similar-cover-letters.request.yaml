@@ -1,0 +1,5 @@
+$kind: http-request
+name: top-x-similar-cover-letters
+url: http://localhost:3000/jobs/top-x-similar-cover-letters
+method: GET
+order: 4476745884831480

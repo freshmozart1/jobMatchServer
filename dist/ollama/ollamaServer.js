@@ -3,6 +3,9 @@ const OLLAMA_VERSION_URL = "http://127.0.0.1:11434/api/version";
 const DEFAULT_STARTUP_TIMEOUT_MS = 10_000;
 const DEFAULT_POLL_INTERVAL_MS = 250;
 let trackedOllamaProcess = null;
+export function sendOllamaUnavailableResponse(response) {
+    response.status(503).json({ message: "Ollama not available" });
+}
 export async function isOllamaAvailable(fetchImpl = fetch) {
     try {
         const response = await fetchImpl(OLLAMA_VERSION_URL);

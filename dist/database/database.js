@@ -3,4 +3,5 @@ const mongoDbConnectionString = "mongodb://127.0.0.1:27017/?directConnection=tru
 export const client = new MongoClient(mongoDbConnectionString);
 export const database = client.db('jobMatch');
 export const jobsCollection = database.collection('jobs');
+export const coverLettersCollection = database.collection('coverLetters');
 //# sourceMappingURL=database.js.map
