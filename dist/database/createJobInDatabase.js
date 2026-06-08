@@ -29,12 +29,8 @@ export default async function createJobInDatabase(request, response) {
         response.status(503).json(ollamaUnavailableResponse);
         return;
     }
-    try {
-        const result = await jobsCollection.insertOne({ ...job, like, embedding });
-        response.status(201).json({ message: "Job created", jobId: result.insertedId });
-    }
-    finally {
-        await client.close();
-    }
+    await client.connect();
+    const result = await jobsCollection.insertOne({ ...job, like, embedding });
+    response.status(201).json({ message: "Job created", jobId: result.insertedId });
 }
 //# sourceMappingURL=createJobInDatabase.js.map

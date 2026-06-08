@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it, jest } from "@jest/globals";
-const close = jest.fn();
+const connect = jest.fn();
 const toArray = jest.fn();
 const find = jest.fn();
 jest.unstable_mockModule("./database.js", () => ({
-    client: { close },
+    client: { connect },
     jobsCollection: { find },
 }));
 const { default: filterJobLinks } = await import("./filterJobLinks.js");
@@ -21,7 +21,7 @@ function createResponse() {
 describe("filterJobLinks", () => {
     beforeEach(() => {
         jest.clearAllMocks();
-        close.mockResolvedValue();
+        connect.mockResolvedValue();
         toArray.mockResolvedValue([]);
         find.mockReturnValue({ toArray });
     });
@@ -39,7 +39,7 @@ describe("filterJobLinks", () => {
         expect(find).toHaveBeenCalledWith({ sourceUrl: { $in: [storedUrl, newUrl, anotherStoredUrl] } }, { projection: { sourceUrl: 1, _id: 0 } });
         expect(status).toHaveBeenCalledWith(200);
         expect(json).toHaveBeenCalledWith({ react: [newUrl], node: [] });
-        expect(close).toHaveBeenCalledTimes(1);
+        expect(connect).toHaveBeenCalledTimes(1);
     });
     it("returns all links when none of the URLs are already stored", async () => {
         const requestBody = {
@@ -51,7 +51,7 @@ describe("filterJobLinks", () => {
         await filterJobLinks(request, response);
         expect(status).toHaveBeenCalledWith(200);
         expect(json).toHaveBeenCalledWith(requestBody);
-        expect(close).toHaveBeenCalledTimes(1);
+        expect(connect).toHaveBeenCalledTimes(1);
     });
     it("deduplicates URLs before querying MongoDB", async () => {
         const duplicateUrl = "https://www.linkedin.com/jobs/view/duplicate";
@@ -71,7 +71,7 @@ describe("filterJobLinks", () => {
         expect(status).toHaveBeenCalledWith(200);
         expect(json).toHaveBeenCalledWith(requestBody);
         expect(find).not.toHaveBeenCalled();
-        expect(close).not.toHaveBeenCalled();
+        expect(connect).not.toHaveBeenCalled();
     });
     it("returns 400 for invalid request bodies", async () => {
         const invalidBodies = [null, [], { react: "https://www.linkedin.com/jobs/view/1" }, { react: [1] }];
@@ -85,15 +85,15 @@ describe("filterJobLinks", () => {
             });
         }
         expect(find).not.toHaveBeenCalled();
-        expect(close).not.toHaveBeenCalled();
+        expect(connect).not.toHaveBeenCalled();
     });
-    it("closes the MongoDB client when the lookup fails", async () => {
+    it("keeps the MongoDB client open when the lookup fails", async () => {
         const lookupError = new Error("Lookup failed");
         const request = createRequest({ react: ["https://www.linkedin.com/jobs/view/1"] });
         const { response } = createResponse();
         toArray.mockRejectedValue(lookupError);
         await expect(filterJobLinks(request, response)).rejects.toThrow(lookupError);
-        expect(close).toHaveBeenCalledTimes(1);
+        expect(connect).toHaveBeenCalledTimes(1);
     });
 });
 //# sourceMappingURL=filterJobLinks.test.js.map

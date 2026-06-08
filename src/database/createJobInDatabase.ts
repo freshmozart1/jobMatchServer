@@ -1,6 +1,6 @@
 import type { Request, Response } from "express";
 import type { CreateJobInDatabaseRequestBody, StoredScrapedJob } from "#types";
-import {client, jobsCollection} from "./database.js";
+import { client, jobsCollection } from "./database.js";
 import { createJobEmbedding } from "../embeddings/jobEmbedding.js";
 import { isOllamaAvailable } from "../ollama/ollamaServer.js";
 
@@ -38,12 +38,8 @@ export default async function createJobInDatabase(request: Request<object, objec
         return;
     }
 
-    
-    try {
-        const result = await jobsCollection.insertOne({ ...job, like, embedding });
-        response.status(201).json({ message: "Job created", jobId: result.insertedId });
-    }
-    finally {
-        await client.close();
-    }
+    await client.connect();
+
+    const result = await jobsCollection.insertOne({ ...job, like, embedding });
+    response.status(201).json({ message: "Job created", jobId: result.insertedId });
 }

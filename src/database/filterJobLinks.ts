@@ -30,20 +30,18 @@ export default async function filterJobLinks(
 		return;
 	}
 
-	try {
-		const storedJobs = await jobsCollection
-			.find({ sourceUrl: { $in: uniqueUrls } }, { projection: { sourceUrl: 1, _id: 0 } })
-			.toArray();
-		const storedSourceUrls = new Set(storedJobs.map(({ sourceUrl }) => sourceUrl));
-		const filteredJobLinks = Object.fromEntries(
-			Object.entries(request.body).map(([keyword, keywordUrls]) => [
-				keyword,
-				keywordUrls.filter((url) => !storedSourceUrls.has(url)),
-			]),
-		);
+	await client.connect();
 
-		response.status(200).json(filteredJobLinks);
-	} finally {
-		await client.close();
-	}
+	const storedJobs = await jobsCollection
+		.find({ sourceUrl: { $in: uniqueUrls } }, { projection: { sourceUrl: 1, _id: 0 } })
+		.toArray();
+	const storedSourceUrls = new Set(storedJobs.map(({ sourceUrl }) => sourceUrl));
+	const filteredJobLinks = Object.fromEntries(
+		Object.entries(request.body).map(([keyword, keywordUrls]) => [
+			keyword,
+			keywordUrls.filter((url) => !storedSourceUrls.has(url)),
+		]),
+	);
+
+	response.status(200).json(filteredJobLinks);
 }

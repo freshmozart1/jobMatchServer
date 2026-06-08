@@ -14,12 +14,12 @@ type JobsCollectionMock = {
     find: ReturnType<typeof jest.fn<(filter: unknown, options: unknown) => FindResultMock>>;
 };
 
-const close = jest.fn<() => Promise<void>>();
+const connect = jest.fn<() => Promise<void>>();
 const toArray = jest.fn<() => Promise<StoredSourceUrl[]>>();
 const find = jest.fn<(filter: unknown, options: unknown) => FindResultMock>();
 
 jest.unstable_mockModule("./database.js", () => ({
-    client: { close },
+    client: { connect },
     jobsCollection: { find } satisfies JobsCollectionMock,
 }));
 
@@ -48,7 +48,7 @@ describe("filterJobLinks", () => {
     beforeEach(() => {
         jest.clearAllMocks();
 
-        close.mockResolvedValue();
+        connect.mockResolvedValue();
         toArray.mockResolvedValue([]);
         find.mockReturnValue({ toArray });
     });
@@ -73,7 +73,7 @@ describe("filterJobLinks", () => {
         );
         expect(status).toHaveBeenCalledWith(200);
         expect(json).toHaveBeenCalledWith({ react: [newUrl], node: [] });
-        expect(close).toHaveBeenCalledTimes(1);
+        expect(connect).toHaveBeenCalledTimes(1);
     });
 
     it("returns all links when none of the URLs are already stored", async () => {
@@ -88,7 +88,7 @@ describe("filterJobLinks", () => {
 
         expect(status).toHaveBeenCalledWith(200);
         expect(json).toHaveBeenCalledWith(requestBody);
-        expect(close).toHaveBeenCalledTimes(1);
+        expect(connect).toHaveBeenCalledTimes(1);
     });
 
     it("deduplicates URLs before querying MongoDB", async () => {
@@ -117,7 +117,7 @@ describe("filterJobLinks", () => {
         expect(status).toHaveBeenCalledWith(200);
         expect(json).toHaveBeenCalledWith(requestBody);
         expect(find).not.toHaveBeenCalled();
-        expect(close).not.toHaveBeenCalled();
+        expect(connect).not.toHaveBeenCalled();
     });
 
     it("returns 400 for invalid request bodies", async () => {
@@ -136,10 +136,10 @@ describe("filterJobLinks", () => {
         }
 
         expect(find).not.toHaveBeenCalled();
-        expect(close).not.toHaveBeenCalled();
+        expect(connect).not.toHaveBeenCalled();
     });
 
-    it("closes the MongoDB client when the lookup fails", async () => {
+    it("keeps the MongoDB client open when the lookup fails", async () => {
         const lookupError = new Error("Lookup failed");
         const request = createRequest({ react: ["https://www.linkedin.com/jobs/view/1"] });
         const { response } = createResponse();
@@ -148,6 +148,6 @@ describe("filterJobLinks", () => {
 
         await expect(filterJobLinks(request, response)).rejects.toThrow(lookupError);
 
-        expect(close).toHaveBeenCalledTimes(1);
+        expect(connect).toHaveBeenCalledTimes(1);
     });
 });

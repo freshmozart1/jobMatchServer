@@ -13,12 +13,12 @@ type JobsCollectionMock = {
 const insertedJobId = "inserted-job-id";
 const embedding = [0.1, 0.2, 0.3] satisfies TextEmbedding;
 const insertOne = jest.fn<(jobData: StoredScrapedJob) => Promise<InsertOneResult>>();
-const close = jest.fn<() => Promise<void>>();
+const connect = jest.fn<() => Promise<void>>();
 const createJobEmbedding = jest.fn<(job: ScrapedJob) => Promise<TextEmbedding>>();
 const isOllamaAvailable = jest.fn<() => Promise<boolean>>();
 
 jest.unstable_mockModule("./database.js", () => ({
-    client: { close },
+    client: { connect },
     jobsCollection: { insertOne } satisfies JobsCollectionMock,
 }));
 
@@ -72,7 +72,7 @@ describe("createJobInDatabase", () => {
         jest.clearAllMocks();
 
         insertOne.mockResolvedValue({ insertedId: insertedJobId });
-        close.mockResolvedValue();
+    connect.mockResolvedValue();
         createJobEmbedding.mockResolvedValue(embedding);
         isOllamaAvailable.mockResolvedValue(true);
     });
@@ -89,10 +89,10 @@ describe("createJobInDatabase", () => {
         expect(insertOne).toHaveBeenCalledWith({ ...job, like, embedding });
         expect(status).toHaveBeenCalledWith(201);
         expect(json).toHaveBeenCalledWith({ message: "Job created", jobId: insertedJobId });
-        expect(close).toHaveBeenCalledTimes(1);
+        expect(connect).toHaveBeenCalledTimes(1);
     });
 
-    it("closes the MongoDB client when insertion fails", async () => {
+    it("keeps the MongoDB client open when insertion fails", async () => {
         const insertionError = new Error("Insert failed");
         const request = createRequest({ job: createScrapedJob(), like: false });
         const { response } = createResponse();
@@ -101,7 +101,7 @@ describe("createJobInDatabase", () => {
 
         await expect(createJobInDatabase(request, response)).rejects.toThrow(insertionError);
 
-        expect(close).toHaveBeenCalledTimes(1);
+        expect(connect).toHaveBeenCalledTimes(1);
     });
 
     it("returns 503 and does not insert when Ollama is unavailable", async () => {
@@ -116,7 +116,7 @@ describe("createJobInDatabase", () => {
         expect(json).toHaveBeenCalledWith({ message: "Ollama not available" });
         expect(createJobEmbedding).not.toHaveBeenCalled();
         expect(insertOne).not.toHaveBeenCalled();
-        expect(close).not.toHaveBeenCalled();
+        expect(connect).not.toHaveBeenCalled();
     });
 
     it("returns 503 and does not insert when embedding creation fails", async () => {
@@ -131,7 +131,7 @@ describe("createJobInDatabase", () => {
         expect(status).toHaveBeenCalledWith(503);
         expect(json).toHaveBeenCalledWith({ message: "Ollama not available" });
         expect(insertOne).not.toHaveBeenCalled();
-        expect(close).not.toHaveBeenCalled();
+        expect(connect).not.toHaveBeenCalled();
     });
 
     it("returns 400 when the request body does not include a job object", async () => {
@@ -145,7 +145,7 @@ describe("createJobInDatabase", () => {
         expect(createJobEmbedding).not.toHaveBeenCalled();
         expect(isOllamaAvailable).not.toHaveBeenCalled();
         expect(insertOne).not.toHaveBeenCalled();
-        expect(close).not.toHaveBeenCalled();
+        expect(connect).not.toHaveBeenCalled();
     });
 
     it("returns 400 when like is not a boolean", async () => {
@@ -159,7 +159,7 @@ describe("createJobInDatabase", () => {
         expect(createJobEmbedding).not.toHaveBeenCalled();
         expect(isOllamaAvailable).not.toHaveBeenCalled();
         expect(insertOne).not.toHaveBeenCalled();
-        expect(close).not.toHaveBeenCalled();
+        expect(connect).not.toHaveBeenCalled();
     });
 
     it("returns 400 before checking Ollama when the body is invalid", async () => {
@@ -175,6 +175,6 @@ describe("createJobInDatabase", () => {
         expect(isOllamaAvailable).not.toHaveBeenCalled();
         expect(createJobEmbedding).not.toHaveBeenCalled();
         expect(insertOne).not.toHaveBeenCalled();
-        expect(close).not.toHaveBeenCalled();
+        expect(connect).not.toHaveBeenCalled();
     });
 });

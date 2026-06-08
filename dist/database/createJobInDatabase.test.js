@@ -2,11 +2,11 @@ import { beforeEach, describe, expect, it, jest } from "@jest/globals";
 const insertedJobId = "inserted-job-id";
 const embedding = [0.1, 0.2, 0.3];
 const insertOne = jest.fn();
-const close = jest.fn();
+const connect = jest.fn();
 const createJobEmbedding = jest.fn();
 const isOllamaAvailable = jest.fn();
 jest.unstable_mockModule("./database.js", () => ({
-    client: { close },
+    client: { connect },
     jobsCollection: { insertOne },
 }));
 jest.unstable_mockModule("../embeddings/jobEmbedding.js", () => ({
@@ -46,7 +46,7 @@ describe("createJobInDatabase", () => {
     beforeEach(() => {
         jest.clearAllMocks();
         insertOne.mockResolvedValue({ insertedId: insertedJobId });
-        close.mockResolvedValue();
+        connect.mockResolvedValue();
         createJobEmbedding.mockResolvedValue(embedding);
         isOllamaAvailable.mockResolvedValue(true);
     });
@@ -60,15 +60,15 @@ describe("createJobInDatabase", () => {
         expect(insertOne).toHaveBeenCalledWith({ ...job, like, embedding });
         expect(status).toHaveBeenCalledWith(201);
         expect(json).toHaveBeenCalledWith({ message: "Job created", jobId: insertedJobId });
-        expect(close).toHaveBeenCalledTimes(1);
+        expect(connect).toHaveBeenCalledTimes(1);
     });
-    it("closes the MongoDB client when insertion fails", async () => {
+    it("keeps the MongoDB client open when insertion fails", async () => {
         const insertionError = new Error("Insert failed");
         const request = createRequest({ job: createScrapedJob(), like: false });
         const { response } = createResponse();
         insertOne.mockRejectedValue(insertionError);
         await expect(createJobInDatabase(request, response)).rejects.toThrow(insertionError);
-        expect(close).toHaveBeenCalledTimes(1);
+        expect(connect).toHaveBeenCalledTimes(1);
     });
     it("returns 503 and does not insert when Ollama is unavailable", async () => {
         const request = createRequest({ job: createScrapedJob(), like: true });
@@ -79,7 +79,7 @@ describe("createJobInDatabase", () => {
         expect(json).toHaveBeenCalledWith({ message: "Ollama not available" });
         expect(createJobEmbedding).not.toHaveBeenCalled();
         expect(insertOne).not.toHaveBeenCalled();
-        expect(close).not.toHaveBeenCalled();
+        expect(connect).not.toHaveBeenCalled();
     });
     it("returns 503 and does not insert when embedding creation fails", async () => {
         const embeddingError = new Error("Embedding failed");
@@ -90,7 +90,7 @@ describe("createJobInDatabase", () => {
         expect(status).toHaveBeenCalledWith(503);
         expect(json).toHaveBeenCalledWith({ message: "Ollama not available" });
         expect(insertOne).not.toHaveBeenCalled();
-        expect(close).not.toHaveBeenCalled();
+        expect(connect).not.toHaveBeenCalled();
     });
     it("returns 400 when the request body does not include a job object", async () => {
         const request = createRequest({ like: true });
@@ -101,7 +101,7 @@ describe("createJobInDatabase", () => {
         expect(createJobEmbedding).not.toHaveBeenCalled();
         expect(isOllamaAvailable).not.toHaveBeenCalled();
         expect(insertOne).not.toHaveBeenCalled();
-        expect(close).not.toHaveBeenCalled();
+        expect(connect).not.toHaveBeenCalled();
     });
     it("returns 400 when like is not a boolean", async () => {
         const request = createRequest({ job: createScrapedJob(), like: "true" });
@@ -112,7 +112,7 @@ describe("createJobInDatabase", () => {
         expect(createJobEmbedding).not.toHaveBeenCalled();
         expect(isOllamaAvailable).not.toHaveBeenCalled();
         expect(insertOne).not.toHaveBeenCalled();
-        expect(close).not.toHaveBeenCalled();
+        expect(connect).not.toHaveBeenCalled();
     });
     it("returns 400 before checking Ollama when the body is invalid", async () => {
         const request = createRequest(null);
@@ -124,7 +124,7 @@ describe("createJobInDatabase", () => {
         expect(isOllamaAvailable).not.toHaveBeenCalled();
         expect(createJobEmbedding).not.toHaveBeenCalled();
         expect(insertOne).not.toHaveBeenCalled();
-        expect(close).not.toHaveBeenCalled();
+        expect(connect).not.toHaveBeenCalled();
     });
 });
 //# sourceMappingURL=createJobInDatabase.test.js.map
