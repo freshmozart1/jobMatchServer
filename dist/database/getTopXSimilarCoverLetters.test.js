@@ -33,6 +33,16 @@ function createStoredJob() {
         embedding: jobEmbedding,
     };
 }
+function createStoredCoverLetter(introductionEmbedding, mainBodyEmbedding, conclusionEmbedding, label) {
+    return {
+        subject: { text: `Subject ${label}`, embedding: null },
+        salutation: { text: "Dear Hiring Manager,", embedding: null },
+        introduction: { text: `Introduction ${label}`, embedding: introductionEmbedding },
+        mainBody: { text: `Main body ${label}`, embedding: mainBodyEmbedding },
+        conclusion: { text: `Conclusion ${label}`, embedding: conclusionEmbedding },
+        greetings: { text: "Best regards\nOle", embedding: null },
+    };
+}
 function createRequest(query) {
     return { query };
 }
@@ -54,29 +64,47 @@ describe("getTopXSimilarCoverLetters", () => {
         find.mockReturnValue({ toArray });
     });
     it("returns the top x cover letters sorted by cosine similarity", async () => {
-        const firstEmbedding = [0.1, 0.2, 0.3];
-        const secondEmbedding = [0.4, 0.5, 0.6];
-        const thirdEmbedding = [0.7, 0.8, 0.9];
+        const firstIntroductionEmbedding = [0.1, 0.2, 0.3];
+        const firstMainBodyEmbedding = [0.2, 0.3, 0.4];
+        const firstConclusionEmbedding = [0.3, 0.4, 0.5];
+        const secondIntroductionEmbedding = [0.4, 0.5, 0.6];
+        const secondMainBodyEmbedding = [0.5, 0.6, 0.7];
+        const secondConclusionEmbedding = [0.6, 0.7, 0.8];
+        const thirdIntroductionEmbedding = [0.7, 0.8, 0.9];
+        const thirdMainBodyEmbedding = [0.8, 0.9, 1];
+        const thirdConclusionEmbedding = [0.9, 1, 1.1];
         const request = createRequest({ "job-id": validJobId, x: "2" });
         const { response, status, json } = createResponse();
         toArray.mockResolvedValue([
-            { coverLetterText: "first cover letter", embedding: firstEmbedding },
-            { coverLetterText: "second cover letter", embedding: secondEmbedding },
-            { coverLetterText: "third cover letter", embedding: thirdEmbedding },
+            createStoredCoverLetter(firstIntroductionEmbedding, firstMainBodyEmbedding, firstConclusionEmbedding, "first"),
+            createStoredCoverLetter(secondIntroductionEmbedding, secondMainBodyEmbedding, secondConclusionEmbedding, "second"),
+            createStoredCoverLetter(thirdIntroductionEmbedding, thirdMainBodyEmbedding, thirdConclusionEmbedding, "third"),
         ]);
         calculateCosineSimilarity
             .mockReturnValueOnce(0.2)
+            .mockReturnValueOnce(0.3)
+            .mockReturnValueOnce(0.4)
+            .mockReturnValueOnce(0.8)
             .mockReturnValueOnce(0.9)
-            .mockReturnValueOnce(0.5);
+            .mockReturnValueOnce(1)
+            .mockReturnValueOnce(0.5)
+            .mockReturnValueOnce(0.6)
+            .mockReturnValueOnce(0.7);
         await getTopXSimilarCoverLetters(request, response);
-        expect(calculateCosineSimilarity).toHaveBeenNthCalledWith(1, jobEmbedding, firstEmbedding);
-        expect(calculateCosineSimilarity).toHaveBeenNthCalledWith(2, jobEmbedding, secondEmbedding);
-        expect(calculateCosineSimilarity).toHaveBeenNthCalledWith(3, jobEmbedding, thirdEmbedding);
+        expect(calculateCosineSimilarity).toHaveBeenNthCalledWith(1, jobEmbedding, firstIntroductionEmbedding);
+        expect(calculateCosineSimilarity).toHaveBeenNthCalledWith(2, jobEmbedding, firstMainBodyEmbedding);
+        expect(calculateCosineSimilarity).toHaveBeenNthCalledWith(3, jobEmbedding, firstConclusionEmbedding);
+        expect(calculateCosineSimilarity).toHaveBeenNthCalledWith(4, jobEmbedding, secondIntroductionEmbedding);
+        expect(calculateCosineSimilarity).toHaveBeenNthCalledWith(5, jobEmbedding, secondMainBodyEmbedding);
+        expect(calculateCosineSimilarity).toHaveBeenNthCalledWith(6, jobEmbedding, secondConclusionEmbedding);
+        expect(calculateCosineSimilarity).toHaveBeenNthCalledWith(7, jobEmbedding, thirdIntroductionEmbedding);
+        expect(calculateCosineSimilarity).toHaveBeenNthCalledWith(8, jobEmbedding, thirdMainBodyEmbedding);
+        expect(calculateCosineSimilarity).toHaveBeenNthCalledWith(9, jobEmbedding, thirdConclusionEmbedding);
         expect(status).toHaveBeenCalledWith(200);
         expect(json).toHaveBeenCalledWith({
             topXLetterResults: [
-                { coverLetterText: "second cover letter", similarity: 0.9 },
-                { coverLetterText: "third cover letter", similarity: 0.5 },
+                { coverLetterText: "Subject second\n\nDear Hiring Manager,\n\nIntroduction second\n\nMain body second\n\nConclusion second\n\nBest regards\nOle", similarity: 0.9 },
+                { coverLetterText: "Subject third\n\nDear Hiring Manager,\n\nIntroduction third\n\nMain body third\n\nConclusion third\n\nBest regards\nOle", similarity: 0.6 },
             ],
         });
         expect(connect).toHaveBeenCalledTimes(1);

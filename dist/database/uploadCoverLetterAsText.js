@@ -1,5 +1,6 @@
-import { embed } from "../embeddings/embeddings.js";
 import { client, coverLettersCollection } from "./database.js";
+import { segmentCoverLetter } from "../coverLetters/coverLetterSegmentation.js";
+import { createStoredCoverLetterFromTextSegments } from "../coverLetters/coverLetterEmbeddings.js";
 function isValidCoverLetterAsTextRequestBody(body) {
     return typeof body === "object"
         && body !== null
@@ -13,9 +14,10 @@ export default async function uploadCoverLetterAsText(request, response) {
         return;
     }
     const { coverLetterText } = request.body;
-    const embedding = await embed(coverLetterText);
+    const { segments } = await segmentCoverLetter(coverLetterText);
+    const coverLetter = await createStoredCoverLetterFromTextSegments(segments);
     await client.connect();
-    const result = await coverLettersCollection.insertOne({ coverLetterText, embedding });
+    const result = await coverLettersCollection.insertOne(coverLetter);
     response.status(201).json({ message: "Cover letter uploaded", coverLetterId: result.insertedId });
 }
 //# sourceMappingURL=uploadCoverLetterAsText.js.map

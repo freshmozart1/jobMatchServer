@@ -1,7 +1,9 @@
 import type { Request, Response } from "express";
+import type { StoredCoverLetter, TextEmbedding } from "#types";
 import { client, jobsCollection, coverLettersCollection } from "./database.js";
 import { ObjectId } from "mongodb";
 import calculateCosineSimilarity from "../embeddings/calculateCosineSimilarity.js";
+import { getCoverLetterTextSegments, reconstructCoverLetterText } from "../coverLetters/coverLetterSegmentation.js";
 
 type GetTopXSimilarCoverLettersRequestQuery = {
     'job-id': string;
@@ -12,6 +14,33 @@ type TopXLetterResult = {
     coverLetterText: string;
     similarity: number;
 };
+
+const SEGMENT_SIMILARITY_WEIGHTS = {
+    subject: 0.06,
+    salutation: 0.02,
+    introduction: 0.2,
+    mainBody: 0.5,
+    conclusion: 0.20,
+    greetings: 0.02,
+} as const;
+
+function calculateWeightedCoverLetterSimilarity(jobEmbedding: TextEmbedding, coverLetter: StoredCoverLetter): number {
+    let weightedSimilaritySum = 0;
+    let appliedWeightSum = 0;
+
+    for (const [segmentName, weight] of Object.entries(SEGMENT_SIMILARITY_WEIGHTS)) {
+        const embedding = coverLetter[segmentName as keyof typeof SEGMENT_SIMILARITY_WEIGHTS].embedding;
+
+        if (!embedding) {
+            continue;
+        }
+
+        weightedSimilaritySum += calculateCosineSimilarity(jobEmbedding, embedding) * weight;
+        appliedWeightSum += weight;
+    }
+
+    return appliedWeightSum === 0 ? 0 : weightedSimilaritySum / appliedWeightSum;
+}
 
 function isValidGetTopXSimilarCoverLettersRequestQuery(query: unknown): query is GetTopXSimilarCoverLettersRequestQuery {
     return typeof query === "object"
@@ -47,8 +76,8 @@ export default async function getTopXSimilarCoverLetters(request: Request<object
         const coverLetters = await coverLettersCollection.find().toArray();
         const topXLetterResults: TopXLetterResult[] = coverLetters
             .map((coverLetter) => ({
-                coverLetterText: coverLetter.coverLetterText,
-                similarity: calculateCosineSimilarity(job.embedding, coverLetter.embedding),
+                coverLetterText: reconstructCoverLetterText(getCoverLetterTextSegments(coverLetter)),
+                similarity: calculateWeightedCoverLetterSimilarity(job.embedding, coverLetter),
             }))
             .sort((firstLetter, secondLetter) => secondLetter.similarity - firstLetter.similarity)
             .slice(0, topX);

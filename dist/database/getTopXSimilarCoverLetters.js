@@ -1,6 +1,25 @@
 import { client, jobsCollection, coverLettersCollection } from "./database.js";
 import { ObjectId } from "mongodb";
 import calculateCosineSimilarity from "../embeddings/calculateCosineSimilarity.js";
+import { getCoverLetterTextSegments, reconstructCoverLetterText } from "../coverLetters/coverLetterSegmentation.js";
+const SEGMENT_SIMILARITY_WEIGHTS = {
+    introduction: 0.25,
+    mainBody: 0.5,
+    conclusion: 0.25,
+};
+function calculateWeightedCoverLetterSimilarity(jobEmbedding, coverLetter) {
+    let weightedSimilaritySum = 0;
+    let appliedWeightSum = 0;
+    for (const [segmentName, weight] of Object.entries(SEGMENT_SIMILARITY_WEIGHTS)) {
+        const embedding = coverLetter[segmentName].embedding;
+        if (!embedding) {
+            continue;
+        }
+        weightedSimilaritySum += calculateCosineSimilarity(jobEmbedding, embedding) * weight;
+        appliedWeightSum += weight;
+    }
+    return appliedWeightSum === 0 ? 0 : weightedSimilaritySum / appliedWeightSum;
+}
 function isValidGetTopXSimilarCoverLettersRequestQuery(query) {
     return typeof query === "object"
         && query !== null
@@ -29,8 +48,8 @@ export default async function getTopXSimilarCoverLetters(request, response) {
         const coverLetters = await coverLettersCollection.find().toArray();
         const topXLetterResults = coverLetters
             .map((coverLetter) => ({
-            coverLetterText: coverLetter.coverLetterText,
-            similarity: calculateCosineSimilarity(job.embedding, coverLetter.embedding),
+            coverLetterText: reconstructCoverLetterText(getCoverLetterTextSegments(coverLetter)),
+            similarity: calculateWeightedCoverLetterSimilarity(job.embedding, coverLetter),
         }))
             .sort((firstLetter, secondLetter) => secondLetter.similarity - firstLetter.similarity)
             .slice(0, topX);

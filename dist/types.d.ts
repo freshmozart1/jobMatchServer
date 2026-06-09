@@ -37,10 +37,13 @@ export type ScrapedJob = {
     duplicateKey: string;
 };
 export type TextEmbedding = number[];
-export type StoredCoverLetter = {
-    coverLetterText: string;
-    embedding: TextEmbedding;
+export type CoverLetterSegmentName = "subject" | "salutation" | "introduction" | "mainBody" | "conclusion" | "greetings";
+export type CoverLetterTextSegments = Record<CoverLetterSegmentName, string>;
+export type CoverLetterSegment = {
+    text: string;
+    embedding: TextEmbedding | null;
 };
+export type StoredCoverLetter = Record<CoverLetterSegmentName, CoverLetterSegment>;
 export type CreateJobInDatabaseRequestBody = {
     job: ScrapedJob;
     like: boolean;
@@ -56,5 +59,9 @@ export type ExtractedLinkedInJobPage = {
     descriptionText: string | null;
     postedAt: string | null;
     tags: string[];
+};
+export type CalculateTokensRequestBody = {
+    text: string;
+    model?: string | undefined;
 };
 //# sourceMappingURL=types.d.ts.map

@@ -4,6 +4,7 @@ import { client, coverLettersCollection } from "#database/database.js";
 import { ObjectId } from "mongodb";
 import fetchTokens from "../tokens/fetchTokens.js";
 import OpenAI from "openai";
+import { getCoverLetterTextSegments, reconstructCoverLetterText } from "./coverLetterSegmentation.js";
 
 type GenerateCoverLetterAsTextRequestBody = ScrapedJob & {
     coverLetterIds: string[];
@@ -83,7 +84,7 @@ export default async function generateCoverLetterAsText(req: Request<object, obj
     }
 
     const instructions = `You are an experienced career counselor who crafts professional, authentic cover letters. You carefully analyze sample cover letters to identify and incorporate the writer’s writing style, tone, and personal characteristics.`;
-    const input = `Write a cover letter for the following job vacancy:\n\n${jobToText(jobData)}\n\n---\n\nSample cover letters for style and content review:\n\n${coverLetters.map((cl, index) => `Cover Letter ${index + 1}:\n${cl.coverLetterText}`).join("\n\n")}\n\n---\n\nWrite a new cover letter tailored specifically to this position. Adopt the personal writing style and tone used in the references. Carefully tailor the wording, specific points, and key focus areas to this position. Return only the final cover letter, without any comments. Use the same language in the cover letter as in the job posting.`;
+    const input = `Write a cover letter for the following job vacancy:\n\n${jobToText(jobData)}\n\n---\n\nSample cover letters for style and content review:\n\n${coverLetters.map((cl, index) => `Cover Letter ${index + 1}:\n${reconstructCoverLetterText(getCoverLetterTextSegments(cl))}`).join("\n\n")}\n\n---\n\nWrite a new cover letter tailored specifically to this position. Adopt the personal writing style and tone used in the references. Carefully tailor the wording, specific points, and key focus areas to this position. Return only the final cover letter, without any comments. Use the same language in the cover letter as in the job posting.`;
 
     let tokenCount;
 

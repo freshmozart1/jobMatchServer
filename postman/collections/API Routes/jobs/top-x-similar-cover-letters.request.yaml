@@ -1,5 +1,8 @@
 $kind: http-request
 name: top-x-similar-cover-letters
-url: http://localhost:3000/jobs/top-x-similar-cover-letters
+url: http://localhost:3000/jobs/top-x-similar-cover-letters?job-id=6a27219e78ea6141e211ce2c&x=3
 method: GET
+queryParams:
+  job-id: 6a27219e78ea6141e211ce2c
+  x: "3"
 order: 4476745884831480

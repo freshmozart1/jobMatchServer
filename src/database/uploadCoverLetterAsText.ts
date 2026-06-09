@@ -1,7 +1,7 @@
 import type { Request, Response } from "express";
-import { embed } from "../embeddings/embeddings.js";
-import type { TextEmbedding } from "#types";
 import { client, coverLettersCollection } from "./database.js";
+import { segmentCoverLetter } from "../coverLetters/coverLetterSegmentation.js";
+import { createStoredCoverLetterFromTextSegments } from "../coverLetters/coverLetterEmbeddings.js";
 
 type CoverLetterAsTextRequestBody = {
     coverLetterText: string;
@@ -23,10 +23,11 @@ export default async function uploadCoverLetterAsText(request: Request<object, o
 
     const { coverLetterText } = request.body;
 
-    const embedding: TextEmbedding = await embed(coverLetterText);
+    const { segments } = await segmentCoverLetter(coverLetterText);
+    const coverLetter = await createStoredCoverLetterFromTextSegments(segments);
 
     await client.connect();
 
-    const result = await coverLettersCollection.insertOne({ coverLetterText, embedding });
+    const result = await coverLettersCollection.insertOne(coverLetter);
     response.status(201).json({ message: "Cover letter uploaded", coverLetterId: result.insertedId });
 }

@@ -1,0 +1,1 @@
+{"version":3,"file":"calculateTokens.d.ts","sourceRoot":"","sources":["../../src/tokens/calculateTokens.ts"],"names":[],"mappings":"AAAA,OAAO,KAAK,EAAE,OAAO,EAAE,QAAQ,EAAE,MAAM,SAAS,CAAC;AACjD,OAAO,KAAK,EAAE,0BAA0B,EAAE,MAAM,QAAQ,CAAC;AAGzD,wBAA8B,WAAW,CAAC,OAAO,EAAE,OAAO,CAAC,MAAM,EAAE,MAAM,EAAE,0BAA0B,CAAC,EAAE,QAAQ,EAAE,QAAQ,GAAG,OAAO,CAAC,IAAI,CAAC,CAgBzI"}
