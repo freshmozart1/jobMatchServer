@@ -53,5 +53,5 @@
     "moduleDetection": "force",
     "skipLibCheck": true,
     "moduleResolution": "nodenext",
-  }
+  },
 }

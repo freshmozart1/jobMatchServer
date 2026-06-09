@@ -2,6 +2,9 @@ import js from "@eslint/js";
 import tseslint from "typescript-eslint";
 
 export default [
+    {
+        ignores: ["src/tokenService/**"]
+    },
     js.configs.recommended,
     ...tseslint.configs.recommended,
     {

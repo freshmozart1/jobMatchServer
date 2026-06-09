@@ -1,0 +1,11 @@
+$kind: http-request
+name: count
+url: http://localhost:3000/tokens/count
+method: POST
+body:
+  type: json
+  content: >-
+    {
+        "text": "Sehr geehrte Frau Schiller, Ich möchte meine berufliche Zukunft gerne bei der IP Dynamics GmbH weiter entwickeln und mich mit großer Motivation um einen Ausbildungsplatz als Fachinformatiker in der Fachrichtung Anwendungsentwicklung bewerben. Die Arbeit mit aktuellen Technologien wie JavaScript, TypeScript oder modernen Frameworks begeistert mich, und ich habe großes Interesse daran, mein Wissen in diesen Bereichen kontinuierlich auszubauen. Auch Themen wie künstliche Intelligenz und moderne Entwicklungsprozesse finde ich spannend und zukunftsweisend. Ich konnte mir im Bereich Anwendungsentwicklung sowohl im beruflichen, als auch im privaten Kontext einige Fähigkeiten selbst beibringen. Auf meinem GitHub-Profil finden Sie eine Übersicht meiner privaten Projekte: https://github.com/freshmozart1. Ich bringe eine hohe Lernbereitschaft sowie Eigeninitiative mit und arbeite sowohl selbstständig als auch gerne im Team. Der Austausch mit anderen motiviert mich, neue Perspektiven zu gewinnen und gemeinsam bessere Lösungen zu entwickeln. Besonders überzeugt mich an Ihrem Unternehmen die Kombination aus moderner Arbeitsweise, persönlicher Betreuung und langfristigen Entwicklungsperspektiven. Ich schätze ein Umfeld, in dem man Verantwortung übernehmen, sich weiterentwickeln und aktiv einbringen kann. Gerne möchte ich meine Motivation und mein Engagement in Ihrem Unternehmen einbringen und meine Ausbildung bei Ihnen beginnen. Über eine Einladung zu einem persönlichen Gespräch freue ich mich sehr. Mit freundlichen Grüßen"
+    }
+order: 1780955320527
