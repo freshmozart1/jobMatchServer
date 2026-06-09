@@ -2,13 +2,12 @@ import type { ScrapedJob, StoredCoverLetter } from "#types";
 import type { Request, Response } from "express";
 import { client, coverLettersCollection } from "#database/database.js";
 import { ObjectId } from "mongodb";
+import fetchTokens from "../tokens/fetchTokens.js";
+import OpenAI from "openai";
 
 type GenerateCoverLetterAsTextRequestBody = ScrapedJob & {
     coverLetterIds: string[];
 }
-
-// const TEXT_GENERATION_MODEL = 'gemma4';
-// const SYSTEM_PROMPT = `You are an experienced career counselor who crafts professional, authentic cover letters. You carefully analyze sample cover letters to identify and incorporate the writer’s writing style, tone, and personal characteristics.`;
 
 function isValidGenerateCoverLetterAsTextRequestBody(body: unknown): body is GenerateCoverLetterAsTextRequestBody {
     return typeof body === "object"
@@ -83,7 +82,25 @@ export default async function generateCoverLetterAsText(req: Request<object, obj
         return;
     }
 
-    const userMessage = { role: 'user', content: `Erstelle ein Anschreiben für folgendes Stellenangebot:\n\n${jobToText(jobData)}\n\n---\n\nSample cover letters for style and content review:\n\n${coverLetters.map((cl, index) => `Cover Letter ${index + 1}:\n${cl.coverLetterText}`).join("\n\n")}\n\n---\n\nWrite a new cover letter tailored specifically to this position. Adopt the personal writing style and tone used in the references. Carefully tailor the wording, specific points, and key focus areas to this position. Return only the final cover letter, without any comments. Use the same language in the cover letter as in the job posting.` };
+    const instructions = `You are an experienced career counselor who crafts professional, authentic cover letters. You carefully analyze sample cover letters to identify and incorporate the writer’s writing style, tone, and personal characteristics.`;
+    const input = `Write a cover letter for the following job vacancy:\n\n${jobToText(jobData)}\n\n---\n\nSample cover letters for style and content review:\n\n${coverLetters.map((cl, index) => `Cover Letter ${index + 1}:\n${cl.coverLetterText}`).join("\n\n")}\n\n---\n\nWrite a new cover letter tailored specifically to this position. Adopt the personal writing style and tone used in the references. Carefully tailor the wording, specific points, and key focus areas to this position. Return only the final cover letter, without any comments. Use the same language in the cover letter as in the job posting.`;
 
-    console.log('User message for cover letter generation:', userMessage.content);
+    let tokenCount;
+
+    try {
+        const tokenServiceResponse = await fetchTokens(instructions + "\n\n" + input);
+        if (tokenServiceResponse.ok) tokenCount = await tokenServiceResponse.text();
+    } catch (error) {
+        tokenCount = "Error calculating tokens: " + (error instanceof Error ? error.message : String(error));
+    }
+
+    const aiClient = new OpenAI();
+
+    const aiResponse = await aiClient.responses.create({
+        model: 'gpt-5.5',
+        instructions,
+        input
+    });
+
+    res.status(200).json({ coverLetter: aiResponse.output_text, inputTokenCount: tokenCount });
 };

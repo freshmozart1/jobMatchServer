@@ -1,26 +1,15 @@
 import type { Request, Response } from "express";
-
-type CalculateTokensRequestBody = {
-    text: string;
-    model?: string | undefined;
-};
+import type { CalculateTokensRequestBody } from "#types";
+import fetchTokens from "./fetchTokens.js";
 
 export default async function countTokens(request: Request<object, object, CalculateTokensRequestBody>, response: Response): Promise<void> {
-    const tokenServiceUrl = process.env['TOKEN_SERVICE_URL'];
-    if (!tokenServiceUrl) {
-        response.status(500).json({ error: "Token service URL is not defined in environment variables." });
+    let tokenServiceResponse: globalThis.Response;
+    try {
+        tokenServiceResponse = await fetchTokens(request.body.text, request.body.model);
+    } catch (error) {
+        response.status(500).json({ error: "Error connecting to token service.", details: error instanceof Error ? error.message : String(error) });
         return;
     }
-    const tokenServiceResponse = await fetch(tokenServiceUrl + "/count", {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-            text: request.body.text,
-            model: request.body.model,
-        }),
-    });
 
     if (!tokenServiceResponse.ok) {
         response.status(500).json({ error: "Failed to calculate tokens." });

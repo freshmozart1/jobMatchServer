@@ -67,3 +67,8 @@ export type ExtractedLinkedInJobPage = {
     postedAt: string | null;
     tags: string[];
 };
+
+export type CalculateTokensRequestBody = {
+    text: string;
+    model?: string | undefined;
+};
