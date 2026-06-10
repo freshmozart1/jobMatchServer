@@ -1,7 +1,9 @@
 import type { ScrapedJob, TextEmbedding } from "#types";
 import { embed } from "./embeddings.js";
 
-export function buildJobEmbeddingInput(job: ScrapedJob): string {
+type ScrapedJobFields = Omit<ScrapedJob, "embedding">;
+
+export function buildJobEmbeddingInput(job: ScrapedJobFields): string {
     const fields = [
         ["Title", job.title],
         ["Company", job.company],
@@ -21,6 +23,6 @@ export function buildJobEmbeddingInput(job: ScrapedJob): string {
         .trim();
 }
 
-export async function createJobEmbedding(job: ScrapedJob): Promise<TextEmbedding> {
+export async function createJobEmbedding(job: ScrapedJobFields): Promise<TextEmbedding> {
     return embed(buildJobEmbeddingInput(job));
 }

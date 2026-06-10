@@ -40,6 +40,7 @@ export type ScrapedJob = {
     scrapedAt: string;
     tags?: string[];
     duplicateKey: string;
+    embedding: TextEmbedding;
 };
 
 export type TextEmbedding = number[];
@@ -64,7 +65,6 @@ export type CreateJobInDatabaseRequestBody = {
 
 export type StoredScrapedJob = ScrapedJob & {
     like: boolean;
-    embedding: TextEmbedding;
 };
 
 export type ExtractedLinkedInJobPage = {

@@ -1,4 +1,6 @@
 import type { ScrapedJob, TextEmbedding } from "#types";
-export declare function buildJobEmbeddingInput(job: ScrapedJob): string;
-export declare function createJobEmbedding(job: ScrapedJob): Promise<TextEmbedding>;
+type ScrapedJobFields = Omit<ScrapedJob, "embedding">;
+export declare function buildJobEmbeddingInput(job: ScrapedJobFields): string;
+export declare function createJobEmbedding(job: ScrapedJobFields): Promise<TextEmbedding>;
+export {};
 //# sourceMappingURL=jobEmbedding.d.ts.map

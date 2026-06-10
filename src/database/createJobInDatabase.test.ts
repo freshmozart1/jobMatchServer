@@ -14,15 +14,10 @@ const insertedJobId = "inserted-job-id";
 const embedding = [0.1, 0.2, 0.3] satisfies TextEmbedding;
 const insertOne = jest.fn<(jobData: StoredScrapedJob) => Promise<InsertOneResult>>();
 const connect = jest.fn<() => Promise<void>>();
-const createJobEmbedding = jest.fn<(job: ScrapedJob) => Promise<TextEmbedding>>();
 
 jest.unstable_mockModule("./database.js", () => ({
     client: { connect },
     jobsCollection: { insertOne } satisfies JobsCollectionMock,
-}));
-
-jest.unstable_mockModule("../embeddings/jobEmbedding.js", () => ({
-    createJobEmbedding,
 }));
 
 const { default: createJobInDatabase } = await import("./createJobInDatabase.js");
@@ -40,6 +35,7 @@ function createScrapedJob(): ScrapedJob {
         scrapedAt: "2026-06-02T00:00:00.000Z",
         tags: ["typescript", "node"],
         duplicateKey: "linkedin:123456789",
+        embedding,
     } satisfies ScrapedJob;
 }
 
@@ -67,11 +63,10 @@ describe("createJobInDatabase", () => {
         jest.clearAllMocks();
 
         insertOne.mockResolvedValue({ insertedId: insertedJobId });
-    connect.mockResolvedValue();
-        createJobEmbedding.mockResolvedValue(embedding);
+        connect.mockResolvedValue();
     });
 
-    it("embeds the ScrapedJob request body, stores the flattened job, and responds with the new job id", async () => {
+    it("stores the flattened job and responds with the new job id", async () => {
         const job = createScrapedJob();
         const like = true;
         const request = createRequest({ job, like });
@@ -79,8 +74,7 @@ describe("createJobInDatabase", () => {
 
         await createJobInDatabase(request, response);
 
-        expect(createJobEmbedding).toHaveBeenCalledWith(job);
-        expect(insertOne).toHaveBeenCalledWith({ ...job, like, embedding });
+        expect(insertOne).toHaveBeenCalledWith({ ...job, like });
         expect(status).toHaveBeenCalledWith(201);
         expect(json).toHaveBeenCalledWith({ message: "Job created", jobId: insertedJobId });
         expect(connect).toHaveBeenCalledTimes(1);
@@ -106,7 +100,6 @@ describe("createJobInDatabase", () => {
 
         expect(status).toHaveBeenCalledWith(400);
         expect(json).toHaveBeenCalledWith({ message: "Request body must include job and boolean like fields" });
-        expect(createJobEmbedding).not.toHaveBeenCalled();
         expect(insertOne).not.toHaveBeenCalled();
         expect(connect).not.toHaveBeenCalled();
     });
@@ -119,7 +112,6 @@ describe("createJobInDatabase", () => {
 
         expect(status).toHaveBeenCalledWith(400);
         expect(json).toHaveBeenCalledWith({ message: "Request body must include job and boolean like fields" });
-        expect(createJobEmbedding).not.toHaveBeenCalled();
         expect(insertOne).not.toHaveBeenCalled();
         expect(connect).not.toHaveBeenCalled();
     });

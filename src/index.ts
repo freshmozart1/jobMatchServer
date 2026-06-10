@@ -10,6 +10,7 @@ import { scrapeLinkedInJobPage } from "#scrapers/linkedin/jobPageScraper.js";
 import { scrapeLinkedInJobLinks } from "#scrapers/linkedin/jobLinkScraper.js";
 import createJobInDatabase from "#database/createJobInDatabase.js";
 import getTopXSimilarCoverLetters from "#database/getTopXSimilarCoverLetters.js";
+import getJobSimilarityToLikedAverage from "#database/getJobSimilarityToLikedAverage.js";
 import filterJobLinks from "#database/filterJobLinks.js";
 import uploadCoverLetterAsText from "#database/uploadCoverLetterAsText.js";
 import generateCoverLetterAsText from "./coverLetters/generateCoverLettersAsText.js";
@@ -127,6 +128,7 @@ app.post('/jobs/create', createJobInDatabase);
 app.post('/jobs/filter-job-links', filterJobLinks);
 
 app.get('/jobs/top-x-similar-cover-letters', getTopXSimilarCoverLetters);
+app.get('/jobs/liked-average-similarity', getJobSimilarityToLikedAverage);
 
 app.post('/cover-letters/upload/text', uploadCoverLetterAsText);
 

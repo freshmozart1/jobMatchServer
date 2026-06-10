@@ -1,5 +1,4 @@
 import { client, jobsCollection } from "./database.js";
-import { createJobEmbedding } from "../embeddings/jobEmbedding.js";
 function isValidCreateJobRequestBody(body) {
     return typeof body === "object"
         && body !== null
@@ -15,9 +14,8 @@ export default async function createJobInDatabase(request, response) {
         return;
     }
     const { job, like } = request.body;
-    const embedding = await createJobEmbedding(job);
     await client.connect();
-    const result = await jobsCollection.insertOne({ ...job, like, embedding });
+    const result = await jobsCollection.insertOne({ ...job, like });
     response.status(201).json({ message: "Job created", jobId: result.insertedId });
 }
 //# sourceMappingURL=createJobInDatabase.js.map

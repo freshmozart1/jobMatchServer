@@ -4,6 +4,7 @@ import { getErrorMessage, getScraperErrorStatus } from "./jobLinkScraper.js";
 import isLinkedInHost from "./isLinkedInHost.js";
 import waitForLinkedInPage from "./waitForLinkedInPage.js";
 import isSupportedLinkedInUrl from "./isSupportedLinkedInUrl.js";
+import { createJobEmbedding } from "../../embeddings/jobEmbedding.js";
 export async function scrapeLinkedInJobPage(request, response) {
     const jobUrl = getUrlFromBody(request.body);
     if (!jobUrl) {
@@ -29,7 +30,7 @@ export async function scrapeLinkedInJobPage(request, response) {
         const title = coalesceText(extractedJobPage.title, getTitleFromPageTitle(pageTitle));
         const company = coalesceText(extractedJobPage.company, getCompanyFromPageTitle(pageTitle));
         const descriptionText = normalizeDescription(extractedJobPage.descriptionText);
-        const scrapedJob = {
+        const jobFields = {
             sourceHostname: canonicalUrlObject.hostname,
             ...(sourceJobId ? { sourceJobId } : {}),
             sourceUrl: canonicalUrl,
@@ -42,6 +43,8 @@ export async function scrapeLinkedInJobPage(request, response) {
             ...(extractedJobPage.tags.length > 0 ? { tags: extractedJobPage.tags } : {}),
             duplicateKey: sourceJobId ? `linkedin:${sourceJobId}` : canonicalUrl,
         };
+        const embedding = await createJobEmbedding(jobFields);
+        const scrapedJob = { ...jobFields, embedding };
         response.status(200).json(scrapedJob);
     }
     catch (error) {
