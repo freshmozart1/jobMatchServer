@@ -4,19 +4,28 @@ import type { CoverLetterTextSegments, StoredCoverLetter } from "#types";
 
 type CoverLetterAsTextRequestBody = {
     coverLetterText: string;
+    jobDuplicateKey?: string;
 };
 
 type InsertOneResult = {
     insertedId: string;
 };
 
+type FindOneAndReplaceOptions = {
+    upsert: boolean;
+    returnDocument: string;
+};
+
 type CoverLettersCollectionMock = {
     insertOne: ReturnType<typeof jest.fn<(coverLetter: StoredCoverLetter) => Promise<InsertOneResult>>>;
+    findOneAndReplace: ReturnType<typeof jest.fn<(filter: { jobDuplicateKey: string }, replacement: StoredCoverLetter, options: FindOneAndReplaceOptions) => Promise<{ _id: string } | null>>>;
 };
 
 const insertedCoverLetterId = "inserted-cover-letter-id";
+const upsertedCoverLetterId = "upserted-cover-letter-id";
 const connect = jest.fn<() => Promise<void>>();
 const insertOne = jest.fn<(coverLetter: StoredCoverLetter) => Promise<InsertOneResult>>();
+const findOneAndReplace = jest.fn<(filter: { jobDuplicateKey: string }, replacement: StoredCoverLetter, options: FindOneAndReplaceOptions) => Promise<{ _id: string } | null>>();
 const segmentCoverLetter = jest.fn<(input: string) => Promise<{ segments: CoverLetterTextSegments }>>();
 const createStoredCoverLetterFromTextSegments = jest.fn<(segments: CoverLetterTextSegments) => Promise<StoredCoverLetter>>();
 
@@ -40,7 +49,7 @@ const storedCoverLetter = {
 
 jest.unstable_mockModule("./database.js", () => ({
     client: { connect },
-    coverLettersCollection: { insertOne } satisfies CoverLettersCollectionMock,
+    coverLettersCollection: { insertOne, findOneAndReplace } satisfies CoverLettersCollectionMock,
 }));
 
 jest.unstable_mockModule("../coverLetters/coverLetterSegmentation.js", () => ({
@@ -78,6 +87,7 @@ describe("uploadCoverLetterAsText", () => {
 
         connect.mockResolvedValue();
         insertOne.mockResolvedValue({ insertedId: insertedCoverLetterId });
+        findOneAndReplace.mockResolvedValue({ _id: upsertedCoverLetterId });
         segmentCoverLetter.mockResolvedValue({ segments });
         createStoredCoverLetterFromTextSegments.mockResolvedValue(storedCoverLetter);
     });
@@ -92,9 +102,46 @@ describe("uploadCoverLetterAsText", () => {
         expect(segmentCoverLetter).toHaveBeenCalledWith(coverLetterText);
         expect(createStoredCoverLetterFromTextSegments).toHaveBeenCalledWith(segments);
         expect(insertOne).toHaveBeenCalledWith(storedCoverLetter);
+        expect(findOneAndReplace).not.toHaveBeenCalled();
         expect(status).toHaveBeenCalledWith(201);
         expect(json).toHaveBeenCalledWith({ message: "Cover letter uploaded", coverLetterId: insertedCoverLetterId });
         expect(connect).toHaveBeenCalledTimes(1);
+    });
+
+    it("upserts the cover letter by jobDuplicateKey when provided", async () => {
+        const coverLetterText = "Dear Hiring Manager,\n\nI am excited to apply.\n\nBest regards\nOle";
+        const jobDuplicateKey = "job-key-1";
+        const request = createRequest({ coverLetterText, jobDuplicateKey });
+        const { response, status, json } = createResponse();
+
+        await uploadCoverLetterAsText(request, response);
+
+        expect(segmentCoverLetter).toHaveBeenCalledWith(coverLetterText);
+        expect(createStoredCoverLetterFromTextSegments).toHaveBeenCalledWith(segments);
+        expect(findOneAndReplace).toHaveBeenCalledWith(
+            { jobDuplicateKey },
+            { ...storedCoverLetter, jobDuplicateKey },
+            { upsert: true, returnDocument: "after" },
+        );
+        expect(insertOne).not.toHaveBeenCalled();
+        expect(status).toHaveBeenCalledWith(201);
+        expect(json).toHaveBeenCalledWith({ message: "Cover letter uploaded", coverLetterId: upsertedCoverLetterId });
+        expect(connect).toHaveBeenCalledTimes(1);
+    });
+
+    it("returns 400 when jobDuplicateKey is present but empty", async () => {
+        const request = createRequest({ coverLetterText: "valid cover letter", jobDuplicateKey: "   " });
+        const { response, status, json } = createResponse();
+
+        await uploadCoverLetterAsText(request, response);
+
+        expect(status).toHaveBeenCalledWith(400);
+        expect(json).toHaveBeenCalledWith({ message: "Request body must include a non-empty coverLetterText string and may include a non-empty jobDuplicateKey string" });
+        expect(segmentCoverLetter).not.toHaveBeenCalled();
+        expect(createStoredCoverLetterFromTextSegments).not.toHaveBeenCalled();
+        expect(insertOne).not.toHaveBeenCalled();
+        expect(findOneAndReplace).not.toHaveBeenCalled();
+        expect(connect).not.toHaveBeenCalled();
     });
 
     it("returns 400 when the request body is invalid", async () => {
@@ -104,10 +151,11 @@ describe("uploadCoverLetterAsText", () => {
         await uploadCoverLetterAsText(request, response);
 
         expect(status).toHaveBeenCalledWith(400);
-        expect(json).toHaveBeenCalledWith({ message: "Request body must include coverLetterText field of type string and must not be empty" });
+        expect(json).toHaveBeenCalledWith({ message: "Request body must include a non-empty coverLetterText string and may include a non-empty jobDuplicateKey string" });
         expect(segmentCoverLetter).not.toHaveBeenCalled();
         expect(createStoredCoverLetterFromTextSegments).not.toHaveBeenCalled();
         expect(insertOne).not.toHaveBeenCalled();
+        expect(findOneAndReplace).not.toHaveBeenCalled();
         expect(connect).not.toHaveBeenCalled();
     });
 });

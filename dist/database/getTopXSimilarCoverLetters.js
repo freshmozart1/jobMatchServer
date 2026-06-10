@@ -3,9 +3,12 @@ import { ObjectId } from "mongodb";
 import calculateCosineSimilarity from "../embeddings/calculateCosineSimilarity.js";
 import { getCoverLetterTextSegments, reconstructCoverLetterText } from "../coverLetters/coverLetterSegmentation.js";
 const SEGMENT_SIMILARITY_WEIGHTS = {
-    introduction: 0.25,
+    subject: 0.06,
+    salutation: 0.02,
+    introduction: 0.2,
     mainBody: 0.5,
-    conclusion: 0.25,
+    conclusion: 0.20,
+    greetings: 0.02,
 };
 function calculateWeightedCoverLetterSimilarity(jobEmbedding, coverLetter) {
     let weightedSimilaritySum = 0;

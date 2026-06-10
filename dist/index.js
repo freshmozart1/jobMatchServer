@@ -13,6 +13,7 @@ import countTokens from "./tokens/calculateTokens.js";
 export const app = express();
 const START_PORT = 3000;
 const ALLOWED_ORIGINS = new Set(["http://localhost:5173", "http://127.0.0.1:5173"]);
+const LAN_ORIGIN_PATTERN = /^http:\/\/192\.168\.\d+\.\d+:5173$/;
 const TOKEN_SERVICE_URL_ENV = "TOKEN_SERVICE_URL";
 const TOKEN_SERVICE_READY_PREFIX = `${TOKEN_SERVICE_URL_ENV}=`;
 const TOKEN_SERVICE_SCRIPT = join(process.cwd(), "src", "tokenService", "tokenService.py");
@@ -65,7 +66,7 @@ function resolvePythonBinary() {
 }
 app.use((request, response, next) => {
     const origin = request.get("origin");
-    if (origin && ALLOWED_ORIGINS.has(origin)) {
+    if (origin && (ALLOWED_ORIGINS.has(origin) || LAN_ORIGIN_PATTERN.test(origin))) {
         response.setHeader("Access-Control-Allow-Origin", origin);
         response.setHeader("Vary", "Origin");
     }

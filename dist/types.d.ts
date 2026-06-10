@@ -43,7 +43,9 @@ export type CoverLetterSegment = {
     text: string;
     embedding: TextEmbedding | null;
 };
-export type StoredCoverLetter = Record<CoverLetterSegmentName, CoverLetterSegment>;
+export type StoredCoverLetter = Record<CoverLetterSegmentName, CoverLetterSegment> & {
+    jobDuplicateKey?: string;
+};
 export type CreateJobInDatabaseRequestBody = {
     job: ScrapedJob;
     like: boolean;
