@@ -88,7 +88,7 @@ app.post("/scrape/linkedin/job-page", scrapeLinkedInJobPage);
 app.post('/jobs/create', createJobInDatabase);
 app.post('/jobs/filter-job-links', filterJobLinks);
 app.get('/jobs/top-x-similar-cover-letters', getTopXSimilarCoverLetters);
-app.get('/jobs/liked-average-similarity', getJobSimilarityToLikedAverage);
+app.post('/jobs/liked-average-similarity', getJobSimilarityToLikedAverage);
 app.post('/cover-letters/upload/text', uploadCoverLetterAsText);
 app.post('/cover-letters/create/text', generateCoverLetterAsText);
 app.post('/tokens/count', countTokens);

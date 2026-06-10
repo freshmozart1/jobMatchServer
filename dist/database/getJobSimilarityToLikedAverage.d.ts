@@ -1,7 +1,4 @@
 import type { Request, Response } from "express";
-type GetJobSimilarityToLikedAverageRequestQuery = {
-    "job-id": string;
-};
-export default function getJobSimilarityToLikedAverage(request: Request<object, object, object, GetJobSimilarityToLikedAverageRequestQuery>, response: Response): Promise<void>;
-export {};
+import type { TextEmbedding } from "#types";
+export default function getJobSimilarityToLikedAverage(request: Request<object, object, TextEmbedding>, response: Response): Promise<void>;
 //# sourceMappingURL=getJobSimilarityToLikedAverage.d.ts.map

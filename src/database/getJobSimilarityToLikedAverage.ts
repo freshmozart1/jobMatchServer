@@ -1,19 +1,12 @@
 import type { Request, Response } from "express";
-import { ObjectId } from "mongodb";
 import type { TextEmbedding } from "#types";
 import { client, jobsCollection } from "./database.js";
 import calculateCosineSimilarity from "../embeddings/calculateCosineSimilarity.js";
 
-type GetJobSimilarityToLikedAverageRequestQuery = {
-    "job-id": string;
-};
-
-function isValidGetJobSimilarityToLikedAverageRequestQuery(query: unknown): query is GetJobSimilarityToLikedAverageRequestQuery {
-    return typeof query === "object"
-        && query !== null
-        && "job-id" in query
-        && typeof query["job-id"] === "string"
-        && query["job-id"].trim().length === 24;
+function isValidTextEmbeddingBody(body: unknown): body is TextEmbedding {
+    return Array.isArray(body)
+        && body.length > 0
+        && body.every(value => typeof value === "number");
 }
 
 function calculateAverageEmbedding(embeddings: TextEmbedding[]): TextEmbedding | null {
@@ -33,24 +26,17 @@ function calculateAverageEmbedding(embeddings: TextEmbedding[]): TextEmbedding |
     return sum.map(v => v / embeddings.length);
 }
 
-export default async function getJobSimilarityToLikedAverage(request: Request<object, object, object, GetJobSimilarityToLikedAverageRequestQuery>, response: Response): Promise<void> {
-    if (!isValidGetJobSimilarityToLikedAverageRequestQuery(request.query)) {
-        response.status(400).json({ message: "Query parameters must include job-id as a 24-character string" });
+export default async function getJobSimilarityToLikedAverage(request: Request<object, object, TextEmbedding>, response: Response): Promise<void> {
+    if (!isValidTextEmbeddingBody(request.body)) {
+        response.status(400).json({ message: "Request body must be a non-empty array of numbers" });
         return;
     }
 
-    const jobId = request.query["job-id"];
+    const embedding = request.body;
 
     await client.connect();
 
     try {
-        const job = await jobsCollection.findOne({ _id: new ObjectId(jobId) });
-
-        if (!job) {
-            response.status(404).json({ message: "Job not found" });
-            return;
-        }
-
         const likedJobs = await jobsCollection.find({ like: true }).toArray();
         const averageEmbedding = calculateAverageEmbedding(likedJobs.map(j => j.embedding));
 
@@ -59,7 +45,7 @@ export default async function getJobSimilarityToLikedAverage(request: Request<ob
             return;
         }
 
-        const similarity = calculateCosineSimilarity(job.embedding, averageEmbedding);
+        const similarity = calculateCosineSimilarity(embedding, averageEmbedding);
         response.status(200).json({ similarity });
     } finally {
         await client.close();

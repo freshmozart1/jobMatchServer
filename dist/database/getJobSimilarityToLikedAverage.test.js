@@ -1,15 +1,13 @@
 import { beforeEach, describe, expect, it, jest } from "@jest/globals";
-const validJobId = "507f1f77bcf86cd799439011";
 const jobEmbedding = [1, 0, 0];
 const connect = jest.fn();
 const close = jest.fn();
-const findOne = jest.fn();
 const find = jest.fn();
 const toArray = jest.fn();
 const calculateCosineSimilarity = jest.fn();
 jest.unstable_mockModule("./database.js", () => ({
     client: { connect, close },
-    jobsCollection: { findOne, find },
+    jobsCollection: { find },
 }));
 jest.unstable_mockModule("../embeddings/calculateCosineSimilarity.js", () => ({
     default: calculateCosineSimilarity,
@@ -33,8 +31,8 @@ function createStoredJob(overrides = {}) {
         ...overrides,
     };
 }
-function createRequest(query) {
-    return { query };
+function createRequest(body) {
+    return { body };
 }
 function createResponse() {
     const status = jest.fn();
@@ -49,14 +47,13 @@ describe("getJobSimilarityToLikedAverage", () => {
         jest.clearAllMocks();
         connect.mockResolvedValue();
         close.mockResolvedValue();
-        findOne.mockResolvedValue(createStoredJob());
         toArray.mockResolvedValue([]);
         find.mockReturnValue({ toArray });
     });
-    it("returns the cosine similarity of the job against the average liked-jobs embedding", async () => {
+    it("returns the cosine similarity of the body embedding against the average liked-jobs embedding", async () => {
         const likedEmbeddingA = [0, 1, 0];
         const likedEmbeddingB = [0, 0, 1];
-        const request = createRequest({ "job-id": validJobId });
+        const request = createRequest(jobEmbedding);
         const { response, status, json } = createResponse();
         toArray.mockResolvedValue([
             createStoredJob({ embedding: likedEmbeddingA }),
@@ -72,7 +69,7 @@ describe("getJobSimilarityToLikedAverage", () => {
         expect(close).toHaveBeenCalledTimes(1);
     });
     it("returns similarity: null when there are no liked jobs", async () => {
-        const request = createRequest({ "job-id": validJobId });
+        const request = createRequest(jobEmbedding);
         const { response, status, json } = createResponse();
         toArray.mockResolvedValue([]);
         await getJobSimilarityToLikedAverage(request, response);
@@ -81,26 +78,16 @@ describe("getJobSimilarityToLikedAverage", () => {
         expect(json).toHaveBeenCalledWith({ similarity: null });
         expect(close).toHaveBeenCalledTimes(1);
     });
-    it("returns 400 when the job-id query parameter is invalid", async () => {
-        const request = createRequest({ "job-id": "invalid" });
+    it("returns 400 when the request body is not a non-empty array of numbers", async () => {
+        const request = createRequest([1, "not-a-number", 0]);
         const { response, status, json } = createResponse();
         await getJobSimilarityToLikedAverage(request, response);
         expect(status).toHaveBeenCalledWith(400);
         expect(json).toHaveBeenCalledWith({
-            message: "Query parameters must include job-id as a 24-character string",
+            message: "Request body must be a non-empty array of numbers",
         });
         expect(connect).not.toHaveBeenCalled();
-        expect(findOne).not.toHaveBeenCalled();
-    });
-    it("returns 404 when the job is not found", async () => {
-        const request = createRequest({ "job-id": validJobId });
-        const { response, status, json } = createResponse();
-        findOne.mockResolvedValue(null);
-        await getJobSimilarityToLikedAverage(request, response);
-        expect(status).toHaveBeenCalledWith(404);
-        expect(json).toHaveBeenCalledWith({ message: "Job not found" });
         expect(find).not.toHaveBeenCalled();
-        expect(close).toHaveBeenCalledTimes(1);
     });
 });
 //# sourceMappingURL=getJobSimilarityToLikedAverage.test.js.map
