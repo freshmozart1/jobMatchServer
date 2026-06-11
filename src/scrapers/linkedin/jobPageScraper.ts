@@ -38,7 +38,7 @@ export async function scrapeLinkedInJobPage(request: Request, response: Response
 
         const canonicalUrlObject = new URL(canonicalUrl);
         const sourceJobId = extractLinkedInJobId(canonicalUrl);
-        const title = coalesceText(extractedJobPage.title, getTitleFromPageTitle(pageTitle));
+        const title = coalesceText(extractJobTitle(extractedJobPage.title), getTitleFromPageTitle(pageTitle));
         const company = coalesceText(extractedJobPage.company, getCompanyFromPageTitle(pageTitle));
         const descriptionText = normalizeDescription(extractedJobPage.descriptionText);
 
@@ -464,6 +464,20 @@ function normalizeText(value: string | null | undefined): string | null {
     return normalizedValue.length > 0 ? normalizedValue : null;
 }
 
+function stripLinkedInSuffix(value: string | null | undefined): string | null {
+    return normalizeText(value?.replace(/\s*\|\s*LinkedIn$/i, ""));
+}
+
+function extractJobTitle(value: string | null | undefined): string | null {
+    const withoutSuffix = stripLinkedInSuffix(value);
+    if (!withoutSuffix) return null;
+
+    const suchtMatch = withoutSuffix.match(/^.+?\s+sucht\s+(.+?)(?:\s+in\s+\S.*)?$/i);
+    if (suchtMatch) return normalizeText(suchtMatch[1]);
+
+    return withoutSuffix;
+}
+
 function getTitleFromPageTitle(pageTitle: string): string | null {
     const normalizedPageTitle = normalizeText(pageTitle);
 
@@ -471,10 +485,15 @@ function getTitleFromPageTitle(pageTitle: string): string | null {
         return null;
     }
 
-    const titleWithoutLinkedIn = normalizedPageTitle.replace(/\s+\|\s+LinkedIn$/i, "");
-    const titleMatch = titleWithoutLinkedIn.match(/^(.+?)\s+(?:at|bei)\s+.+$/i);
+    const titleWithoutLinkedIn = stripLinkedInSuffix(normalizedPageTitle) ?? normalizedPageTitle;
 
-    return normalizeText(titleMatch?.[1] ?? titleWithoutLinkedIn);
+    const atBeiMatch = titleWithoutLinkedIn.match(/^(.+?)\s+(?:at|bei)\s+.+$/i);
+    if (atBeiMatch) return normalizeText(atBeiMatch[1]);
+
+    const suchtMatch = titleWithoutLinkedIn.match(/^.+?\s+sucht\s+(.+?)(?:\s+in\s+\S.*)?$/i);
+    if (suchtMatch) return normalizeText(suchtMatch[1]);
+
+    return normalizeText(titleWithoutLinkedIn);
 }
 
 function getCompanyFromPageTitle(pageTitle: string): string | null {
