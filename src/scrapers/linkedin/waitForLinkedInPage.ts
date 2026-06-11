@@ -94,18 +94,25 @@ export async function scrollLinkedInLazyLoadedJobsUntilComplete(
     const scrollSettleMs = options.scrollSettleMs ?? LAZY_LOAD_SCROLL_SETTLE_MS;
 
     for (let scrollAttempt = 0; scrollAttempt < maxScrollAttempts; scrollAttempt += 1) {
-        const responsePromise = page.waitForResponse(isLinkedInSeeMoreJobPostingsResponse, {
-            timeout: responseTimeoutMs,
-        });
+        // Attach the rejection handler synchronously, before the await below.
+        // The timeout timer starts the moment waitForResponse is called, so if the
+        // handler were only wired up after `await scrollToPageBottom(page)` the
+        // timeout could reject during that gap with no listener attached, surfacing
+        // as an unhandled rejection that crashes the process under Node's default policy.
+        const responsePromise = page
+            .waitForResponse(isLinkedInSeeMoreJobPostingsResponse, {
+                timeout: responseTimeoutMs,
+            })
+            .catch((error: unknown) => {
+                if (isResponseWaitTimeoutError(error)) {
+                    return null;
+                }
+
+                throw error;
+            });
 
         const scrollState = await scrollToPageBottom(page);
-        const response = await responsePromise.catch((error: unknown) => {
-            if (isResponseWaitTimeoutError(error)) {
-                return null;
-            }
-
-            throw error;
-        });
+        const response = await responsePromise;
 
         if (!response) {
             console.debug(
