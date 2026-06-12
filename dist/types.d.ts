@@ -36,6 +36,7 @@ export type ScrapedJob = {
     tags?: string[];
     duplicateKey: string;
     embedding: TextEmbedding;
+    cosineSimilarity?: number;
 };
 export type TextEmbedding = number[];
 export type CoverLetterSegmentName = "subject" | "salutation" | "introduction" | "mainBody" | "conclusion" | "greetings";

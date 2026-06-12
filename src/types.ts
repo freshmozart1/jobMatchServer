@@ -1,5 +1,3 @@
-import type { ObjectId } from "mongodb";
-
 export type LinkedInUrlVariant = "jobPage" | "jobSearchPage";
 
 export type LinkedInJobLinkSearchParams = {
@@ -43,6 +41,7 @@ export type ScrapedJob = {
     tags?: string[];
     duplicateKey: string;
     embedding: TextEmbedding;
+    cosineSimilarity?: number;
 };
 
 export type TextEmbedding = number[];

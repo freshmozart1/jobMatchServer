@@ -4,10 +4,13 @@ import { type Browser, type Page } from "puppeteer";
 import getLinkedInJobPathSegment from "./getLinkedInJobPathSegment.js";
 import { getErrorMessage, getScraperErrorStatus } from "./jobLinkScraper.js";
 import isLinkedInHost from "./isLinkedInHost.js";
-import type { ScrapedJob, ExtractedLinkedInJobPage } from "#types";
+import { type ScrapedJob, type ExtractedLinkedInJobPage, type StoredScrapedJob } from "#types";
 import waitForLinkedInPage from "./waitForLinkedInPage.js";
 import isSupportedLinkedInUrl from "./isSupportedLinkedInUrl.js";
 import { createJobEmbedding } from "../../embeddings/jobEmbedding.js";
+import { MongoClient } from "mongodb";
+import { mongoDbConnectionString } from "#database/database.js";
+import calculateCosineSimilarity from "../../embeddings/calculateCosineSimilarity.js";
 
 export async function scrapeLinkedInJobPage(request: Request, response: Response): Promise<void> {
     const jobUrl = getUrlFromBody(request.body);
@@ -57,7 +60,31 @@ export async function scrapeLinkedInJobPage(request: Request, response: Response
         };
 
         const embedding = await createJobEmbedding(jobFields);
-        const scrapedJob: ScrapedJob = { ...jobFields, embedding };
+        let similarity: number | undefined;
+        const client = new MongoClient(mongoDbConnectionString);
+        await client.connect();
+        try {
+            const likedJobsEmbeddings = (await client.db('jobMatch').collection<StoredScrapedJob>('jobs').find({ like: true }).toArray()).map(j => j.embedding);
+            const firstEmbedding = likedJobsEmbeddings[0];
+            if (firstEmbedding) {
+                const dimension = firstEmbedding.length;
+                const sum: number[] = new Array<number>(dimension).fill(0);
+                for (const likedEmbedding of likedJobsEmbeddings) {
+                    for (let i = 0; i < dimension; i++) {
+                        const s = sum[i];
+                        const e = likedEmbedding[i];
+                        if (typeof s === "number" && typeof e === "number") {
+                            sum[i] = s + e;
+                        }
+                    }
+                }
+                const averageEmbedding = sum.map(v => v / likedJobsEmbeddings.length);
+                similarity = calculateCosineSimilarity(embedding, averageEmbedding);
+            }
+        } finally {
+            await client.close();
+        }
+        const scrapedJob: ScrapedJob = { ...jobFields, embedding, ...(similarity !== undefined ? { cosineSimilarity: similarity } : {}) };
 
         response.status(200).json(scrapedJob);
     } catch (error) {
