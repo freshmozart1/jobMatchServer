@@ -1,9 +1,9 @@
 import type { Request, Response } from "express";
-import type { StoredCoverLetter, TextEmbedding } from "#types";
-import { client, jobsCollection, coverLettersCollection } from "./database.js";
-import { ObjectId } from "mongodb";
+import { type StoredScrapedJob, type StoredCoverLetter, type TextEmbedding } from "#types";
+import { MongoClient, ObjectId } from "mongodb";
 import calculateCosineSimilarity from "../embeddings/calculateCosineSimilarity.js";
 import { getCoverLetterTextSegments, reconstructCoverLetterText } from "../coverLetters/coverLetterSegmentation.js";
+import { mongoDbConnectionString } from "./database.js";
 
 type GetTopXSimilarCoverLettersRequestQuery = {
     'job-id': string;
@@ -63,17 +63,18 @@ export default async function getTopXSimilarCoverLetters(request: Request<object
     const { "job-id": jobId, x } = request.query;
     const topX = Number(x);
 
+    const client = new MongoClient(mongoDbConnectionString);
     await client.connect();
 
     try {
-        const job = await jobsCollection.findOne({ _id: new ObjectId(jobId) });
+        const job = await client.db('jobMatch').collection<StoredScrapedJob>('jobs').findOne({ _id: new ObjectId(jobId) });
 
         if (!job) {
             response.status(404).json({ message: "Job not found" });
             return;
         }
 
-        const coverLetters = await coverLettersCollection.find().toArray();
+        const coverLetters = await client.db('jobMatch').collection<StoredCoverLetter>('coverLetters').find().toArray();
         const topXLetterResults: TopXLetterResult[] = coverLetters
             .map((coverLetter) => ({
                 coverLetterText: reconstructCoverLetterText(getCoverLetterTextSegments(coverLetter)),
@@ -83,7 +84,11 @@ export default async function getTopXSimilarCoverLetters(request: Request<object
             .slice(0, topX);
 
         response.status(200).json({ topXLetterResults });
-    } finally {
+    } catch(error) {
+        console.error("Error in getTopXSimilarCoverLetters:", error);
+        response.status(500).json({ message: "An error occurred while processing the request", error: error instanceof Error ? error.message : String(error) });
+    }
+    finally {
         await client.close();
     }
 }

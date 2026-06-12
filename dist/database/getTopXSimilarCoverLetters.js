@@ -1,7 +1,8 @@
-import { client, jobsCollection, coverLettersCollection } from "./database.js";
-import { ObjectId } from "mongodb";
+import {} from "#types";
+import { MongoClient, ObjectId } from "mongodb";
 import calculateCosineSimilarity from "../embeddings/calculateCosineSimilarity.js";
 import { getCoverLetterTextSegments, reconstructCoverLetterText } from "../coverLetters/coverLetterSegmentation.js";
+import { mongoDbConnectionString } from "./database.js";
 const SEGMENT_SIMILARITY_WEIGHTS = {
     subject: 0.06,
     salutation: 0.02,
@@ -41,14 +42,15 @@ export default async function getTopXSimilarCoverLetters(request, response) {
     }
     const { "job-id": jobId, x } = request.query;
     const topX = Number(x);
+    const client = new MongoClient(mongoDbConnectionString);
     await client.connect();
     try {
-        const job = await jobsCollection.findOne({ _id: new ObjectId(jobId) });
+        const job = await client.db('jobMatch').collection('jobs').findOne({ _id: new ObjectId(jobId) });
         if (!job) {
             response.status(404).json({ message: "Job not found" });
             return;
         }
-        const coverLetters = await coverLettersCollection.find().toArray();
+        const coverLetters = await client.db('jobMatch').collection('coverLetters').find().toArray();
         const topXLetterResults = coverLetters
             .map((coverLetter) => ({
             coverLetterText: reconstructCoverLetterText(getCoverLetterTextSegments(coverLetter)),
@@ -57,6 +59,10 @@ export default async function getTopXSimilarCoverLetters(request, response) {
             .sort((firstLetter, secondLetter) => secondLetter.similarity - firstLetter.similarity)
             .slice(0, topX);
         response.status(200).json({ topXLetterResults });
+    }
+    catch (error) {
+        console.error("Error in getTopXSimilarCoverLetters:", error);
+        response.status(500).json({ message: "An error occurred while processing the request", error: error instanceof Error ? error.message : String(error) });
     }
     finally {
         await client.close();
