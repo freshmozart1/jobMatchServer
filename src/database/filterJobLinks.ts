@@ -1,6 +1,7 @@
 import type { LinkedInJobLinksByKeyword } from "#types";
 import type { Request, Response } from "express";
-import { client, jobsCollection } from "./database.js";
+import { MongoClient } from "mongodb";
+import { mongoDbConnectionString } from "./database.js";
 
 const invalidFilterJobLinksRequestResponse = {
 	message: "Request body must be an object mapping keywords to URL arrays",
@@ -30,18 +31,30 @@ export default async function filterJobLinks(
 		return;
 	}
 
+	const client = new MongoClient(mongoDbConnectionString);
+
 	await client.connect();
 
-	const storedJobs = await jobsCollection
-		.find({ sourceUrl: { $in: uniqueUrls } }, { projection: { sourceUrl: 1, _id: 0 } })
-		.toArray();
-	const storedSourceUrls = new Set(storedJobs.map(({ sourceUrl }) => sourceUrl));
-	const filteredJobLinks = Object.fromEntries(
-		Object.entries(request.body).map(([keyword, keywordUrls]) => [
-			keyword,
-			keywordUrls.filter((url) => !storedSourceUrls.has(url)),
-		]),
-	);
+	try {
+		const database = client.db('jobMatch');
+		const jobsCollection = database.collection('jobs');
 
-	response.status(200).json(filteredJobLinks);
+		const storedJobs = await jobsCollection
+			.find({ sourceUrl: { $in: uniqueUrls } }, { projection: { sourceUrl: 1, _id: 0 } })
+			.toArray();
+		const storedSourceUrls = new Set(storedJobs.map(({ sourceUrl }) => sourceUrl));
+		const filteredJobLinks = Object.fromEntries(
+			Object.entries(request.body).map(([keyword, keywordUrls]) => [
+				keyword,
+				keywordUrls.filter((url) => !storedSourceUrls.has(url)),
+			]),
+		);
+
+		response.status(200).json(filteredJobLinks);
+	} catch (error) {
+		console.error("Error filtering job links:", error);
+		response.status(500).json({ message: "An error occurred while filtering job links" });
+	} finally {
+		await client.close();
+	}
 }
