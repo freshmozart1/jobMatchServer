@@ -1,6 +1,7 @@
 import type { Request, Response } from "express";
 import type { CreateJobInDatabaseRequestBody } from "#types";
-import { client, jobsCollection } from "./database.js";
+import { MongoClient } from "mongodb";
+import { mongoDbConnectionString } from "./database.js";
 
 function isValidCreateJobRequestBody(body: unknown): body is CreateJobInDatabaseRequestBody {
     return typeof body === "object"
@@ -20,9 +21,16 @@ export default async function createJobInDatabase(request: Request<object, objec
 
     const { job, like } = request.body;
 
+    const client = new MongoClient(mongoDbConnectionString);
     await client.connect();
 
-    const result = await jobsCollection.insertOne({ ...job, like });
-
-    response.status(201).json({ message: "Job created", jobId: result.insertedId });
+    try {
+        const result = await client.db('jobMatch').collection('jobs').insertOne({ ...job, like });
+        response.status(201).json({ message: "Job created", jobId: result.insertedId });
+    } catch (error) {
+        console.error("Error inserting job into database:", error);
+        response.status(500).json({ message: "Error inserting job into database", error: error instanceof Error ? error.message : String(error) });
+    } finally {
+        await client.close();
+    }
 }
