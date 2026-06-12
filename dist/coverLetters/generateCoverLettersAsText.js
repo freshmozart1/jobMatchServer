@@ -1,8 +1,8 @@
-import { client, coverLettersCollection } from "#database/database.js";
-import { ObjectId } from "mongodb";
+import { MongoClient, ObjectId } from "mongodb";
 import fetchTokens from "../tokens/fetchTokens.js";
 import OpenAI from "openai";
 import { getCoverLetterTextSegments, reconstructCoverLetterText } from "./coverLetterSegmentation.js";
+import { mongoDbConnectionString } from "#database/database.js";
 function isValidGenerateCoverLetterAsTextRequestBody(body) {
     return typeof body === "object"
         && body !== null
@@ -52,10 +52,11 @@ export default async function generateCoverLetterAsText(req, res) {
             throw new Error(`Invalid cover letter ID: ${id}`);
         }
     });
+    const client = new MongoClient(mongoDbConnectionString);
     await client.connect();
     let coverLetters;
     try {
-        coverLetters = await coverLettersCollection.find({ _id: { $in: coverletterObjectIds } }).toArray();
+        coverLetters = await client.db('jobMatch').collection('coverLetters').find({ _id: { $in: coverletterObjectIds } }).toArray();
     }
     catch (error) {
         res.status(500).json({ message: "Error retrieving cover letters from database", error: error instanceof Error ? error.message : String(error) });
