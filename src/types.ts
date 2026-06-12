@@ -1,3 +1,5 @@
+import type { ObjectId } from "mongodb";
+
 export type LinkedInUrlVariant = "jobPage" | "jobSearchPage";
 
 export type LinkedInJobLinkSearchParams = {

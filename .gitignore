@@ -1,2 +1,3 @@
 node_modules
 src/tokenService/__pycache__
+uploads/cv/*

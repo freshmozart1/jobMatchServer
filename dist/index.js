@@ -11,6 +11,8 @@ import filterJobLinks from "#database/filterJobLinks.js";
 import uploadCoverLetterAsText from "#database/uploadCoverLetterAsText.js";
 import generateCoverLetterAsText from "./coverLetters/generateCoverLettersAsText.js";
 import countTokens from "./tokens/calculateTokens.js";
+import multer from "multer";
+import uploadCV from "#database/uploadCV.js";
 export const app = express();
 const START_PORT = 3000;
 const ALLOWED_ORIGINS = new Set(["http://localhost:5173", "http://127.0.0.1:5173"]);
@@ -90,6 +92,8 @@ app.post('/jobs/filter-job-links', filterJobLinks);
 app.get('/jobs/top-x-similar-cover-letters', getTopXSimilarCoverLetters);
 app.post('/jobs/liked-average-similarity', getJobSimilarityToLikedAverage);
 app.post('/cover-letters/upload/text', uploadCoverLetterAsText);
+const upload = multer({ dest: `uploads/cv` });
+app.post('/cv/upload', upload.single('file'), uploadCV);
 app.post('/cover-letters/create/text', generateCoverLetterAsText);
 app.post('/tokens/count', countTokens);
 function appendChunkAndFlushLines(bufferedText, chunk, handleLine) {

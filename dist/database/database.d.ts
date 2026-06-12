@@ -4,4 +4,5 @@ export declare const client: MongoClient;
 export declare const database: import("mongodb").Db;
 export declare const jobsCollection: import("mongodb").Collection<StoredScrapedJob>;
 export declare const coverLettersCollection: import("mongodb").Collection<StoredCoverLetter>;
+export declare const cvCollection: import("mongodb").Collection<StoredCV>;
 //# sourceMappingURL=database.d.ts.map
