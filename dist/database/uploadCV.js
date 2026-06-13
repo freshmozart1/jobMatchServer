@@ -1,4 +1,5 @@
-import { client, jobsCollection, cvCollection } from "./database.js";
+import { MongoClient } from "mongodb";
+import { mongoDbConnectionString } from "./database.js";
 export default async function uploadCV(request, response) {
     const jobId = request.body["jobId"];
     if (typeof jobId !== "string") {
@@ -15,14 +16,15 @@ export default async function uploadCV(request, response) {
         response.status(400).json({ message: "file must be a PDF" });
         return;
     }
+    const client = new MongoClient(mongoDbConnectionString);
     await client.connect();
     try {
-        const job = await jobsCollection.findOne({ sourceJobId: jobId });
+        const job = await client.db('jobMatch').collection('jobs').findOne({ sourceJobId: jobId });
         if (!job) {
             response.status(404).json({ message: "Job not found" });
             return;
         }
-        const result = await cvCollection.insertOne({
+        const result = await client.db('jobMatch').collection('cv').insertOne({
             jobId: job._id,
             filePath: request.file.path,
         });
