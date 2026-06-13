@@ -1,7 +1,9 @@
 import type { Request, Response } from "express";
-import { client, coverLettersCollection } from "./database.js";
 import { segmentCoverLetter } from "../coverLetters/coverLetterSegmentation.js";
 import { createStoredCoverLetterFromTextSegments } from "../coverLetters/coverLetterEmbeddings.js";
+import { MongoClient } from "mongodb";
+import { mongoDbConnectionString } from "./database.js";
+import type { StoredCoverLetter } from "#types";
 
 type CoverLetterAsTextRequestBody = {
     coverLetterText: string;
@@ -29,18 +31,26 @@ export default async function uploadCoverLetterAsText(request: Request<object, o
     const { segments } = await segmentCoverLetter(coverLetterText);
     const coverLetter = await createStoredCoverLetterFromTextSegments(segments);
 
+    const client = new MongoClient(mongoDbConnectionString);
+    const coverLettersCollection = client.db('jobMatch').collection<StoredCoverLetter>('coverLetters');
     await client.connect();
 
-    if (jobDuplicateKey) {
-        const upserted = await coverLettersCollection.findOneAndReplace(
-            { jobDuplicateKey },
-            { ...coverLetter, jobDuplicateKey },
-            { upsert: true, returnDocument: "after" },
-        );
-        response.status(201).json({ message: "Cover letter uploaded", coverLetterId: upserted?._id });
-        return;
+    try {
+        if (jobDuplicateKey) {
+            const upserted = await coverLettersCollection.findOneAndReplace(
+                { jobDuplicateKey },
+                { ...coverLetter, jobDuplicateKey },
+                { upsert: true, returnDocument: "after" },
+            );
+            response.status(201).json({ message: "Cover letter uploaded", coverLetterId: upserted?._id });
+        }
+    
+        const result = await coverLettersCollection.insertOne(coverLetter);
+        response.status(201).json({ message: "Cover letter uploaded", coverLetterId: result.insertedId });
+    } catch (error) {
+        console.error("Error uploading cover letter:", error);
+        response.status(500).json({ message: "An error occurred while uploading the cover letter", error: error instanceof Error ? error.message : String(error) });
+    } finally {
+        await client.close();
     }
-
-    const result = await coverLettersCollection.insertOne(coverLetter);
-    response.status(201).json({ message: "Cover letter uploaded", coverLetterId: result.insertedId });
 }
