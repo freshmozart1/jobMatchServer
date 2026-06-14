@@ -3,16 +3,12 @@ import { type StoredScrapedJob, type StoredCoverLetter, type TextEmbedding } fro
 import { MongoClient, ObjectId } from "mongodb";
 import calculateCosineSimilarity from "../embeddings/calculateCosineSimilarity.js";
 import { getCoverLetterTextSegments, reconstructCoverLetterText } from "../coverLetters/coverLetterSegmentation.js";
-import { mongoDbConnectionString } from "./database.js";
+import { connectionStringConfigured, getCollection, MONGODB_CONNECTION } from "./database.js";
+import { createErrorMessage } from "../errors/createErrorMessage.js";
 
 type GetTopXSimilarCoverLettersRequestQuery = {
     'job-id': string;
     'x': string;
-};
-
-type TopXLetterResult = {
-    coverLetterText: string;
-    similarity: number;
 };
 
 const SEGMENT_SIMILARITY_WEIGHTS = {
@@ -22,7 +18,7 @@ const SEGMENT_SIMILARITY_WEIGHTS = {
     mainBody: 0.5,
     conclusion: 0.20,
     greetings: 0.02,
-} as const;
+};
 
 function calculateWeightedCoverLetterSimilarity(jobEmbedding: TextEmbedding, coverLetter: StoredCoverLetter): number {
     let weightedSimilaritySum = 0;
@@ -31,9 +27,7 @@ function calculateWeightedCoverLetterSimilarity(jobEmbedding: TextEmbedding, cov
     for (const [segmentName, weight] of Object.entries(SEGMENT_SIMILARITY_WEIGHTS)) {
         const embedding = coverLetter[segmentName as keyof typeof SEGMENT_SIMILARITY_WEIGHTS].embedding;
 
-        if (!embedding) {
-            continue;
-        }
+        if (!embedding) continue;
 
         weightedSimilaritySum += calculateCosineSimilarity(jobEmbedding, embedding) * weight;
         appliedWeightSum += weight;
@@ -55,38 +49,44 @@ function isValidGetTopXSimilarCoverLettersRequestQuery(query: unknown): query is
 }
 
 export default async function getTopXSimilarCoverLetters(request: Request<object, object, object, GetTopXSimilarCoverLettersRequestQuery>, response: Response): Promise<void> {
-    if (!isValidGetTopXSimilarCoverLettersRequestQuery(request.query)) {
-        response.status(400).json({ message: "Query parameters must include job-id and x, where job-id is a 24-character string and x is a positive number" });
-        return;
-    }
+    if (!connectionStringConfigured(response)) return;
 
     const { "job-id": jobId, x } = request.query;
     const topX = Number(x);
-
-    const client = new MongoClient(mongoDbConnectionString);
+    const client = new MongoClient(MONGODB_CONNECTION!);
+    const jobNotFoundError = new Error("Job not found");
+    const invalidRequestQueryError = new Error("Query parameters must include job-id and x, where job-id is a 24-character string and x is a positive number");
+    
     await client.connect();
 
     try {
-        const job = await client.db('jobMatch').collection<StoredScrapedJob>('jobs').findOne({ _id: new ObjectId(jobId) });
+        if (!isValidGetTopXSimilarCoverLettersRequestQuery(request.query)) throw invalidRequestQueryError;
 
-        if (!job) {
-            response.status(404).json({ message: "Job not found" });
-            return;
-        }
+        const job = await getCollection<StoredScrapedJob>(client, 'jobs').findOne({ _id: new ObjectId(jobId) });
 
-        const coverLetters = await client.db('jobMatch').collection<StoredCoverLetter>('coverLetters').find().toArray();
-        const topXLetterResults: TopXLetterResult[] = coverLetters
-            .map((coverLetter) => ({
-                coverLetterText: reconstructCoverLetterText(getCoverLetterTextSegments(coverLetter)),
-                similarity: calculateWeightedCoverLetterSimilarity(job.embedding, coverLetter),
-            }))
-            .sort((firstLetter, secondLetter) => secondLetter.similarity - firstLetter.similarity)
-            .slice(0, topX);
+        if (!job) throw jobNotFoundError;
 
-        response.status(200).json({ topXLetterResults });
-    } catch(error) {
-        console.error("Error in getTopXSimilarCoverLetters:", error);
-        response.status(500).json({ message: "An error occurred while processing the request", error: error instanceof Error ? error.message : String(error) });
+        response.status(200).json({
+            topXLetterResults: (await getCollection<StoredCoverLetter>(client, 'coverLetters').find().toArray()).map(cl => (
+                {
+                    coverLetterText: reconstructCoverLetterText(getCoverLetterTextSegments(cl)),
+                    similarity: calculateWeightedCoverLetterSimilarity(job.embedding, cl),
+                }
+            )).sort((first, second) => second.similarity - first.similarity).slice(0, topX)
+        });
+    } catch (error) {
+        const isJobNotFoundError = error instanceof Error && error.message === jobNotFoundError.message;
+        const isInvalidRequestQueryError = error instanceof Error && error.message === invalidRequestQueryError.message;
+        createErrorMessage(
+            response,
+            error,
+            "An error occurred while processing the request",
+            isJobNotFoundError
+                ? 404
+                : isInvalidRequestQueryError
+                    ? 400
+                    : 500
+        );
     }
     finally {
         await client.close();

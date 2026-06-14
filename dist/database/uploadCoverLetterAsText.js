@@ -1,7 +1,8 @@
 import { segmentCoverLetter } from "../coverLetters/coverLetterSegmentation.js";
 import { createStoredCoverLetterFromTextSegments } from "../coverLetters/coverLetterEmbeddings.js";
 import { MongoClient } from "mongodb";
-import { mongoDbConnectionString } from "./database.js";
+import { connectionStringConfigured, getCollection, MONGODB_CONNECTION } from "./database.js";
+import { createErrorMessage } from "../errors/createErrorMessage.js";
 function isValidCoverLetterAsTextRequestBody(body) {
     return typeof body === "object"
         && body !== null
@@ -12,17 +13,18 @@ function isValidCoverLetterAsTextRequestBody(body) {
             || (typeof body.jobDuplicateKey === "string" && body.jobDuplicateKey.trim().length > 0));
 }
 export default async function uploadCoverLetterAsText(request, response) {
-    if (!isValidCoverLetterAsTextRequestBody(request.body)) {
-        response.status(400).json({ message: "Request body must include a non-empty coverLetterText string and may include a non-empty jobDuplicateKey string" });
+    const invalidCoverLetterAsTextRequestBodyError = new Error("Invalid request body. Please provide a non-empty coverLetterText string and optionally a non-empty jobDuplicateKey string.");
+    if (!connectionStringConfigured(response))
         return;
-    }
-    const { coverLetterText, jobDuplicateKey } = request.body;
-    const { segments } = await segmentCoverLetter(coverLetterText);
-    const coverLetter = await createStoredCoverLetterFromTextSegments(segments);
-    const client = new MongoClient(mongoDbConnectionString);
-    const coverLettersCollection = client.db('jobMatch').collection('coverLetters');
+    const client = new MongoClient(MONGODB_CONNECTION);
     await client.connect();
     try {
+        if (!isValidCoverLetterAsTextRequestBody(request.body))
+            throw invalidCoverLetterAsTextRequestBodyError;
+        const coverLettersCollection = getCollection(client, 'coverLetters');
+        const { coverLetterText, jobDuplicateKey } = request.body;
+        const { segments } = await segmentCoverLetter(coverLetterText);
+        const coverLetter = await createStoredCoverLetterFromTextSegments(segments);
         if (jobDuplicateKey) {
             const upserted = await coverLettersCollection.findOneAndReplace({ jobDuplicateKey }, { ...coverLetter, jobDuplicateKey }, { upsert: true, returnDocument: "after" });
             response.status(201).json({ message: "Cover letter uploaded", coverLetterId: upserted?._id });
@@ -31,8 +33,9 @@ export default async function uploadCoverLetterAsText(request, response) {
         response.status(201).json({ message: "Cover letter uploaded", coverLetterId: result.insertedId });
     }
     catch (error) {
-        console.error("Error uploading cover letter:", error);
-        response.status(500).json({ message: "An error occurred while uploading the cover letter", error: error instanceof Error ? error.message : String(error) });
+        createErrorMessage(response, error, "An error occurred while uploading the cover letter", error instanceof Error && error.message === invalidCoverLetterAsTextRequestBodyError.message
+            ? 400
+            : 500);
     }
     finally {
         await client.close();

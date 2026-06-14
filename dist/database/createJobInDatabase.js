@@ -1,5 +1,6 @@
 import { MongoClient } from "mongodb";
-import { mongoDbConnectionString } from "./database.js";
+import { connectionStringConfigured, getCollection, MONGODB_CONNECTION } from "./database.js";
+import { createErrorMessage } from "../errors/createErrorMessage.js";
 function isValidCreateJobRequestBody(body) {
     return typeof body === "object"
         && body !== null
@@ -10,20 +11,25 @@ function isValidCreateJobRequestBody(body) {
         && typeof body.like === "boolean";
 }
 export default async function createJobInDatabase(request, response) {
-    if (!isValidCreateJobRequestBody(request.body)) {
-        response.status(400).json({ message: "Request body must include job and boolean like fields" });
-        return;
-    }
+    const invalidBodyErrorMessage = "Request body must include job and boolean like fields";
     const { job, like } = request.body;
-    const client = new MongoClient(mongoDbConnectionString);
+    if (!connectionStringConfigured(response))
+        return;
+    const client = new MongoClient(MONGODB_CONNECTION);
     await client.connect();
     try {
-        const result = await client.db('jobMatch').collection('jobs').insertOne({ ...job, like });
+        if (!isValidCreateJobRequestBody(request.body))
+            throw new Error(invalidBodyErrorMessage);
+        const result = await getCollection(client, 'jobs').insertOne({ ...job, like });
         response.status(201).json({ message: "Job created", jobId: result.insertedId });
     }
     catch (error) {
-        console.error("Error inserting job into database:", error);
-        response.status(500).json({ message: "Error inserting job into database", error: error instanceof Error ? error.message : String(error) });
+        const isInvalidBodyError = error instanceof Error && error.message === invalidBodyErrorMessage;
+        createErrorMessage(response, error, isInvalidBodyError
+            ? invalidBodyErrorMessage
+            : "Failed to create job in database", isInvalidBodyError
+            ? 400
+            : 500);
     }
     finally {
         await client.close();

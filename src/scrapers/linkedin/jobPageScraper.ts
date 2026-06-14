@@ -1,33 +1,36 @@
 import type { Request, Response } from "express";
 import { type Browser, type Page } from "puppeteer";
-
 import getLinkedInJobPathSegment from "./getLinkedInJobPathSegment.js";
-import { getErrorMessage, getScraperErrorStatus } from "./jobLinkScraper.js";
+import { getScraperErrorStatus } from "./jobLinkScraper.js";
 import isLinkedInHost from "./isLinkedInHost.js";
 import { type ScrapedJob, type ExtractedLinkedInJobPage, type StoredScrapedJob } from "#types";
 import waitForLinkedInPage from "./waitForLinkedInPage.js";
 import isSupportedLinkedInUrl from "./isSupportedLinkedInUrl.js";
 import { createJobEmbedding } from "../../embeddings/jobEmbedding.js";
 import { MongoClient } from "mongodb";
-import { mongoDbConnectionString } from "#database/database.js";
+import { connectionStringConfigured, getCollection, MONGODB_CONNECTION } from "#database/database.js";
 import calculateCosineSimilarity from "../../embeddings/calculateCosineSimilarity.js";
+import { createErrorMessage } from "../../errors/createErrorMessage.js";
 
 export async function scrapeLinkedInJobPage(request: Request, response: Response): Promise<void> {
     const jobUrl = getUrlFromBody(request.body);
+    const bodyHasNoUrlError = new Error("Request body must include a valid string url.");
+    const unsupportedUrlError = new Error("No job page scraper is registered for this URL.");
+    const couldntNormalizeUrlError = new Error("Could not normalize LinkedIn job page URL.");
 
-    if (!jobUrl) {
-        response.status(400).json({ error: "Request body must include a valid string url." });
-        return;
-    }
 
-    if (!isSupportedLinkedInUrl(jobUrl, "jobPage")) {
-        response.status(422).json({ error: "No job page scraper is registered for this URL." });
-        return;
-    }
+    if (!connectionStringConfigured(response)) return;
+
+    const client = new MongoClient(MONGODB_CONNECTION!);
+
+    await client.connect();
 
     let browser: Browser | null = null;
 
     try {
+        if (!jobUrl) throw bodyHasNoUrlError;
+        if (!isSupportedLinkedInUrl(jobUrl, "jobPage")) throw unsupportedUrlError;
+
         const { browser: renderedBrowser, page } = await waitForLinkedInPage(jobUrl);
         browser = renderedBrowser;
 
@@ -35,9 +38,7 @@ export async function scrapeLinkedInJobPage(request: Request, response: Response
         const pageTitle = await page.title();
         const canonicalUrl = normalizeLinkedInJobPageUrl(page.url()) ?? normalizeLinkedInJobPageUrl(jobUrl);
 
-        if (!canonicalUrl) {
-            throw new Error("Could not normalize LinkedIn job page URL.");
-        }
+        if (!canonicalUrl) throw couldntNormalizeUrlError;
 
         const canonicalUrlObject = new URL(canonicalUrl);
         const sourceJobId = extractLinkedInJobId(canonicalUrl);
@@ -61,41 +62,42 @@ export async function scrapeLinkedInJobPage(request: Request, response: Response
 
         const embedding = await createJobEmbedding(jobFields);
         let similarity: number | undefined;
-        const client = new MongoClient(mongoDbConnectionString);
-        await client.connect();
-        try {
-            const likedJobsEmbeddings = (await client.db('jobMatch').collection<StoredScrapedJob>('jobs').find({ like: true }).toArray()).map(j => j.embedding);
-            const firstEmbedding = likedJobsEmbeddings[0];
-            if (firstEmbedding) {
-                const dimension = firstEmbedding.length;
-                const sum: number[] = new Array<number>(dimension).fill(0);
-                for (const likedEmbedding of likedJobsEmbeddings) {
-                    for (let i = 0; i < dimension; i++) {
-                        const s = sum[i];
-                        const e = likedEmbedding[i];
-                        if (typeof s === "number" && typeof e === "number") {
-                            sum[i] = s + e;
-                        }
+        const likedJobsEmbeddings = (await getCollection<StoredScrapedJob>(client, 'jobs').find({ like: true }).toArray()).map(j => j.embedding);
+        const firstEmbedding = likedJobsEmbeddings[0];
+        if (firstEmbedding) {
+            const dimension = firstEmbedding.length;
+            const sum: number[] = new Array<number>(dimension).fill(0);
+            for (const likedEmbedding of likedJobsEmbeddings) {
+                for (let i = 0; i < dimension; i++) {
+                    const s = sum[i];
+                    const e = likedEmbedding[i];
+                    if (typeof s === "number" && typeof e === "number") {
+                        sum[i] = s + e;
                     }
                 }
-                const averageEmbedding = sum.map(v => v / likedJobsEmbeddings.length);
-                similarity = calculateCosineSimilarity(embedding, averageEmbedding);
             }
-        } finally {
-            await client.close();
+            const averageEmbedding = sum.map(v => v / likedJobsEmbeddings.length);
+            similarity = calculateCosineSimilarity(embedding, averageEmbedding);
         }
         const scrapedJob: ScrapedJob = { ...jobFields, embedding, ...(similarity !== undefined ? { cosineSimilarity: similarity } : {}) };
 
         response.status(200).json(scrapedJob);
     } catch (error) {
-        response.status(getScraperErrorStatus(error)).json({
-            error: "Failed to scrape job page.",
-            message: getErrorMessage(error),
-        });
+        createErrorMessage(
+            response,
+            error,
+            "Failed to scrape job page.",
+            error instanceof Error && error.message === bodyHasNoUrlError.message
+                ? 400
+                : error instanceof Error && error.message === unsupportedUrlError.message
+                    ? 422
+                    : getScraperErrorStatus(error)
+        );
     } finally {
         if (browser) {
             await browser.close();
         }
+        await client.close();
     }
 }
 

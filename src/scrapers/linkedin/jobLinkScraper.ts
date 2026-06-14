@@ -1,12 +1,14 @@
+import waitForLinkedInPage from "./waitForLinkedInPage.js";
+import isSupportedLinkedInUrl from "./isSupportedLinkedInUrl.js";
+import isLinkedInHost from "./isLinkedInHost.js";
+import { createErrorMessage } from "../../errors/createErrorMessage.js";
 import type { Request, Response } from "express";
-import { type Browser, type Page } from "puppeteer";
-
+import type { Browser, Page } from "puppeteer";
 import type {
     LinkedInJobLinkSearchParams,
     LinkedInJobLinksByKeyword,
     ScrapedAnchor,
 } from "#types";
-import waitForLinkedInPage from "./waitForLinkedInPage.js";
 
 const LINKEDIN_JOB_SEARCH_URL = "https://www.linkedin.com/jobs/search";
 
@@ -16,30 +18,21 @@ type InspectedPage = {
 
 export async function scrapeLinkedInJobLinks(request: Request, response: Response): Promise<void> {
     const searchParams = getLinkedInJobLinkSearchParamsFromBody(request.body);
-
-    if (!searchParams) {
-        response.status(400).json({
-            error: "Request body must include keywords as a non-empty string or non-empty string array, location as a non-empty string, and distance as a positive integer.",
-        });
-        return;
-    }
-
-    const keywordSearchUrls = searchParams.keywords.map((keyword) => ({
-        keyword,
-        searchUrl: buildLinkedInJobSearchUrl(keyword, searchParams.location, searchParams.distance),
-    }));
-
-    for (const keywordSearchUrl of keywordSearchUrls) {
-        if (!isSupportedLinkedInUrl(keywordSearchUrl.searchUrl)) {
-            response.status(422).json({ error: "Only LinkedIn jobs search URLs are supported." });
-            return;
-        }
-    }
+    const unsupportedUrlError = new Error("Only LinkedIn jobs search URLs are supported.");
+    const unsupportedSearchParamsError = new Error("Invalid search parameters. Please ensure keywords is a non-empty string or non-empty string array, location is a non-empty string, and distance is a positive integer.");
 
     try {
+        if (!searchParams) throw unsupportedSearchParamsError;
+
         const jobLinksByKeyword: LinkedInJobLinksByKeyword = Object.create(null) as LinkedInJobLinksByKeyword;
 
-        for (const keywordSearchUrl of keywordSearchUrls) {
+        for (const keywordSearchUrl of searchParams.keywords.map(keyword => {
+            const searchUrl = buildLinkedInJobSearchUrl(keyword, searchParams.location, searchParams.distance);
+
+            if (!isSupportedLinkedInUrl(searchUrl, 'jobSearchPage')) throw unsupportedUrlError;
+
+            return { keyword, searchUrl };
+        })) {
             let browser: Browser | null = null;
             try {
                 const { browser: renderedBrowser, page } = await waitForLinkedInPage(keywordSearchUrl.searchUrl);
@@ -57,10 +50,12 @@ export async function scrapeLinkedInJobLinks(request: Request, response: Respons
 
         response.status(200).json(jobLinksByKeyword);
     } catch (error) {
-        response.status(getScraperErrorStatus(error)).json({
-            error: "Failed to scrape LinkedIn job links.",
-            message: getErrorMessage(error),
-        });
+        createErrorMessage(
+            response,
+            error,
+            "Failed to scrape LinkedIn job links.",
+            getScraperErrorStatus(error)
+        );
     }
 }
 
@@ -70,24 +65,6 @@ export function getScraperErrorStatus(error: unknown): number {
     }
 
     return 502;
-}
-
-export function getErrorMessage(error: unknown): string {
-    return error instanceof Error ? error.message : "Unknown scraper error.";
-}
-
-export function isSupportedLinkedInUrl(searchUrl: string): boolean {
-    try {
-        const url = new URL(searchUrl);
-
-        return (
-            url.protocol === "https:" &&
-            isLinkedInHost(url.hostname) &&
-            (url.pathname === "/jobs/search" || url.pathname === "/jobs/search/")
-        );
-    } catch {
-        return false;
-    }
 }
 
 function getLinkedInJobLinkSearchParamsFromBody(body: unknown): LinkedInJobLinkSearchParams | null {
@@ -217,10 +194,4 @@ function normalizeLinkedInJobDetailUrl(href: string): string | null {
     } catch {
         return null;
     }
-}
-
-function isLinkedInHost(hostname: string): boolean {
-    const normalizedHostname = hostname.toLowerCase();
-
-    return normalizedHostname === "linkedin.com" || normalizedHostname.endsWith(".linkedin.com");
 }

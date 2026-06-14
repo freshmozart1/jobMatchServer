@@ -142,8 +142,8 @@ describe("getTopXSimilarCoverLetters", () => {
         expect(status).toHaveBeenCalledWith(200);
         expect(json).toHaveBeenCalledWith({
             topXLetterResults: [
-                { coverLetterText: "Subject second\n\nDear Hiring Manager,\n\nIntroduction second\n\nMain body second\n\nConclusion second\n\nBest regards\nOle", similarity: 0.9 },
-                { coverLetterText: "Subject third\n\nDear Hiring Manager,\n\nIntroduction third\n\nMain body third\n\nConclusion third\n\nBest regards\nOle", similarity: 0.6 },
+                { coverLetterText: "Subject second\n\nDear Hiring Manager,\n\nIntroduction second\n\nMain body second\n\nConclusion second\n\nBest regards\nOle", similarity: expect.closeTo(0.9, 10) },
+                { coverLetterText: "Subject third\n\nDear Hiring Manager,\n\nIntroduction third\n\nMain body third\n\nConclusion third\n\nBest regards\nOle", similarity: expect.closeTo(0.6, 10) },
             ],
         });
         expect(connect).toHaveBeenCalledTimes(1);

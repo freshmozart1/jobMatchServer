@@ -48,6 +48,10 @@ export type CoverLetterSegment = {
 export type StoredCoverLetter = Record<CoverLetterSegmentName, CoverLetterSegment> & {
     jobDuplicateKey?: string;
 };
+export type StoredCv = {
+    jobId: string;
+    filePath: string;
+};
 export type CreateJobInDatabaseRequestBody = {
     job: ScrapedJob;
     like: boolean;

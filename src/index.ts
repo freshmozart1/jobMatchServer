@@ -330,6 +330,8 @@ async function listenWithFallback(port: number, tokenServiceUrl?: string): Promi
     });
 }
 
+console.log('MongoDB connection string:', process.env["MONGODB_CONNECTION_STRING"]);
+
 void listenWithFallback(START_PORT).catch((error: unknown) => {
     console.error(error);
     tokenServiceProcess?.kill();

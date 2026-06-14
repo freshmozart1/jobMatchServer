@@ -2,7 +2,8 @@ import {} from "#types";
 import { MongoClient, ObjectId } from "mongodb";
 import calculateCosineSimilarity from "../embeddings/calculateCosineSimilarity.js";
 import { getCoverLetterTextSegments, reconstructCoverLetterText } from "../coverLetters/coverLetterSegmentation.js";
-import { mongoDbConnectionString } from "./database.js";
+import { connectionStringConfigured, getCollection, MONGODB_CONNECTION } from "./database.js";
+import { createErrorMessage } from "../errors/createErrorMessage.js";
 const SEGMENT_SIMILARITY_WEIGHTS = {
     subject: 0.06,
     salutation: 0.02,
@@ -16,9 +17,8 @@ function calculateWeightedCoverLetterSimilarity(jobEmbedding, coverLetter) {
     let appliedWeightSum = 0;
     for (const [segmentName, weight] of Object.entries(SEGMENT_SIMILARITY_WEIGHTS)) {
         const embedding = coverLetter[segmentName].embedding;
-        if (!embedding) {
+        if (!embedding)
             continue;
-        }
         weightedSimilaritySum += calculateCosineSimilarity(jobEmbedding, embedding) * weight;
         appliedWeightSum += weight;
     }
@@ -36,33 +36,35 @@ function isValidGetTopXSimilarCoverLettersRequestQuery(query) {
         && Number(query.x) > 0;
 }
 export default async function getTopXSimilarCoverLetters(request, response) {
-    if (!isValidGetTopXSimilarCoverLettersRequestQuery(request.query)) {
-        response.status(400).json({ message: "Query parameters must include job-id and x, where job-id is a 24-character string and x is a positive number" });
+    if (!connectionStringConfigured(response))
         return;
-    }
     const { "job-id": jobId, x } = request.query;
     const topX = Number(x);
-    const client = new MongoClient(mongoDbConnectionString);
+    const client = new MongoClient(MONGODB_CONNECTION);
+    const jobNotFoundError = new Error("Job not found");
+    const invalidRequestQueryError = new Error("Query parameters must include job-id and x, where job-id is a 24-character string and x is a positive number");
     await client.connect();
     try {
-        const job = await client.db('jobMatch').collection('jobs').findOne({ _id: new ObjectId(jobId) });
-        if (!job) {
-            response.status(404).json({ message: "Job not found" });
-            return;
-        }
-        const coverLetters = await client.db('jobMatch').collection('coverLetters').find().toArray();
-        const topXLetterResults = coverLetters
-            .map((coverLetter) => ({
-            coverLetterText: reconstructCoverLetterText(getCoverLetterTextSegments(coverLetter)),
-            similarity: calculateWeightedCoverLetterSimilarity(job.embedding, coverLetter),
-        }))
-            .sort((firstLetter, secondLetter) => secondLetter.similarity - firstLetter.similarity)
-            .slice(0, topX);
-        response.status(200).json({ topXLetterResults });
+        if (!isValidGetTopXSimilarCoverLettersRequestQuery(request.query))
+            throw invalidRequestQueryError;
+        const job = await getCollection(client, 'jobs').findOne({ _id: new ObjectId(jobId) });
+        if (!job)
+            throw jobNotFoundError;
+        response.status(200).json({
+            topXLetterResults: (await getCollection(client, 'coverLetters').find().toArray()).map(cl => ({
+                coverLetterText: reconstructCoverLetterText(getCoverLetterTextSegments(cl)),
+                similarity: calculateWeightedCoverLetterSimilarity(job.embedding, cl),
+            })).sort((first, second) => second.similarity - first.similarity).slice(0, topX)
+        });
     }
     catch (error) {
-        console.error("Error in getTopXSimilarCoverLetters:", error);
-        response.status(500).json({ message: "An error occurred while processing the request", error: error instanceof Error ? error.message : String(error) });
+        const isJobNotFoundError = error instanceof Error && error.message === jobNotFoundError.message;
+        const isInvalidRequestQueryError = error instanceof Error && error.message === invalidRequestQueryError.message;
+        createErrorMessage(response, error, "An error occurred while processing the request", isJobNotFoundError
+            ? 404
+            : isInvalidRequestQueryError
+                ? 400
+                : 500);
     }
     finally {
         await client.close();
