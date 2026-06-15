@@ -12,30 +12,31 @@ type CoverLetterAsTextRequestBody = {
 };
 
 function isValidCoverLetterAsTextRequestBody(body: unknown): body is CoverLetterAsTextRequestBody {
-    return typeof body === "object"
-        && body !== null
-        && "coverLetterText" in body
-        && typeof body.coverLetterText === "string"
-        && body.coverLetterText.trim().length > 0
-        && (!("jobDuplicateKey" in body)
-            || (typeof body.jobDuplicateKey === "string" && body.jobDuplicateKey.trim().length > 0));
+    if (typeof body !== "object" || body === null) return false;
+    if (!("coverLetterText" in body) || typeof body.coverLetterText !== "string" || body.coverLetterText.trim().length === 0) return false;
+    if ("jobDuplicateKey" in body && (typeof body.jobDuplicateKey !== "string" || body.jobDuplicateKey.trim().length === 0)) return false;
+    return true;
 }
 
 export default async function uploadCoverLetterAsText(request: Request<object, object, CoverLetterAsTextRequestBody>, response: Response): Promise<void> {
-    const invalidCoverLetterAsTextRequestBodyError = new Error("Invalid request body. Please provide a non-empty coverLetterText string and optionally a non-empty jobDuplicateKey string.");
+    const invalidCoverLetterAsTextRequestBodyError = new Error("Invalid request body. Please provide a non-empty coverLetterText string and a non-empty jobDuplicateKey string.");
 
     if (!connectionStringConfigured(response)) return;
 
+    if (!isValidCoverLetterAsTextRequestBody(request.body)) {
+        createErrorMessage(response, invalidCoverLetterAsTextRequestBodyError, "An error occurred while uploading the cover letter", 400);
+        return;
+    }
+
+    const { coverLetterText, jobDuplicateKey } = request.body;
     const client = new MongoClient(MONGODB_CONNECTION!);
-    
     await client.connect();
 
     try {
-        if (!isValidCoverLetterAsTextRequestBody(request.body)) throw invalidCoverLetterAsTextRequestBodyError;
         const coverLettersCollection = getCollection<StoredCoverLetter>(client, 'coverLetters');
-        const { coverLetterText, jobDuplicateKey } = request.body;
         const { segments } = await segmentCoverLetter(coverLetterText);
         const coverLetter = await createStoredCoverLetterFromTextSegments(segments);
+
         if (jobDuplicateKey) {
             const upserted = await coverLettersCollection.findOneAndReplace(
                 { jobDuplicateKey },
@@ -43,19 +44,12 @@ export default async function uploadCoverLetterAsText(request: Request<object, o
                 { upsert: true, returnDocument: "after" },
             );
             response.status(201).json({ message: "Cover letter uploaded", coverLetterId: upserted?._id });
+        } else {
+            const result = await coverLettersCollection.insertOne(coverLetter);
+            response.status(201).json({ message: "Cover letter uploaded", coverLetterId: result.insertedId });
         }
-    
-        const result = await coverLettersCollection.insertOne(coverLetter);
-        response.status(201).json({ message: "Cover letter uploaded", coverLetterId: result.insertedId });
     } catch (error) {
-        createErrorMessage(
-            response,
-            error,
-            "An error occurred while uploading the cover letter",
-            error instanceof Error && error.message === invalidCoverLetterAsTextRequestBodyError.message
-                ? 400
-                : 500
-        );
+        createErrorMessage(response, error, "An error occurred while uploading the cover letter");
     } finally {
         await client.close();
     }

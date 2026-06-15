@@ -1,11 +1,13 @@
 import { beforeEach, describe, expect, it, jest } from "@jest/globals";
+import { mockLocalDatabaseModule, getCollection } from "../testMockModules/localDatabase.test.js";
+import { mockMongoDbModule, connect } from "../testMockModules/mongodb.test.js";
+import { mockCoverLetterSegmentationModule, segmentCoverLetter } from "../testMockModules/coverLetterSegmentation.test.js";
+import { mockCoverLetterEmbeddingsModule, createStoredCoverLetterFromTextSegments } from "../testMockModules/coverLetterEmbeddings.test.js";
+import createResponse from "../testHelpers/createResponse.test.js";
 const insertedCoverLetterId = "inserted-cover-letter-id";
 const upsertedCoverLetterId = "upserted-cover-letter-id";
-const connect = jest.fn();
 const insertOne = jest.fn();
 const findOneAndReplace = jest.fn();
-const segmentCoverLetter = jest.fn();
-const createStoredCoverLetterFromTextSegments = jest.fn();
 const segments = {
     subject: "Subject: Application",
     salutation: "Dear Hiring Manager,",
@@ -21,28 +23,17 @@ const storedCoverLetter = {
     mainBody: { text: segments.mainBody, embedding: [0.4] },
     conclusion: { text: segments.conclusion, embedding: [0.5] },
     greetings: { text: segments.greetings, embedding: [0.6] },
+    jobDuplicateKey: "test-key-1",
 };
-jest.unstable_mockModule("./database.js", () => ({
-    client: { connect },
-    coverLettersCollection: { insertOne, findOneAndReplace },
-}));
-jest.unstable_mockModule("../coverLetters/coverLetterSegmentation.js", () => ({
-    segmentCoverLetter,
-}));
-jest.unstable_mockModule("../coverLetters/coverLetterEmbeddings.js", () => ({
-    createStoredCoverLetterFromTextSegments,
-}));
+const invalidRequestBodyError = { error: "Invalid request body. Please provide a non-empty coverLetterText string and a non-empty jobDuplicateKey string.", message: "An error occurred while uploading the cover letter" };
+mockMongoDbModule();
+mockLocalDatabaseModule();
+mockCoverLetterSegmentationModule();
+mockCoverLetterEmbeddingsModule();
+// The module under test is imported after the mocks to ensure the mocks are used
 const { default: uploadCoverLetterAsText } = await import("./uploadCoverLetterAsText.js");
 function createRequest(body) {
     return { body };
-}
-function createResponse() {
-    const status = jest.fn();
-    const json = jest.fn();
-    const response = { status, json };
-    status.mockReturnValue(response);
-    json.mockReturnValue(response);
-    return { response, status, json };
 }
 describe("uploadCoverLetterAsText", () => {
     beforeEach(() => {
@@ -52,6 +43,7 @@ describe("uploadCoverLetterAsText", () => {
         findOneAndReplace.mockResolvedValue({ _id: upsertedCoverLetterId });
         segmentCoverLetter.mockResolvedValue({ segments });
         createStoredCoverLetterFromTextSegments.mockResolvedValue(storedCoverLetter);
+        getCollection.mockReturnValue({ insertOne, findOneAndReplace });
     });
     it("segments, embeds, stores the cover letter, and responds with the inserted id", async () => {
         const coverLetterText = "Dear Hiring Manager,\n\nI am excited to apply.\n\nBest regards\nOle";
@@ -85,7 +77,7 @@ describe("uploadCoverLetterAsText", () => {
         const { response, status, json } = createResponse();
         await uploadCoverLetterAsText(request, response);
         expect(status).toHaveBeenCalledWith(400);
-        expect(json).toHaveBeenCalledWith({ message: "Request body must include a non-empty coverLetterText string and may include a non-empty jobDuplicateKey string" });
+        expect(json).toHaveBeenCalledWith(invalidRequestBodyError);
         expect(segmentCoverLetter).not.toHaveBeenCalled();
         expect(createStoredCoverLetterFromTextSegments).not.toHaveBeenCalled();
         expect(insertOne).not.toHaveBeenCalled();
@@ -97,7 +89,7 @@ describe("uploadCoverLetterAsText", () => {
         const { response, status, json } = createResponse();
         await uploadCoverLetterAsText(request, response);
         expect(status).toHaveBeenCalledWith(400);
-        expect(json).toHaveBeenCalledWith({ message: "Request body must include a non-empty coverLetterText string and may include a non-empty jobDuplicateKey string" });
+        expect(json).toHaveBeenCalledWith(invalidRequestBodyError);
         expect(segmentCoverLetter).not.toHaveBeenCalled();
         expect(createStoredCoverLetterFromTextSegments).not.toHaveBeenCalled();
         expect(insertOne).not.toHaveBeenCalled();

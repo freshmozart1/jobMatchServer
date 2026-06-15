@@ -1,62 +1,29 @@
 import { beforeEach, describe, expect, it, jest } from "@jest/globals";
-import type { Request, Response } from "express";
 import type { StoredCoverLetter, StoredScrapedJob, TextEmbedding } from "#types";
+import { mockMongoDbModule, connect, close, createToArray, createFind } from "../testMockModules/mongodb.test.js";
+import { mockLocalDatabaseModule, getCollection } from "../testMockModules/localDatabase.test.js";
+import { mockCalculateCosineSimilarityModule, calculateCosineSimilarity } from "../testMockModules/calculateCosineSimilarity.test.js";
+import createResponse from "../testHelpers/createResponse.test.js";
+import createRequest from "../testHelpers/createRequest.test.js";
+import { createJob, duplicateKey, embedding as jobEmbedding } from "../testHelpers/createJob.test.js";
 
 type GetTopXSimilarCoverLettersRequestQuery = {
     "job-id": string;
     x: string;
 };
 
-type FindResultMock = {
-    toArray: ReturnType<typeof jest.fn<() => Promise<StoredCoverLetter[]>>>;
-};
-
-type JobsCollectionMock = {
-    findOne: ReturnType<typeof jest.fn<(filter: unknown) => Promise<StoredScrapedJob | null>>>;
-};
-
-type CoverLettersCollectionMock = {
-    find: ReturnType<typeof jest.fn<() => FindResultMock>>;
-};
-
-const jobEmbedding = [1, 0, 0] satisfies TextEmbedding;
 const validJobId = "507f1f77bcf86cd799439011";
-const connect = jest.fn<() => Promise<void>>();
-const close = jest.fn<() => Promise<void>>();
+
 const findOne = jest.fn<(filter: unknown) => Promise<StoredScrapedJob | null>>();
-const find = jest.fn<() => FindResultMock>();
-const toArray = jest.fn<() => Promise<StoredCoverLetter[]>>();
-const calculateCosineSimilarity = jest.fn<(vecA: TextEmbedding, vecB: TextEmbedding) => number>();
+const find = createFind<StoredCoverLetter>();
+const toArray = createToArray<StoredCoverLetter>();
 
-jest.unstable_mockModule("./database.js", () => ({
-    client: { connect, close },
-    jobsCollection: { findOne } satisfies JobsCollectionMock,
-    coverLettersCollection: { find } satisfies CoverLettersCollectionMock,
-}));
+mockMongoDbModule();
+mockLocalDatabaseModule();
+mockCalculateCosineSimilarityModule();
 
-jest.unstable_mockModule("../embeddings/calculateCosineSimilarity.js", () => ({
-    default: calculateCosineSimilarity,
-}));
-
+// The module under test is imported after the mocks to ensure the mocks are used
 const { default: getTopXSimilarCoverLetters } = await import("./getTopXSimilarCoverLetters.js");
-
-function createStoredJob(): StoredScrapedJob {
-    return {
-        sourceHostname: "www.linkedin.com",
-        sourceJobId: "123456789",
-        sourceUrl: "https://www.linkedin.com/jobs/view/123456789",
-        title: "Software Engineer",
-        company: "Example Company",
-        location: "Remote",
-        descriptionText: "Build and maintain TypeScript services.",
-        postedAt: "2026-06-01",
-        scrapedAt: "2026-06-02T00:00:00.000Z",
-        tags: ["typescript", "node"],
-        duplicateKey: "linkedin:123456789",
-        like: true,
-        embedding: jobEmbedding,
-    } satisfies StoredScrapedJob;
-}
 
 function createStoredCoverLetter(introductionEmbedding: TextEmbedding, mainBodyEmbedding: TextEmbedding, conclusionEmbedding: TextEmbedding, label: string): StoredCoverLetter {
     return {
@@ -66,26 +33,8 @@ function createStoredCoverLetter(introductionEmbedding: TextEmbedding, mainBodyE
         mainBody: { text: `Main body ${label}`, embedding: mainBodyEmbedding },
         conclusion: { text: `Conclusion ${label}`, embedding: conclusionEmbedding },
         greetings: { text: "Best regards\nOle", embedding: null },
+        jobDuplicateKey: duplicateKey,
     };
-}
-
-function createRequest(query: unknown): Request<object, object, object, GetTopXSimilarCoverLettersRequestQuery> {
-    return { query } as Request<object, object, object, GetTopXSimilarCoverLettersRequestQuery>;
-}
-
-function createResponse(): {
-    response: Response;
-    status: ReturnType<typeof jest.fn<(statusCode: number) => Response>>;
-    json: ReturnType<typeof jest.fn<(body: unknown) => Response>>;
-} {
-    const status = jest.fn<(statusCode: number) => Response>();
-    const json = jest.fn<(body: unknown) => Response>();
-    const response = { status, json } as unknown as Response;
-
-    status.mockReturnValue(response);
-    json.mockReturnValue(response);
-
-    return { response, status, json };
 }
 
 describe("getTopXSimilarCoverLetters", () => {
@@ -94,7 +43,8 @@ describe("getTopXSimilarCoverLetters", () => {
 
         connect.mockResolvedValue();
         close.mockResolvedValue();
-        findOne.mockResolvedValue(createStoredJob());
+        getCollection.mockReturnValue({ find, findOne });
+        findOne.mockResolvedValue(createJob<StoredScrapedJob>(true));
         toArray.mockResolvedValue([]);
         find.mockReturnValue({ toArray });
     });
@@ -109,7 +59,7 @@ describe("getTopXSimilarCoverLetters", () => {
         const thirdIntroductionEmbedding = [0.7, 0.8, 0.9] satisfies TextEmbedding;
         const thirdMainBodyEmbedding = [0.8, 0.9, 1] satisfies TextEmbedding;
         const thirdConclusionEmbedding = [0.9, 1, 1.1] satisfies TextEmbedding;
-        const request = createRequest({ "job-id": validJobId, x: "2" });
+        const request = createRequest<object, GetTopXSimilarCoverLettersRequestQuery>({ query: { "job-id": validJobId, x: "2" } });
         const { response, status, json } = createResponse();
 
         toArray.mockResolvedValue([
@@ -117,28 +67,19 @@ describe("getTopXSimilarCoverLetters", () => {
             createStoredCoverLetter(secondIntroductionEmbedding, secondMainBodyEmbedding, secondConclusionEmbedding, "second"),
             createStoredCoverLetter(thirdIntroductionEmbedding, thirdMainBodyEmbedding, thirdConclusionEmbedding, "third"),
         ]);
-        calculateCosineSimilarity
-            .mockReturnValueOnce(0.2)
-            .mockReturnValueOnce(0.3)
-            .mockReturnValueOnce(0.4)
-            .mockReturnValueOnce(0.8)
-            .mockReturnValueOnce(0.9)
-            .mockReturnValueOnce(1)
-            .mockReturnValueOnce(0.5)
-            .mockReturnValueOnce(0.6)
-            .mockReturnValueOnce(0.7);
+
+        for (const v of [0.2, 0.3, 0.4, 0.8, 0.9, 1, 0.5, 0.6, 0.7]) calculateCosineSimilarity.mockReturnValueOnce(v);
 
         await getTopXSimilarCoverLetters(request, response);
 
-        expect(calculateCosineSimilarity).toHaveBeenNthCalledWith(1, jobEmbedding, firstIntroductionEmbedding);
-        expect(calculateCosineSimilarity).toHaveBeenNthCalledWith(2, jobEmbedding, firstMainBodyEmbedding);
-        expect(calculateCosineSimilarity).toHaveBeenNthCalledWith(3, jobEmbedding, firstConclusionEmbedding);
-        expect(calculateCosineSimilarity).toHaveBeenNthCalledWith(4, jobEmbedding, secondIntroductionEmbedding);
-        expect(calculateCosineSimilarity).toHaveBeenNthCalledWith(5, jobEmbedding, secondMainBodyEmbedding);
-        expect(calculateCosineSimilarity).toHaveBeenNthCalledWith(6, jobEmbedding, secondConclusionEmbedding);
-        expect(calculateCosineSimilarity).toHaveBeenNthCalledWith(7, jobEmbedding, thirdIntroductionEmbedding);
-        expect(calculateCosineSimilarity).toHaveBeenNthCalledWith(8, jobEmbedding, thirdMainBodyEmbedding);
-        expect(calculateCosineSimilarity).toHaveBeenNthCalledWith(9, jobEmbedding, thirdConclusionEmbedding);
+        const expectedEmbeddings = [
+            firstIntroductionEmbedding, firstMainBodyEmbedding, firstConclusionEmbedding,
+            secondIntroductionEmbedding, secondMainBodyEmbedding, secondConclusionEmbedding,
+            thirdIntroductionEmbedding, thirdMainBodyEmbedding, thirdConclusionEmbedding,
+        ];
+        for (const [i, embedding] of expectedEmbeddings.entries()) {
+            expect(calculateCosineSimilarity).toHaveBeenNthCalledWith(i + 1, jobEmbedding, embedding);
+        }
         expect(status).toHaveBeenCalledWith(200);
         expect(json).toHaveBeenCalledWith({
             topXLetterResults: [
@@ -151,7 +92,7 @@ describe("getTopXSimilarCoverLetters", () => {
     });
 
     it("returns an empty result when no cover letters exist", async () => {
-        const request = createRequest({ "job-id": validJobId, x: "3" });
+        const request = createRequest<object, GetTopXSimilarCoverLettersRequestQuery>({ query: { "job-id": validJobId, x: "3" } });
         const { response, status, json } = createResponse();
 
         await getTopXSimilarCoverLetters(request, response);
@@ -163,21 +104,23 @@ describe("getTopXSimilarCoverLetters", () => {
     });
 
     it("returns 400 when the query parameters are invalid", async () => {
-        const request = createRequest({ "job-id": "invalid", x: "2" });
+        const request = createRequest<object, GetTopXSimilarCoverLettersRequestQuery>({ query: { "job-id": "invalid", x: "2" } });
         const { response, status, json } = createResponse();
 
         await getTopXSimilarCoverLetters(request, response);
 
         expect(status).toHaveBeenCalledWith(400);
         expect(json).toHaveBeenCalledWith({
-            message: "Query parameters must include job-id and x, where job-id is a 24-character string and x is a positive number",
+            error: "Query parameters must include job-id and x, where job-id is a 24-character string and x is a positive number",
+            message: "An error occurred while processing the request"
         });
         expect(connect).not.toHaveBeenCalled();
+        expect(close).not.toHaveBeenCalled();
         expect(findOne).not.toHaveBeenCalled();
     });
 
     it("returns 404 when the job is not found", async () => {
-        const request = createRequest({ "job-id": validJobId, x: "2" });
+        const request = createRequest<object, GetTopXSimilarCoverLettersRequestQuery>({ query: { "job-id": validJobId, x: "2" } });
         const { response, status, json } = createResponse();
 
         findOne.mockResolvedValue(null);
@@ -185,7 +128,7 @@ describe("getTopXSimilarCoverLetters", () => {
         await getTopXSimilarCoverLetters(request, response);
 
         expect(status).toHaveBeenCalledWith(404);
-        expect(json).toHaveBeenCalledWith({ message: "Job not found" });
+        expect(json).toHaveBeenCalledWith({ error: "Job not found", message: "An error occurred while processing the request" });
         expect(find).not.toHaveBeenCalled();
         expect(close).toHaveBeenCalledTimes(1);
     });

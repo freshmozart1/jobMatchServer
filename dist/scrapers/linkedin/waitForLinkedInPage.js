@@ -11,12 +11,12 @@ const LAZY_LOAD_MAX_SCROLL_ATTEMPTS = 80;
 const SCROLL_BOTTOM_TOLERANCE_PX = 32;
 export default async function waitForLinkedInPage(url) {
     const browser = await puppeteer.launch({
-        headless: true,
+        headless: false,
         defaultViewport: {
             width: 1366,
             height: 900,
         },
-        args: ["--disable-dev-shm-usage"],
+        // args: ["--disable-dev-shm-usage"],
     });
     try {
         const page = await browser.newPage();
@@ -30,7 +30,7 @@ export default async function waitForLinkedInPage(url) {
         });
         await page.goto(url, { waitUntil: "domcontentloaded", timeout: DEFAULT_NAVIGATION_TIMEOUT_MS });
         await dismissLinkedInSignInModalIfPresent(page);
-        await page.waitForSelector("body", { timeout: DEFAULT_PAGE_TIMEOUT_MS });
+        // await page.waitForSelector("body");
         await new Promise((resolve) => setTimeout(resolve, 750));
         await scrollLinkedInLazyLoadedJobsUntilComplete(page);
         return { browser, page };

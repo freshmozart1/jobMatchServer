@@ -18,14 +18,18 @@ export default async function filterJobLinks(
 
 	if (!connectionStringConfigured(response)) return;
 
-	const client = new MongoClient(MONGODB_CONNECTION!);
 	const requestBodyMustBeObjectError = new Error("Request body must be an object mapping keywords to URL arrays");
 
+	if (!isValidLinkedInJobLinksByKeyword(request.body)) {
+		createErrorMessage(response, requestBodyMustBeObjectError, requestBodyMustBeObjectError.message, 400);
+		return;
+	}
+
+	const client = new MongoClient(MONGODB_CONNECTION!);
 	await client.connect();
 
 	const jobsCollection = getCollection<StoredScrapedJob>(client, 'jobs');
 	try {
-		if (!isValidLinkedInJobLinksByKeyword(request.body)) throw requestBodyMustBeObjectError;
 		const uniqueUrls = [...new Set(Object.values(request.body).flat())];
 		if (uniqueUrls.length === 0) {
 			response.status(200).json(request.body);
@@ -43,8 +47,7 @@ export default async function filterJobLinks(
 			]),
 		));
 	} catch (error) {
-		const isRequestBodyError = error instanceof Error && error.message === requestBodyMustBeObjectError.message;
-		createErrorMessage(response, error, isRequestBodyError ? requestBodyMustBeObjectError.message : "An error occurred while filtering job links", isRequestBodyError ? 400 : 500);
+		createErrorMessage(response, error, "An error occurred while filtering job links");
 	} finally {
 		await client.close();
 	}

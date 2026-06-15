@@ -27,12 +27,12 @@ type LinkedInLazyLoadScrollOptions = {
 
 export default async function waitForLinkedInPage(url: string): Promise<{ browser: Browser; page: Page }> {
     const browser = await puppeteer.launch({
-        headless: true,
+        headless: false,
         defaultViewport: {
             width: 1366,
             height: 900,
         },
-        args: ["--disable-dev-shm-usage"],
+        // args: ["--disable-dev-shm-usage"],
     });
 
     try {
@@ -53,7 +53,7 @@ export default async function waitForLinkedInPage(url: string): Promise<{ browse
 
         await dismissLinkedInSignInModalIfPresent(page);
 
-        await page.waitForSelector("body", { timeout: DEFAULT_PAGE_TIMEOUT_MS });
+        // await page.waitForSelector("body");
         await new Promise((resolve) => setTimeout(resolve, 750));
 
         await scrollLinkedInLazyLoadedJobsUntilComplete(page);

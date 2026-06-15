@@ -71,4 +71,8 @@ export type CalculateTokensRequestBody = {
     text: string;
     model?: string | undefined;
 };
+export type CoverLetterAsTextRequestBody = {
+    coverLetterText: string;
+    jobDuplicateKey?: string;
+};
 //# sourceMappingURL=types.d.ts.map

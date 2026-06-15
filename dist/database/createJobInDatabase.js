@@ -12,24 +12,21 @@ function isValidCreateJobRequestBody(body) {
 }
 export default async function createJobInDatabase(request, response) {
     const invalidBodyErrorMessage = "Request body must include job and boolean like fields";
-    const { job, like } = request.body;
     if (!connectionStringConfigured(response))
         return;
+    if (!isValidCreateJobRequestBody(request.body)) {
+        response.status(400).json({ message: invalidBodyErrorMessage, error: invalidBodyErrorMessage });
+        return;
+    }
+    const { job, like } = request.body;
     const client = new MongoClient(MONGODB_CONNECTION);
     await client.connect();
     try {
-        if (!isValidCreateJobRequestBody(request.body))
-            throw new Error(invalidBodyErrorMessage);
         const result = await getCollection(client, 'jobs').insertOne({ ...job, like });
         response.status(201).json({ message: "Job created", jobId: result.insertedId });
     }
     catch (error) {
-        const isInvalidBodyError = error instanceof Error && error.message === invalidBodyErrorMessage;
-        createErrorMessage(response, error, isInvalidBodyError
-            ? invalidBodyErrorMessage
-            : "Failed to create job in database", isInvalidBodyError
-            ? 400
-            : 500);
+        createErrorMessage(response, error, "Failed to create job in database");
     }
     finally {
         await client.close();

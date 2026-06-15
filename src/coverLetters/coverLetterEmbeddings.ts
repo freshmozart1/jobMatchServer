@@ -6,7 +6,7 @@ function createStoredCoverLetterSegment(text: string, embedding: TextEmbedding |
     return { text, embedding };
 }
 
-export async function createStoredCoverLetterFromTextSegments(segments: CoverLetterTextSegments): Promise<StoredCoverLetter> {
+export async function createStoredCoverLetterFromTextSegments(segments: CoverLetterTextSegments): Promise<Omit<StoredCoverLetter, "jobDuplicateKey">> {
     const segmentNamesWithText = COVER_LETTER_SEGMENT_NAMES.filter((segmentName) => segments[segmentName].trim().length > 0);
     const embeddings = segmentNamesWithText.length > 0
         ? await embedMany(segmentNamesWithText.map((segmentName) => segments[segmentName]))

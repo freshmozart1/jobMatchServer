@@ -40,13 +40,15 @@ export default async function getTopXSimilarCoverLetters(request, response) {
         return;
     const { "job-id": jobId, x } = request.query;
     const topX = Number(x);
-    const client = new MongoClient(MONGODB_CONNECTION);
     const jobNotFoundError = new Error("Job not found");
     const invalidRequestQueryError = new Error("Query parameters must include job-id and x, where job-id is a 24-character string and x is a positive number");
+    if (!isValidGetTopXSimilarCoverLettersRequestQuery(request.query)) {
+        createErrorMessage(response, invalidRequestQueryError, "An error occurred while processing the request", 400);
+        return;
+    }
+    const client = new MongoClient(MONGODB_CONNECTION);
     await client.connect();
     try {
-        if (!isValidGetTopXSimilarCoverLettersRequestQuery(request.query))
-            throw invalidRequestQueryError;
         const job = await getCollection(client, 'jobs').findOne({ _id: new ObjectId(jobId) });
         if (!job)
             throw jobNotFoundError;
@@ -58,13 +60,7 @@ export default async function getTopXSimilarCoverLetters(request, response) {
         });
     }
     catch (error) {
-        const isJobNotFoundError = error instanceof Error && error.message === jobNotFoundError.message;
-        const isInvalidRequestQueryError = error instanceof Error && error.message === invalidRequestQueryError.message;
-        createErrorMessage(response, error, "An error occurred while processing the request", isJobNotFoundError
-            ? 404
-            : isInvalidRequestQueryError
-                ? 400
-                : 500);
+        createErrorMessage(response, error, "An error occurred while processing the request", error instanceof Error && error.message === jobNotFoundError.message ? 404 : 500);
     }
     finally {
         await client.close();

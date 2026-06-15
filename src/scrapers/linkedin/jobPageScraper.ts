@@ -1,9 +1,9 @@
 import type { Request, Response } from "express";
-import { type Browser, type Page } from "puppeteer";
+import type { Browser, Page } from "puppeteer";
+import type { ExtractedLinkedInJobPage, StoredScrapedJob } from "#types";
 import getLinkedInJobPathSegment from "./getLinkedInJobPathSegment.js";
 import { getScraperErrorStatus } from "./jobLinkScraper.js";
 import isLinkedInHost from "./isLinkedInHost.js";
-import { type ScrapedJob, type ExtractedLinkedInJobPage, type StoredScrapedJob } from "#types";
 import waitForLinkedInPage from "./waitForLinkedInPage.js";
 import isSupportedLinkedInUrl from "./isSupportedLinkedInUrl.js";
 import { createJobEmbedding } from "../../embeddings/jobEmbedding.js";
@@ -21,6 +21,15 @@ export async function scrapeLinkedInJobPage(request: Request, response: Response
 
     if (!connectionStringConfigured(response)) return;
 
+    if (!jobUrl) {
+        createErrorMessage(response, bodyHasNoUrlError, "Failed to scrape job page.", 400);
+        return;
+    }
+    if (!isSupportedLinkedInUrl(jobUrl, "jobPage")) {
+        createErrorMessage(response, unsupportedUrlError, "Failed to scrape job page.", 422);
+        return;
+    }
+
     const client = new MongoClient(MONGODB_CONNECTION!);
 
     await client.connect();
@@ -28,28 +37,25 @@ export async function scrapeLinkedInJobPage(request: Request, response: Response
     let browser: Browser | null = null;
 
     try {
-        if (!jobUrl) throw bodyHasNoUrlError;
-        if (!isSupportedLinkedInUrl(jobUrl, "jobPage")) throw unsupportedUrlError;
-
         const { browser: renderedBrowser, page } = await waitForLinkedInPage(jobUrl);
         browser = renderedBrowser;
 
         const extractedJobPage = await extractLinkedInJobPage(page);
         const pageTitle = await page.title();
-        const canonicalUrl = normalizeLinkedInJobPageUrl(page.url()) ?? normalizeLinkedInJobPageUrl(jobUrl);
+        const normalizedUrl = normalizeLinkedInJobPageUrl(page.url()) ?? normalizeLinkedInJobPageUrl(jobUrl);
 
-        if (!canonicalUrl) throw couldntNormalizeUrlError;
+        if (!normalizedUrl) throw couldntNormalizeUrlError;
 
-        const canonicalUrlObject = new URL(canonicalUrl);
-        const sourceJobId = extractLinkedInJobId(canonicalUrl);
+        const normalizedUrlObject = new URL(normalizedUrl);
+        const sourceJobId = extractLinkedInJobId(normalizedUrl);
         const title = coalesceText(extractJobTitle(extractedJobPage.title), getTitleFromPageTitle(pageTitle));
         const company = coalesceText(extractedJobPage.company, getCompanyFromPageTitle(pageTitle));
         const descriptionText = normalizeDescription(extractedJobPage.descriptionText);
 
         const jobFields = {
-            sourceHostname: canonicalUrlObject.hostname,
+            sourceHostname: normalizedUrlObject.hostname,
             ...(sourceJobId ? { sourceJobId } : {}),
-            sourceUrl: canonicalUrl,
+            sourceUrl: normalizedUrl,
             title,
             company,
             ...(extractedJobPage.location ? { location: extractedJobPage.location } : {}),
@@ -57,7 +63,7 @@ export async function scrapeLinkedInJobPage(request: Request, response: Response
             ...(extractedJobPage.postedAt ? { postedAt: extractedJobPage.postedAt } : {}),
             scrapedAt: new Date().toISOString(),
             ...(extractedJobPage.tags.length > 0 ? { tags: extractedJobPage.tags } : {}),
-            duplicateKey: sourceJobId ? `linkedin:${sourceJobId}` : canonicalUrl,
+            duplicateKey: sourceJobId ? `linkedin:${sourceJobId}` : normalizedUrl,
         };
 
         const embedding = await createJobEmbedding(jobFields);
@@ -79,20 +85,9 @@ export async function scrapeLinkedInJobPage(request: Request, response: Response
             const averageEmbedding = sum.map(v => v / likedJobsEmbeddings.length);
             similarity = calculateCosineSimilarity(embedding, averageEmbedding);
         }
-        const scrapedJob: ScrapedJob = { ...jobFields, embedding, ...(similarity !== undefined ? { cosineSimilarity: similarity } : {}) };
-
-        response.status(200).json(scrapedJob);
+        response.status(200).json({ ...jobFields, embedding, ...(similarity !== undefined ? { cosineSimilarity: similarity } : {}) });
     } catch (error) {
-        createErrorMessage(
-            response,
-            error,
-            "Failed to scrape job page.",
-            error instanceof Error && error.message === bodyHasNoUrlError.message
-                ? 400
-                : error instanceof Error && error.message === unsupportedUrlError.message
-                    ? 422
-                    : getScraperErrorStatus(error)
-        );
+        createErrorMessage(response, error, "Failed to scrape job page.", getScraperErrorStatus(error));
     } finally {
         if (browser) {
             await browser.close();

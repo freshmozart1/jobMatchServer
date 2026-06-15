@@ -1,17 +1,15 @@
 import { beforeEach, describe, expect, it, jest } from "@jest/globals";
+import createResponse from "../../testHelpers/createResponse.test.js";
+import { mockLocalDatabaseModule, getCollection } from "../../testMockModules/localDatabase.test.js";
+import { mockMongoDbModule, connect, close, createToArray, createFind } from "../../testMockModules/mongodb.test.js";
 const mockWaitForLinkedInPage = jest.fn();
 const mockCreateJobEmbedding = jest.fn();
-const mockMongoConnect = jest.fn();
-const mockMongoClose = jest.fn();
-const mockMongoToArray = jest.fn();
-const mockMongoFind = jest.fn();
-const mockMongoCollection = jest.fn();
-const mockMongoDb = jest.fn();
-const MockMongoClient = jest.fn();
+const toArray = createToArray();
+const find = createFind();
 jest.unstable_mockModule("./waitForLinkedInPage.js", () => ({ default: mockWaitForLinkedInPage }));
 jest.unstable_mockModule("../../embeddings/jobEmbedding.js", () => ({ createJobEmbedding: mockCreateJobEmbedding }));
-jest.unstable_mockModule("mongodb", () => ({ MongoClient: MockMongoClient }));
-jest.unstable_mockModule("#database/database.js", () => ({ mongoDbConnectionString: "mongodb://localhost:27017" }));
+mockMongoDbModule();
+mockLocalDatabaseModule();
 const { scrapeLinkedInJobPage, getUrlFromBody } = await import("./jobPageScraper.js");
 const validLinkedInJobUrl = "https://www.linkedin.com/jobs/view/software-engineer-123456789/";
 const defaultExtractedPage = {
@@ -35,14 +33,6 @@ function createBrowserMock() {
 }
 function createRequest(body) {
     return { body };
-}
-function createResponse() {
-    const status = jest.fn();
-    const json = jest.fn();
-    const response = { status, json };
-    status.mockReturnValue(response);
-    json.mockReturnValue(response);
-    return { response, status, json };
 }
 describe("getUrlFromBody", () => {
     it("returns null for null body", () => {
@@ -101,23 +91,17 @@ describe("scrapeLinkedInJobPage", () => {
         page = createPageMock();
         mockWaitForLinkedInPage.mockResolvedValue({ browser, page });
         mockCreateJobEmbedding.mockResolvedValue([1, 0, 0]);
-        mockMongoConnect.mockResolvedValue(undefined);
-        mockMongoClose.mockResolvedValue(undefined);
-        mockMongoToArray.mockResolvedValue([]);
-        mockMongoFind.mockReturnValue({ toArray: mockMongoToArray });
-        mockMongoCollection.mockReturnValue({ find: mockMongoFind });
-        mockMongoDb.mockReturnValue({ collection: mockMongoCollection });
-        MockMongoClient.mockImplementation(() => ({
-            connect: mockMongoConnect,
-            db: mockMongoDb,
-            close: mockMongoClose,
-        }));
+        connect.mockResolvedValue(undefined);
+        close.mockResolvedValue(undefined);
+        toArray.mockResolvedValue([]);
+        find.mockReturnValue({ toArray: toArray });
+        getCollection.mockReturnValue({ find: find });
     });
     it("responds 400 when the body has no url", async () => {
         const { response, status, json } = createResponse();
         await scrapeLinkedInJobPage(createRequest({}), response);
         expect(status).toHaveBeenCalledWith(400);
-        expect(json).toHaveBeenCalledWith({ error: "Request body must include a valid string url." });
+        expect(json).toHaveBeenCalledWith({ message: "Failed to scrape job page.", error: "Request body must include a valid string url." });
         expect(mockWaitForLinkedInPage).not.toHaveBeenCalled();
     });
     it("responds 400 when the body is null", async () => {
@@ -136,7 +120,7 @@ describe("scrapeLinkedInJobPage", () => {
         const { response, status, json } = createResponse();
         await scrapeLinkedInJobPage(createRequest({ url: "https://example.com/" }), response);
         expect(status).toHaveBeenCalledWith(422);
-        expect(json).toHaveBeenCalledWith({ error: "No job page scraper is registered for this URL." });
+        expect(json).toHaveBeenCalledWith({ message: "Failed to scrape job page.", error: "No job page scraper is registered for this URL." });
         expect(mockWaitForLinkedInPage).not.toHaveBeenCalled();
     });
     it("responds 422 for a LinkedIn URL that is not a job page", async () => {
@@ -182,7 +166,7 @@ describe("scrapeLinkedInJobPage", () => {
     it("closes the MongoDB client after a successful scrape", async () => {
         const { response } = createResponse();
         await scrapeLinkedInJobPage(createRequest({ url: validLinkedInJobUrl }), response);
-        expect(mockMongoClose).toHaveBeenCalledTimes(1);
+        expect(close).toHaveBeenCalledTimes(1);
     });
     it("closes the browser when page evaluation throws", async () => {
         page.evaluate.mockRejectedValue(new Error("Evaluation failed"));
@@ -191,10 +175,10 @@ describe("scrapeLinkedInJobPage", () => {
         expect(browser.close).toHaveBeenCalledTimes(1);
     });
     it("closes the MongoDB client even when a MongoDB error is thrown", async () => {
-        mockMongoToArray.mockRejectedValue(new Error("MongoDB read failed"));
+        toArray.mockRejectedValue(new Error("MongoDB read failed"));
         const { response } = createResponse();
         await scrapeLinkedInJobPage(createRequest({ url: validLinkedInJobUrl }), response);
-        expect(mockMongoClose).toHaveBeenCalledTimes(1);
+        expect(close).toHaveBeenCalledTimes(1);
     });
     it("responds 504 when a timeout error is thrown", async () => {
         mockWaitForLinkedInPage.mockRejectedValue(new Error("Navigation timeout exceeded"));
@@ -208,19 +192,19 @@ describe("scrapeLinkedInJobPage", () => {
         await scrapeLinkedInJobPage(createRequest({ url: validLinkedInJobUrl }), response);
         expect(status).toHaveBeenCalledWith(502);
         expect(json).toHaveBeenCalledWith({
-            error: "Failed to scrape job page.",
-            message: "Connection refused",
+            message: "Failed to scrape job page.",
+            error: "Connection refused",
         });
     });
     it("omits cosineSimilarity when no liked jobs exist", async () => {
-        mockMongoToArray.mockResolvedValue([]);
+        toArray.mockResolvedValue([]);
         const { response, json } = createResponse();
         await scrapeLinkedInJobPage(createRequest({ url: validLinkedInJobUrl }), response);
         const jobData = json.mock.calls[0]?.[0];
         expect("cosineSimilarity" in jobData).toBe(false);
     });
     it("includes cosineSimilarity when liked jobs exist", async () => {
-        mockMongoToArray.mockResolvedValue([{ embedding: [1, 0, 0] }]);
+        toArray.mockResolvedValue([{ embedding: [1, 0, 0] }]);
         mockCreateJobEmbedding.mockResolvedValue([1, 0, 0]);
         const { response, json } = createResponse();
         await scrapeLinkedInJobPage(createRequest({ url: validLinkedInJobUrl }), response);
