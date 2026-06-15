@@ -64,12 +64,10 @@ export default async function generateCoverLetterAsText(req: Request<object, obj
     if (!connectionStringConfigured(res)) return;
 
     const client = new MongoClient(MONGODB_CONNECTION!);
-
-    await client.connect();
-
     const coverLettersNotFoundForIdsStart = 'Cover letters not found for IDs: ';
 
     try {
+        await client.connect();
         const coverLetters = await getCollection<StoredCoverLetter>(client, 'coverLetters').find({ _id: { $in: coverLetterIds.map(id => new ObjectId(id)) } }).toArray();
         if (coverLetters.length !== coverLetterIds.length) {
             const foundIds = new Set(coverLetters.map(cl => cl._id.toString()));

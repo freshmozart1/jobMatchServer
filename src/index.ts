@@ -16,6 +16,7 @@ import generateCoverLetterAsText from "./coverLetters/generateCoverLettersAsText
 import countTokens from "./tokens/calculateTokens.js";
 import multer from "multer";
 import uploadCV from "#database/uploadCV.js";
+import getCV from "#database/getCV.js";
 
 export const app = express();
 
@@ -134,6 +135,8 @@ app.post('/cover-letters/upload/text', uploadCoverLetterAsText);
 
 const upload = multer({ dest: `uploads/cv` });
 app.post('/cv/upload', upload.single('file'), uploadCV);
+
+app.get('/cv/:jobDuplicateKey', getCV);
 
 app.post('/cover-letters/create/text', generateCoverLetterAsText);
 

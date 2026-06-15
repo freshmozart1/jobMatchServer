@@ -30,9 +30,8 @@ export default async function uploadCoverLetterAsText(request: Request<object, o
 
     const { coverLetterText, jobDuplicateKey } = request.body;
     const client = new MongoClient(MONGODB_CONNECTION!);
-    await client.connect();
-
     try {
+        await client.connect();
         const coverLettersCollection = getCollection<StoredCoverLetter>(client, 'coverLetters');
         const { segments } = await segmentCoverLetter(coverLetterText);
         const coverLetter = await createStoredCoverLetterFromTextSegments(segments);
