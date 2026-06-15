@@ -16,18 +16,6 @@ export type ScrapedAnchor = {
     nearbyText: string;
 };
 
-export type ScrapeJobLinksResult = {
-    searchUrl: string;
-    finalUrl: string;
-    pageTitle: string;
-    httpStatus: number | null;
-    jobLinks: string[];
-    count: number;
-    isGated: boolean;
-    inspectedAnchorCount: number;
-    observedLinkPatterns: string[];
-};
-
 export type ScrapedJob = {
     sourceHostname: string;
     sourceJobId?: string;

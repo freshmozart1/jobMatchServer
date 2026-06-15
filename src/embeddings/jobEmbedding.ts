@@ -3,7 +3,7 @@ import { embed } from "./embeddings.js";
 
 type ScrapedJobFields = Omit<ScrapedJob, "embedding">;
 
-export function buildJobEmbeddingInput(job: ScrapedJobFields): string {
+function buildJobEmbeddingInput(job: ScrapedJobFields): string {
     const fields = [
         ["Title", job.title],
         ["Company", job.company],

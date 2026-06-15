@@ -1,5 +1,5 @@
 import { embed } from "./embeddings.js";
-export function buildJobEmbeddingInput(job) {
+function buildJobEmbeddingInput(job) {
     const fields = [
         ["Title", job.title],
         ["Company", job.company],
