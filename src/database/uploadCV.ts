@@ -5,16 +5,16 @@ import type { StoredCv, StoredScrapedJob } from "#types";
 import { createErrorMessage } from "../errors/createErrorMessage.js";
 
 export default async function uploadCV(request: Request, response: Response): Promise<void> {
-    const jobId = request.body["jobId"] as unknown;
-    const jobIdMustBeStringError = new Error("jobId must be a string");
+    const jobDuplicateKey = request.body["jobDuplicateKey"] as unknown;
+    const jobDuplicateKeyMustBeStringError = new Error("jobDuplicateKey must be a string");
     const fileRequiredError = new Error("file is required");
     const fileMustBePdfError = new Error("file must be a PDF");
     const jobNotFoundError = new Error("Job not found");
 
     if (!connectionStringConfigured(response)) return;
 
-    if (typeof jobId !== "string") {
-        createErrorMessage(response, jobIdMustBeStringError, "Error uploading CV", 400);
+    if (typeof jobDuplicateKey !== "string") {
+        createErrorMessage(response, jobDuplicateKeyMustBeStringError, "Error uploading CV", 400);
         return;
     }
     if (!request.file) {
@@ -30,7 +30,7 @@ export default async function uploadCV(request: Request, response: Response): Pr
     await client.connect();
 
     try {
-        const job = await client.db('jobMatch').collection<StoredScrapedJob>('jobs').findOne({ sourceJobId: jobId });
+        const job = await client.db('jobMatch').collection<StoredScrapedJob>('jobs').findOne({ duplicateKey: jobDuplicateKey });
 
         if (!job) throw jobNotFoundError;
 

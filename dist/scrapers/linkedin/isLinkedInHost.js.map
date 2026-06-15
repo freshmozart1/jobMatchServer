@@ -1,1 +1,0 @@
-{"version":3,"file":"isLinkedInHost.js","sourceRoot":"","sources":["../../../src/scrapers/linkedin/isLinkedInHost.ts"],"names":[],"mappings":"AAAA,MAAM,CAAC,OAAO,UAAU,cAAc,CAAC,QAAgB;IACnD,MAAM,kBAAkB,GAAG,QAAQ,CAAC,WAAW,EAAE,CAAC;IAElD,OAAO,kBAAkB,KAAK,cAAc,IAAI,kBAAkB,CAAC,QAAQ,CAAC,eAAe,CAAC,CAAC;AACjG,CAAC"}
