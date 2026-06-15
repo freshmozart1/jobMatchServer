@@ -18,7 +18,7 @@ const coverLetterSegmentsSchema = {
     },
 } satisfies Record<string, unknown>;
 
-function isCoverLetterTextSegments(value: unknown): value is CoverLetterTextSegments {
+export function isCoverLetterTextSegments(value: unknown): value is CoverLetterTextSegments {
     return typeof value === "object"
         && value !== null
         && "subject" in value

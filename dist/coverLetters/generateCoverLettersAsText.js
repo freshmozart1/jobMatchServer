@@ -4,7 +4,7 @@ import OpenAI from "openai";
 import { getCoverLetterTextSegments, reconstructCoverLetterText } from "./coverLetterSegmentation.js";
 import { connectionStringConfigured, getCollection, MONGODB_CONNECTION } from "#database/database.js";
 import { createErrorMessage } from "../errors/createErrorMessage.js";
-function isValidGenerateCoverLetterAsTextRequestBody(body) {
+function isValidScrapedJobBody(body) {
     return typeof body === "object"
         && body !== null
         && "sourceHostname" in body
@@ -24,9 +24,14 @@ function isValidGenerateCoverLetterAsTextRequestBody(body) {
         && "scrapedAt" in body
         && typeof body.scrapedAt === "string"
         && "tags" in body
-        && (Array.isArray(body.tags) && body.tags.every((tag) => typeof tag === "string") || body.tags === undefined)
+        && (body.tags === undefined || (Array.isArray(body.tags) && body.tags.every((tag) => typeof tag === "string")))
         && "duplicateKey" in body
-        && typeof body.duplicateKey === "string"
+        && typeof body.duplicateKey === "string";
+}
+export function isValidGenerateCoverLetterAsTextRequestBody(body) {
+    return isValidScrapedJobBody(body)
+        && typeof body === "object"
+        && body !== null
         && "coverLetterIds" in body
         && Array.isArray(body.coverLetterIds)
         && body.coverLetterIds.every((id) => /^[0-9a-f]{24}$/.test(id));

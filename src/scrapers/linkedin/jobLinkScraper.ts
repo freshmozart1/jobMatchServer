@@ -67,7 +67,7 @@ export function getScraperErrorStatus(error: unknown): number {
     return 502;
 }
 
-function getLinkedInJobLinkSearchParamsFromBody(body: unknown): LinkedInJobLinkSearchParams | null {
+export function getLinkedInJobLinkSearchParamsFromBody(body: unknown): LinkedInJobLinkSearchParams | null {
     if (!body || typeof body !== "object" || !("keywords" in body) || !("location" in body) || !("distance" in body)) {
         return null;
     }

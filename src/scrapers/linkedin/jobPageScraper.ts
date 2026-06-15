@@ -12,6 +12,29 @@ import { connectionStringConfigured, getCollection, MONGODB_CONNECTION } from "#
 import calculateCosineSimilarity from "../../embeddings/calculateCosineSimilarity.js";
 import { createErrorMessage } from "../../errors/createErrorMessage.js";
 
+async function computeAverageLikedJobSimilarity(
+    client: InstanceType<typeof MongoClient>,
+    embedding: number[],
+): Promise<number | undefined> {
+    const likedEmbeddings = (
+        await getCollection<StoredScrapedJob>(client, "jobs")
+            .find({ like: true })
+            .toArray()
+    ).map(j => j.embedding);
+
+    const first = likedEmbeddings[0];
+    if (!first) return undefined;
+
+    const sum = new Array<number>(first.length).fill(0);
+    for (const liked of likedEmbeddings) {
+        for (let i = 0; i < sum.length; i++) {
+            const s = sum[i], e = liked[i];
+            if (typeof s === "number" && typeof e === "number") sum[i] = s + e;
+        }
+    }
+    return calculateCosineSimilarity(sum.map(v => v / likedEmbeddings.length), embedding);
+}
+
 export async function scrapeLinkedInJobPage(request: Request, response: Response): Promise<void> {
     const jobUrl = getUrlFromBody(request.body);
     const bodyHasNoUrlError = new Error("Request body must include a valid string url.");
@@ -67,24 +90,7 @@ export async function scrapeLinkedInJobPage(request: Request, response: Response
         };
 
         const embedding = await createJobEmbedding(jobFields);
-        let similarity: number | undefined;
-        const likedJobsEmbeddings = (await getCollection<StoredScrapedJob>(client, 'jobs').find({ like: true }).toArray()).map(j => j.embedding);
-        const firstEmbedding = likedJobsEmbeddings[0];
-        if (firstEmbedding) {
-            const dimension = firstEmbedding.length;
-            const sum: number[] = new Array<number>(dimension).fill(0);
-            for (const likedEmbedding of likedJobsEmbeddings) {
-                for (let i = 0; i < dimension; i++) {
-                    const s = sum[i];
-                    const e = likedEmbedding[i];
-                    if (typeof s === "number" && typeof e === "number") {
-                        sum[i] = s + e;
-                    }
-                }
-            }
-            const averageEmbedding = sum.map(v => v / likedJobsEmbeddings.length);
-            similarity = calculateCosineSimilarity(embedding, averageEmbedding);
-        }
+        const similarity = await computeAverageLikedJobSimilarity(client, embedding);
         response.status(200).json({ ...jobFields, embedding, ...(similarity !== undefined ? { cosineSimilarity: similarity } : {}) });
     } catch (error) {
         createErrorMessage(response, error, "Failed to scrape job page.", getScraperErrorStatus(error));
@@ -250,6 +256,9 @@ async function extractLinkedInJobPage(page: Page): Promise<ExtractedLinkedInJobP
             return content ? `${leadingSpace}${marker}${content}${marker}${trailingNewlines}${trailingSpace}` : "";
         }
 
+        const FORMAT_WRAPPERS: Record<string, string> = { strong: "**", b: "**", em: "*", i: "*" };
+        const LIST_CONTAINERS = new Set(["ul", "ol"]);
+
         function renderDescriptionNode(node: Node): string {
             if (node.nodeType === Node.TEXT_NODE) {
                 return node.textContent ?? "";
@@ -266,20 +275,17 @@ async function extractLinkedInJobPage(page: Page): Promise<ExtractedLinkedInJobP
             }
 
             const renderedChildren = renderDescriptionNodes(Array.from(node.childNodes));
+            const marker = FORMAT_WRAPPERS[tagName];
 
-            if (tagName === "strong" || tagName === "b") {
-                return wrapFormattedDescriptionText("**", renderedChildren);
-            }
-
-            if (tagName === "em" || tagName === "i") {
-                return wrapFormattedDescriptionText("*", renderedChildren);
+            if (marker) {
+                return wrapFormattedDescriptionText(marker, renderedChildren);
             }
 
             if (tagName === "li") {
                 return `\n- ${normalizeRenderedDescription(renderedChildren) ?? ""}`;
             }
 
-            if (tagName === "ul" || tagName === "ol") {
+            if (LIST_CONTAINERS.has(tagName)) {
                 return `\n${renderedChildren}\n\n`;
             }
 

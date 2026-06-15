@@ -14,7 +14,7 @@ const coverLetterSegmentsSchema = {
         greetings: { type: "string" },
     },
 };
-function isCoverLetterTextSegments(value) {
+export function isCoverLetterTextSegments(value) {
     return typeof value === "object"
         && value !== null
         && "subject" in value

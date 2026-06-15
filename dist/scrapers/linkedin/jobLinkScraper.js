@@ -42,7 +42,7 @@ export function getScraperErrorStatus(error) {
     }
     return 502;
 }
-function getLinkedInJobLinkSearchParamsFromBody(body) {
+export function getLinkedInJobLinkSearchParamsFromBody(body) {
     if (!body || typeof body !== "object" || !("keywords" in body) || !("location" in body) || !("distance" in body)) {
         return null;
     }
