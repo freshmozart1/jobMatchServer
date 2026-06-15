@@ -16,6 +16,7 @@ import generateCoverLetterAsText from "./coverLetters/generateCoverLettersAsText
 import countTokens from "./tokens/calculateTokens.js";
 import multer from "multer";
 import uploadCV from "#database/uploadCV.js";
+import getCV from "#database/getCV.js";
 
 export const app = express();
 
@@ -135,7 +136,7 @@ app.post('/cover-letters/upload/text', uploadCoverLetterAsText);
 const upload = multer({ dest: `uploads/cv` });
 app.post('/cv/upload', upload.single('file'), uploadCV);
 
-//TODO: #5 Create a GET /cv/:jobDuplicateKey endpoint to retrieve the uploaded CV for a given jobDuplicateKey, and return a 404 if not found. This will allow the frontend to display a checked icon for the uploaded CV in the application editor page.
+app.get('/cv/:jobDuplicateKey', getCV);
 
 app.post('/cover-letters/create/text', generateCoverLetterAsText);
 
