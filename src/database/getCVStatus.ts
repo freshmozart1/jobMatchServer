@@ -18,10 +18,10 @@ export default async function getCVStatus(
     try {
         client = new MongoClient(MONGODB_CONNECTION!);
         await client.connect();
-        const job = await getCollection<StoredScrapedJob>(client, 'jobs').findOne({ duplicateKey: jobDuplicateKey });
+        const job = await getCollection<StoredScrapedJob>(client, 'jobs').findOne({ duplicateKey: jobDuplicateKey }, { projection: { _id: 1 } });
         if (!job) throw jobNotFoundError;
 
-        const cv = await getCollection<StoredCv>(client, 'cv').findOne({ jobId: job._id.toHexString() });
+        const cv = await getCollection<StoredCv>(client, 'cv').findOne({ jobId: job._id.toHexString() }, { projection: { _id: 1 } });
         if (!cv) throw cvNotFoundError;
 
         response.status(200).json({ message: "CV exists" });

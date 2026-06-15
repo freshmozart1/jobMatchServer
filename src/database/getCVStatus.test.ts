@@ -6,8 +6,8 @@ import createResponse from "../testHelpers/createResponse.test.js";
 import createRequest from "../testHelpers/createRequest.test.js";
 import { createJob, duplicateKey } from "../testHelpers/createJob.test.js";
 
-const findOneJob = jest.fn<(filter: unknown) => Promise<(StoredScrapedJob & { _id: { toHexString: () => string } }) | null>>();
-const findOneCv = jest.fn<(filter: unknown) => Promise<StoredCv | null>>();
+const findOneJob = jest.fn<(filter: unknown, options?: unknown) => Promise<(StoredScrapedJob & { _id: { toHexString: () => string } }) | null>>();
+const findOneCv = jest.fn<(filter: unknown, options?: unknown) => Promise<StoredCv | null>>();
 
 const mockJobId = "507f1f77bcf86cd799439011";
 
@@ -41,8 +41,8 @@ describe("getCVStatus", () => {
 
         await getCVStatus(request, response);
 
-        expect(findOneJob).toHaveBeenCalledWith({ duplicateKey });
-        expect(findOneCv).toHaveBeenCalledWith({ jobId: mockJobId });
+        expect(findOneJob).toHaveBeenCalledWith({ duplicateKey }, { projection: { _id: 1 } });
+        expect(findOneCv).toHaveBeenCalledWith({ jobId: mockJobId }, { projection: { _id: 1 } });
         expect(status).toHaveBeenCalledWith(200);
         expect(json).toHaveBeenCalledWith({ message: "CV exists" });
         expect(connect).toHaveBeenCalledTimes(1);
