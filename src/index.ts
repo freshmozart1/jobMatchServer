@@ -17,6 +17,7 @@ import countTokens from "./tokens/calculateTokens.js";
 import multer from "multer";
 import uploadCV from "#database/uploadCV.js";
 import getCV from "#database/getCV.js";
+import getCVStatus from "#database/getCVStatus.js";
 
 export const app = express();
 
@@ -137,6 +138,8 @@ const upload = multer({ dest: `uploads/cv` });
 app.post('/cv/upload', upload.single('file'), uploadCV);
 
 app.get('/cv/:jobDuplicateKey', getCV);
+
+app.get('/cv/:jobDuplicateKey/status', getCVStatus);
 
 app.post('/cover-letters/create/text', generateCoverLetterAsText);
 
