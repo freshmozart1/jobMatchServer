@@ -26,9 +26,8 @@ export default async function createJobInDatabase(request: Request<object, objec
 
     const { job, like } = request.body;
     const client = new MongoClient(MONGODB_CONNECTION!);
-    await client.connect();
-
     try {
+        await client.connect();
         const result = await getCollection<StoredScrapedJob>(client, 'jobs').findOneAndReplace(
             { duplicateKey: job.duplicateKey },
             { ...job, like },

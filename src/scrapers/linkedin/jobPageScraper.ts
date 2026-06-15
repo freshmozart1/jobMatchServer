@@ -54,12 +54,10 @@ export async function scrapeLinkedInJobPage(request: Request, response: Response
     }
 
     const client = new MongoClient(MONGODB_CONNECTION!);
-
-    await client.connect();
-
     let browser: Browser | null = null;
 
     try {
+        await client.connect();
         const { browser: renderedBrowser, page } = await waitForLinkedInPage(jobUrl);
         browser = renderedBrowser;
 

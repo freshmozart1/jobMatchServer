@@ -26,10 +26,9 @@ export default async function filterJobLinks(
 	}
 
 	const client = new MongoClient(MONGODB_CONNECTION!);
-	await client.connect();
-
-	const jobsCollection = getCollection<StoredScrapedJob>(client, 'jobs');
 	try {
+		await client.connect();
+		const jobsCollection = getCollection<StoredScrapedJob>(client, 'jobs');
 		const uniqueUrls = [...new Set(Object.values(request.body).flat())];
 		if (uniqueUrls.length === 0) {
 			response.status(200).json(request.body);

@@ -62,9 +62,8 @@ export default async function getTopXSimilarCoverLetters(request: Request<object
     }
 
     const client = new MongoClient(MONGODB_CONNECTION!);
-    await client.connect();
-
     try {
+        await client.connect();
         const job = await getCollection<StoredScrapedJob>(client, 'jobs').findOne({ _id: new ObjectId(jobId) });
 
         if (!job) throw jobNotFoundError;
@@ -82,7 +81,7 @@ export default async function getTopXSimilarCoverLetters(request: Request<object
             response,
             error,
             "An error occurred while processing the request",
-            error instanceof Error && error.message === jobNotFoundError.message ? 404 : 500
+            error === jobNotFoundError ? 404 : 500
         );
     } finally {
         await client.close();

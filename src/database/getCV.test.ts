@@ -9,7 +9,8 @@ import path from "path";
 
 const findOneJob = jest.fn<(filter: unknown) => Promise<(StoredScrapedJob & { _id: { toHexString: () => string } }) | null>>();
 const findOneCv = jest.fn<(filter: unknown) => Promise<StoredCv | null>>();
-const sendFile = jest.fn<(filePath: string) => void>();
+const sendFile = jest.fn<(filePath: string, callback: (err?: Error) => void) => void>();
+const setHeader = jest.fn<(name: string, value: string) => void>();
 
 const mockJobId = "507f1f77bcf86cd799439011";
 
@@ -31,6 +32,7 @@ describe("getCV", () => {
         close.mockResolvedValue();
         findOneJob.mockResolvedValue({ ...createJob<StoredScrapedJob>(true), _id: { toHexString: () => mockJobId } });
         findOneCv.mockResolvedValue(storedCv);
+        sendFile.mockImplementation((_filePath, callback) => callback());
         getCollection.mockImplementation((_client: unknown, collectionName: unknown) => {
             if (collectionName === 'jobs') return { findOne: findOneJob };
             return { findOne: findOneCv };
@@ -41,11 +43,13 @@ describe("getCV", () => {
         const request = createRequest<object, never, { jobDuplicateKey: string }>({ params: { jobDuplicateKey: duplicateKey } });
         const { response, status, json } = createResponse();
         (response as unknown as { sendFile: typeof sendFile }).sendFile = sendFile;
+        (response as unknown as { setHeader: typeof setHeader }).setHeader = setHeader;
 
         await getCV(request, response);
 
         expect(findOneJob).toHaveBeenCalledWith({ duplicateKey });
-        expect(sendFile).toHaveBeenCalledWith(path.resolve(storedCv.filePath));
+        expect(setHeader).toHaveBeenCalledWith('Content-Type', 'application/pdf');
+        expect(sendFile).toHaveBeenCalledWith(path.resolve(storedCv.filePath), expect.any(Function));
         expect(status).not.toHaveBeenCalled();
         expect(json).not.toHaveBeenCalled();
         expect(connect).toHaveBeenCalledTimes(1);

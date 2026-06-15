@@ -27,20 +27,20 @@ export default async function uploadCV(request: Request, response: Response): Pr
     }
 
     const client = new MongoClient(MONGODB_CONNECTION!);
-    await client.connect();
-
     try {
+        await client.connect();
         const job = await client.db('jobMatch').collection<StoredScrapedJob>('jobs').findOne({ duplicateKey: jobDuplicateKey });
 
         if (!job) throw jobNotFoundError;
 
-        const result = await getCollection<StoredCv>(client, 'cv').insertOne({
-            jobId: job._id.toHexString(),
-            filePath: request.file.path,
-        });
-        response.status(201).json({ message: "CV uploaded", cvId: result.insertedId });
+        const upserted = await getCollection<StoredCv>(client, 'cv').findOneAndReplace(
+            { jobId: job._id.toHexString() },
+            { jobId: job._id.toHexString(), filePath: request.file.path },
+            { upsert: true, returnDocument: 'after' },
+        );
+        response.status(201).json({ message: "CV uploaded", cvId: upserted?._id });
     } catch (error) {
-        createErrorMessage(response, error, "Error uploading CV", error instanceof Error && error.message === jobNotFoundError.message ? 404 : 500);
+        createErrorMessage(response, error, "Error uploading CV", error === jobNotFoundError ? 404 : 500);
     } finally {
         await client.close();
     }
