@@ -29,8 +29,12 @@ export default async function createJobInDatabase(request: Request<object, objec
     await client.connect();
 
     try {
-        const result = await getCollection<StoredScrapedJob>(client, 'jobs').insertOne({ ...job, like });
-        response.status(201).json({ message: "Job created", jobId: result.insertedId });
+        const result = await getCollection<StoredScrapedJob>(client, 'jobs').findOneAndReplace(
+            { duplicateKey: job.duplicateKey },
+            { ...job, like },
+            { upsert: true, returnDocument: 'after' },
+        );
+        response.status(201).json({ message: "Job created", jobId: result?._id });
     } catch (error) {
         createErrorMessage(response, error, "Failed to create job in database");
     } finally {

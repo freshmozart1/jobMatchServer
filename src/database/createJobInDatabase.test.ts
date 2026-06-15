@@ -4,14 +4,10 @@ import { mockLocalDatabaseModule, getCollection } from "../testMockModules/local
 import { mockMongoDbModule, connect } from "../testMockModules/mongodb.test.js";
 import createResponse from "../testHelpers/createResponse.test.js";
 import createRequest from "../testHelpers/createRequest.test.js";
-import {createJob} from "../testHelpers/createJob.test.js";
+import { createJob, duplicateKey } from "../testHelpers/createJob.test.js";
 
-type InsertOneResult = {
-    insertedId: string;
-};
-
-const insertedJobId = "inserted-job-id";
-const insertOne = jest.fn<(jobData: StoredScrapedJob) => Promise<InsertOneResult>>();
+const jobId = "upserted-job-id";
+const findOneAndReplace = jest.fn<(filter: object, replacement: StoredScrapedJob, options: object) => Promise<StoredScrapedJob & { _id: string }>>();
 const invalidRequestBodyError = { error: "Request body must include job and boolean like fields", message: "Request body must include job and boolean like fields" };
 
 mockMongoDbModule();
@@ -23,12 +19,12 @@ describe("createJobInDatabase", () => {
     beforeEach(() => {
         jest.clearAllMocks();
 
-        insertOne.mockResolvedValue({ insertedId: insertedJobId });
+        findOneAndReplace.mockResolvedValue({ ...createJob<StoredScrapedJob>(true), _id: jobId });
         connect.mockResolvedValue();
-        getCollection.mockReturnValue({ insertOne });
+        getCollection.mockReturnValue({ findOneAndReplace });
     });
 
-    it("stores the flattened job and responds with the new job id", async () => {
+    it("upserts the job by duplicateKey and responds with the job id", async () => {
         const job = createJob<ScrapedJob>();
         const like = true;
         const request = createRequest<CreateJobInDatabaseRequestBody>({body: { job, like }});
@@ -36,9 +32,13 @@ describe("createJobInDatabase", () => {
 
         await createJobInDatabase(request, response);
 
-        expect(insertOne).toHaveBeenCalledWith({ ...job, like });
+        expect(findOneAndReplace).toHaveBeenCalledWith(
+            { duplicateKey },
+            { ...job, like },
+            { upsert: true, returnDocument: 'after' },
+        );
         expect(status).toHaveBeenCalledWith(201);
-        expect(json).toHaveBeenCalledWith({ message: "Job created", jobId: insertedJobId });
+        expect(json).toHaveBeenCalledWith({ message: "Job created", jobId });
         expect(connect).toHaveBeenCalledTimes(1);
     });
 
@@ -50,7 +50,7 @@ describe("createJobInDatabase", () => {
 
         expect(status).toHaveBeenCalledWith(400);
         expect(json).toHaveBeenCalledWith(invalidRequestBodyError);
-        expect(insertOne).not.toHaveBeenCalled();
+        expect(findOneAndReplace).not.toHaveBeenCalled();
         expect(connect).not.toHaveBeenCalled();
     });
 
@@ -62,7 +62,7 @@ describe("createJobInDatabase", () => {
 
         expect(status).toHaveBeenCalledWith(400);
         expect(json).toHaveBeenCalledWith(invalidRequestBodyError);
-        expect(insertOne).not.toHaveBeenCalled();
+        expect(findOneAndReplace).not.toHaveBeenCalled();
         expect(connect).not.toHaveBeenCalled();
     });
 });

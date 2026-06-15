@@ -3,9 +3,9 @@ import { mockLocalDatabaseModule, getCollection } from "../testMockModules/local
 import { mockMongoDbModule, connect } from "../testMockModules/mongodb.test.js";
 import createResponse from "../testHelpers/createResponse.test.js";
 import createRequest from "../testHelpers/createRequest.test.js";
-import { createJob } from "../testHelpers/createJob.test.js";
-const insertedJobId = "inserted-job-id";
-const insertOne = jest.fn();
+import { createJob, duplicateKey } from "../testHelpers/createJob.test.js";
+const jobId = "upserted-job-id";
+const findOneAndReplace = jest.fn();
 const invalidRequestBodyError = { error: "Request body must include job and boolean like fields", message: "Request body must include job and boolean like fields" };
 mockMongoDbModule();
 mockLocalDatabaseModule();
@@ -13,19 +13,19 @@ const { default: createJobInDatabase } = await import("./createJobInDatabase.js"
 describe("createJobInDatabase", () => {
     beforeEach(() => {
         jest.clearAllMocks();
-        insertOne.mockResolvedValue({ insertedId: insertedJobId });
+        findOneAndReplace.mockResolvedValue({ ...createJob(true), _id: jobId });
         connect.mockResolvedValue();
-        getCollection.mockReturnValue({ insertOne });
+        getCollection.mockReturnValue({ findOneAndReplace });
     });
-    it("stores the flattened job and responds with the new job id", async () => {
+    it("upserts the job by duplicateKey and responds with the job id", async () => {
         const job = createJob();
         const like = true;
         const request = createRequest({ body: { job, like } });
         const { response, status, json } = createResponse();
         await createJobInDatabase(request, response);
-        expect(insertOne).toHaveBeenCalledWith({ ...job, like });
+        expect(findOneAndReplace).toHaveBeenCalledWith({ duplicateKey }, { ...job, like }, { upsert: true, returnDocument: 'after' });
         expect(status).toHaveBeenCalledWith(201);
-        expect(json).toHaveBeenCalledWith({ message: "Job created", jobId: insertedJobId });
+        expect(json).toHaveBeenCalledWith({ message: "Job created", jobId });
         expect(connect).toHaveBeenCalledTimes(1);
     });
     it("returns 400 when the request body does not include a job object", async () => {
@@ -34,7 +34,7 @@ describe("createJobInDatabase", () => {
         await createJobInDatabase(request, response);
         expect(status).toHaveBeenCalledWith(400);
         expect(json).toHaveBeenCalledWith(invalidRequestBodyError);
-        expect(insertOne).not.toHaveBeenCalled();
+        expect(findOneAndReplace).not.toHaveBeenCalled();
         expect(connect).not.toHaveBeenCalled();
     });
     it("returns 400 when like is not a boolean", async () => {
@@ -43,7 +43,7 @@ describe("createJobInDatabase", () => {
         await createJobInDatabase(request, response);
         expect(status).toHaveBeenCalledWith(400);
         expect(json).toHaveBeenCalledWith(invalidRequestBodyError);
-        expect(insertOne).not.toHaveBeenCalled();
+        expect(findOneAndReplace).not.toHaveBeenCalled();
         expect(connect).not.toHaveBeenCalled();
     });
 });
