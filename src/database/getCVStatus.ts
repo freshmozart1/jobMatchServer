@@ -14,8 +14,9 @@ export default async function getCVStatus(
     const jobNotFoundError = new Error("Job not found");
     const cvNotFoundError = new Error("CV not found");
 
-    const client = new MongoClient(MONGODB_CONNECTION!);
+    let client: MongoClient | undefined;
     try {
+        client = new MongoClient(MONGODB_CONNECTION!);
         await client.connect();
         const job = await getCollection<StoredScrapedJob>(client, 'jobs').findOne({ duplicateKey: jobDuplicateKey });
         if (!job) throw jobNotFoundError;
@@ -32,6 +33,6 @@ export default async function getCVStatus(
             error === jobNotFoundError || error === cvNotFoundError ? 404 : 500
         );
     } finally {
-        await client.close();
+        await client?.close();
     }
 }
