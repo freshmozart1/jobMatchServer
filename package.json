@@ -33,7 +33,7 @@
     "build": "tsc",
     "mongo": "mongod --dbpath /opt/homebrew/var/mongodb",
     "test": "npm run test:watch",
-    "test:once": "npm run build && node --experimental-vm-modules ./node_modules/jest/bin/jest.js --config jest.config.mjs",
+    "test:once": "npm run build && node --experimental-vm-modules --localstorage-file=/tmp/jest-localstorage.json ./node_modules/jest/bin/jest.js --config jest.config.mjs --runInBand",
     "test:watch": "nodemon --watch src --watch jest.config.mjs --watch package.json --ext ts,mjs,json --exec \"npm run test:once\""
   },
   "devDependencies": {
@@ -56,6 +56,7 @@
     "mongodb": "^7.2.0",
     "multer": "^2.1.1",
     "openai": "^6.42.0",
+    "pdf-lib": "^1.17.1",
     "puppeteer": "^25.1.0"
   }
 }
