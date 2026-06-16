@@ -18,6 +18,7 @@ import multer from "multer";
 import uploadCV from "#database/uploadCV.js";
 import getCV from "#database/getCV.js";
 import getCVStatus from "#database/getCVStatus.js";
+import getApplication from "#database/getApplication.js";
 
 export const app = express();
 
@@ -144,6 +145,8 @@ app.get('/cv/:jobDuplicateKey/status', getCVStatus);
 app.post('/cover-letters/create/text', generateCoverLetterAsText);
 
 app.post('/tokens/count', countTokens);
+
+app.get('/application/:jobDuplicateKey', getApplication);
 
 function appendChunkAndFlushLines(
     bufferedText: string,
