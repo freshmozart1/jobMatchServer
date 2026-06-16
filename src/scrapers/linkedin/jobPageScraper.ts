@@ -12,15 +12,32 @@ import { connectionStringConfigured, getCollection, MONGODB_CONNECTION } from "#
 import calculateCosineSimilarity from "../../embeddings/calculateCosineSimilarity.js";
 import { createErrorMessage } from "../../errors/createErrorMessage.js";
 
+let likedEmbeddingsCache: { embeddings: number[][]; expiry: number } | null = null
+const CACHE_TTL_MS = 30_000
+
+export function resetLikedEmbeddingsCache(): void {
+    likedEmbeddingsCache = null
+}
+
+async function getLikedEmbeddings(client: InstanceType<typeof MongoClient>): Promise<number[][]> {
+    const now = Date.now()
+    if (likedEmbeddingsCache && likedEmbeddingsCache.expiry > now) {
+        return likedEmbeddingsCache.embeddings
+    }
+    const embeddings = (
+        await getCollection<StoredScrapedJob>(client, "jobs")
+            .find({ like: true })
+            .toArray()
+    ).map(j => j.embedding)
+    likedEmbeddingsCache = { embeddings, expiry: now + CACHE_TTL_MS }
+    return embeddings
+}
+
 async function computeAverageLikedJobSimilarity(
     client: InstanceType<typeof MongoClient>,
     embedding: number[],
 ): Promise<number | undefined> {
-    const likedEmbeddings = (
-        await getCollection<StoredScrapedJob>(client, "jobs")
-            .find({ like: true })
-            .toArray()
-    ).map(j => j.embedding);
+    const likedEmbeddings = await getLikedEmbeddings(client);
 
     const first = likedEmbeddings[0];
     if (!first) return undefined;

@@ -16,7 +16,7 @@ jest.unstable_mockModule("../../embeddings/jobEmbedding.js", () => ({ createJobE
 mockMongoDbModule();
 mockLocalDatabaseModule();
 
-const { scrapeLinkedInJobPage, getUrlFromBody } = await import("./jobPageScraper.js");
+const { scrapeLinkedInJobPage, getUrlFromBody, resetLikedEmbeddingsCache } = await import("./jobPageScraper.js");
 
 type PageMock = {
     click: ReturnType<typeof jest.fn<(selector: string) => Promise<void>>>;
@@ -154,6 +154,7 @@ describe("scrapeLinkedInJobPage", () => {
 
     beforeEach(() => {
         jest.clearAllMocks();
+        resetLikedEmbeddingsCache();
 
         companyPage = createCompanyPageMock();
         browser = createBrowserMock(companyPage);
