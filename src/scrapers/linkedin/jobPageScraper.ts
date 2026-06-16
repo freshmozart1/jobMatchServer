@@ -1,6 +1,6 @@
 import type { Request, Response } from "express";
 import type { Browser, Page } from "puppeteer";
-import type { ExtractedLinkedInJobPage, StoredScrapedJob } from "#types";
+import type { CompanyAddress, ExtractedLinkedInJobPage, StoredScrapedJob } from "#types";
 import getLinkedInJobPathSegment from "./getLinkedInJobPathSegment.js";
 import { getScraperErrorStatus } from "./jobLinkScraper.js";
 import isLinkedInHost from "./isLinkedInHost.js";
@@ -33,6 +33,35 @@ async function computeAverageLikedJobSimilarity(
         }
     }
     return calculateCosineSimilarity(sum.map(v => v / likedEmbeddings.length), embedding);
+}
+
+async function extractCompanyAddress(browser: Browser, companyPageUrl: string): Promise<CompanyAddress> {
+    const page = await browser.newPage();
+    try {
+        await page.goto(companyPageUrl, { waitUntil: 'networkidle2' });
+        const address = await page.evaluate(() => {
+            const addressDiv = document.querySelector('div.address-0');
+            if (!addressDiv) return null;
+            const [p1, p2] = Array.from(addressDiv.querySelectorAll('p')).map(p => p.textContent?.trim() ?? '');
+            if (!p1 || !p2) return null;
+
+            const streetMatch = p1.match(/^(.+?)\s+(\d+)$/);
+            if (!streetMatch) return null;
+            const street = streetMatch[1]!;
+            const housenumber = parseInt(streetMatch[2]!, 10);
+
+            const parts = p2.split(',').map(s => s.trim());
+            if (parts.length < 3) return null;
+            const [city, postalCode, countryCode] = parts;
+            if (!city || !postalCode || !countryCode) return null;
+
+            return { street, housenumber, city, postalCode, countryCode };
+        });
+        if (!address) throw new Error("Could not extract company address from company page.");
+        return address;
+    } finally {
+        await page.close();
+    }
 }
 
 export async function scrapeLinkedInJobPage(request: Request, response: Response): Promise<void> {
@@ -72,6 +101,7 @@ export async function scrapeLinkedInJobPage(request: Request, response: Response
         const title = coalesceText(extractJobTitle(extractedJobPage.title), getTitleFromPageTitle(pageTitle));
         const company = coalesceText(extractedJobPage.company, getCompanyFromPageTitle(pageTitle));
         const descriptionText = normalizeDescription(extractedJobPage.descriptionText);
+        const companyAddress = await extractCompanyAddress(browser, extractedJobPage.companyPageUrl);
 
         const jobFields = {
             sourceHostname: normalizedUrlObject.hostname,
@@ -85,6 +115,7 @@ export async function scrapeLinkedInJobPage(request: Request, response: Response
             scrapedAt: new Date().toISOString(),
             ...(extractedJobPage.tags.length > 0 ? { tags: extractedJobPage.tags } : {}),
             duplicateKey: sourceJobId ? `linkedin:${sourceJobId}` : normalizedUrl,
+            companyAddress,
         };
 
         const embedding = await createJobEmbedding(jobFields);
@@ -421,6 +452,7 @@ async function extractLinkedInJobPage(page: Page): Promise<ExtractedLinkedInJobP
             descriptionText,
             postedAt,
             tags: getTags(jobPosting),
+            companyPageUrl: document.querySelector<HTMLAnchorElement>('a.topcard__org-name-link.topcard__flavor--black-link')!.href,
         };
     });
 }

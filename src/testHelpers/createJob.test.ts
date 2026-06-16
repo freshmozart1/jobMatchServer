@@ -15,6 +15,7 @@ export function createJob<JobType>(like?: boolean): JobType {
         scrapedAt: "2026-06-02T00:00:00.000Z",
         tags: ["typescript", "node"],
         duplicateKey,
+        companyAddress: { street: "Musterstraße", housenumber: 42, city: "Berlin", postalCode: "10115", countryCode: "DE" },
         embedding,
         ... (like !==undefined ? { like } : {})
     } as JobType;

@@ -16,6 +16,14 @@ export type ScrapedAnchor = {
     nearbyText: string;
 };
 
+export type CompanyAddress = {
+    street: string;
+    housenumber: number;
+    city: string;
+    postalCode: string;
+    countryCode: string;
+};
+
 export type ScrapedJob = {
     sourceHostname: string;
     sourceJobId?: string;
@@ -28,6 +36,7 @@ export type ScrapedJob = {
     scrapedAt: string;
     tags?: string[];
     duplicateKey: string;
+    companyAddress: CompanyAddress;
     embedding: TextEmbedding;
     cosineSimilarity?: number;
 };
@@ -68,6 +77,7 @@ export type ExtractedLinkedInJobPage = {
     descriptionText: string | null;
     postedAt: string | null;
     tags: string[];
+    companyPageUrl: string;
 };
 
 export type CalculateTokensRequestBody = {
