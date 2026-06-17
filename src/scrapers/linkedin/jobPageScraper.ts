@@ -52,29 +52,34 @@ async function computeAverageLikedJobSimilarity(
     return calculateCosineSimilarity(sum.map(v => v / likedEmbeddings.length), embedding);
 }
 
+export function parseCompanyAddress(paragraphs: string[]): CompanyAddress | null {
+    const [p1, p2] = paragraphs;
+    if (!p1 || !p2) return null;
+
+    const streetMatch = p1.match(/^(.+?)\s+(\d+)$/);
+    if (!streetMatch) return null;
+    const street = streetMatch[1]!;
+    const housenumber = parseInt(streetMatch[2]!, 10);
+
+    const parts = p2.split(',').map(s => s.trim());
+    if (parts.length < 3) return null;
+    const [city, postalCode, countryCode] = parts;
+    if (!city || !postalCode || !countryCode) return null;
+
+    return { street, housenumber, city, postalCode, countryCode };
+}
+
 async function extractCompanyAddress(browser: Browser, companyPageUrl: string): Promise<CompanyAddress> {
     const page = await browser.newPage();
     try {
         await page.goto(companyPageUrl, { waitUntil: 'networkidle2' });
-        const address = await page.evaluate(() => {
+        const paragraphs = await page.evaluate(() => {
             const addressDiv = document.querySelector('div.address-0');
             if (!addressDiv) return null;
-            const [p1, p2] = Array.from(addressDiv.querySelectorAll('p')).map(p => p.textContent?.trim() ?? '');
-            if (!p1 || !p2) return null;
-
-            const streetMatch = p1.match(/^(.+?)\s+(\d+)$/);
-            if (!streetMatch) return null;
-            const street = streetMatch[1]!;
-            const housenumber = parseInt(streetMatch[2]!, 10);
-
-            const parts = p2.split(',').map(s => s.trim());
-            if (parts.length < 3) return null;
-            const [city, postalCode, countryCode] = parts;
-            if (!city || !postalCode || !countryCode) return null;
-
-            return { street, housenumber, city, postalCode, countryCode };
+            return Array.from(addressDiv.querySelectorAll('p')).map(p => p.textContent?.trim() ?? '');
         });
-        if (!address) throw new Error("Could not extract company address from company page.");
+        const address = paragraphs ? parseCompanyAddress(paragraphs) : null;
+        if (!address) throw new Error(`Could not extract company address from company page: ${companyPageUrl}`);
         return address;
     } finally {
         await page.close();
@@ -462,6 +467,9 @@ async function extractLinkedInJobPage(page: Page): Promise<ExtractedLinkedInJobP
         const descriptionText = getFirstDescription(descriptionSelectors) ?? stripHtml(getString(jobPosting?.["description"])) ?? getMetaContent(["description", "og:description"]);
         const postedAt = getString(jobPosting?.["datePosted"]) ?? getFirstText(postedAtSelectors);
 
+        const companyAnchor = document.querySelector<HTMLAnchorElement>('a.topcard__org-name-link.topcard__flavor--black-link');
+        if (!companyAnchor) throw new Error("Company page link not found on job page.");
+
         return {
             title,
             company,
@@ -469,7 +477,7 @@ async function extractLinkedInJobPage(page: Page): Promise<ExtractedLinkedInJobP
             descriptionText,
             postedAt,
             tags: getTags(jobPosting),
-            companyPageUrl: document.querySelector<HTMLAnchorElement>('a.topcard__org-name-link.topcard__flavor--black-link')!.href,
+            companyPageUrl: companyAnchor.href,
         };
     });
 }

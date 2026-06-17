@@ -16,7 +16,7 @@ jest.unstable_mockModule("../../embeddings/jobEmbedding.js", () => ({ createJobE
 mockMongoDbModule();
 mockLocalDatabaseModule();
 
-const { scrapeLinkedInJobPage, getUrlFromBody, resetLikedEmbeddingsCache } = await import("./jobPageScraper.js");
+const { scrapeLinkedInJobPage, getUrlFromBody, parseCompanyAddress, resetLikedEmbeddingsCache } = await import("./jobPageScraper.js");
 
 type PageMock = {
     click: ReturnType<typeof jest.fn<(selector: string) => Promise<void>>>;
@@ -27,7 +27,7 @@ type PageMock = {
 
 type CompanyPageMock = {
     goto: ReturnType<typeof jest.fn<() => Promise<void>>>;
-    evaluate: ReturnType<typeof jest.fn<() => Promise<{ street: string; housenumber: number; city: string; postalCode: string; countryCode: string } | null>>>;
+    evaluate: ReturnType<typeof jest.fn<() => Promise<string[] | null>>>;
     close: ReturnType<typeof jest.fn<() => Promise<void>>>;
 };
 
@@ -39,6 +39,7 @@ type BrowserMock = {
 const validLinkedInJobUrl = "https://www.linkedin.com/jobs/view/software-engineer-123456789/";
 
 const defaultCompanyAddress = { street: "Musterstraße", housenumber: 42, city: "Berlin", postalCode: "10115", countryCode: "DE" };
+const defaultCompanyAddressParagraphs = ["Musterstraße 42", "Berlin, 10115, DE"];
 
 const defaultExtractedPage: ExtractedLinkedInJobPage = {
     title: "Software Engineer",
@@ -67,10 +68,10 @@ function createPageMock({
     };
 }
 
-function createCompanyPageMock(address: { street: string; housenumber: number; city: string; postalCode: string; countryCode: string } | null = defaultCompanyAddress): CompanyPageMock {
+function createCompanyPageMock(paragraphs: string[] | null = defaultCompanyAddressParagraphs): CompanyPageMock {
     return {
         goto: jest.fn<() => Promise<void>>().mockResolvedValue(undefined),
-        evaluate: jest.fn<() => Promise<typeof address>>().mockResolvedValue(address),
+        evaluate: jest.fn<() => Promise<string[] | null>>().mockResolvedValue(paragraphs),
         close: jest.fn<() => Promise<void>>().mockResolvedValue(undefined),
     };
 }
@@ -144,6 +145,24 @@ describe("getUrlFromBody", () => {
     it("accepts a body with additional properties", () => {
         expect(getUrlFromBody({ url: "https://example.com/", extra: "ignored" }))
             .toBe("https://example.com/");
+    });
+});
+
+describe("parseCompanyAddress", () => {
+    it("returns the parsed address for valid paragraphs", () => {
+        expect(parseCompanyAddress(["Musterstraße 42", "Berlin, 10115, DE"])).toEqual(defaultCompanyAddress);
+    });
+
+    it("returns null when the paragraphs array is empty", () => {
+        expect(parseCompanyAddress([])).toBeNull();
+    });
+
+    it("returns null when the first paragraph does not match the expected format", () => {
+        expect(parseCompanyAddress(["NoNumberHere", "Berlin, 10115, DE"])).toBeNull();
+    });
+
+    it("returns null when the second paragraph does not have enough comma-separated parts", () => {
+        expect(parseCompanyAddress(["Musterstraße 42", "Berlin"])).toBeNull();
     });
 });
 
@@ -454,34 +473,7 @@ describe("scrapeLinkedInJobPage", () => {
         expect("sourceJobId" in jobData).toBe(false);
     });
 
-    it("includes companyAddress in the response when the company page has an address", async () => {
-        const { response, json } = createResponse();
-
-        await scrapeLinkedInJobPage(createRequest({ url: validLinkedInJobUrl }), response);
-
-        const jobData = json.mock.calls[0]?.[0] as Record<string, unknown>;
-        expect(jobData["companyAddress"]).toEqual(defaultCompanyAddress);
-    });
-
     it("responds 502 when div.address-0 is not found on the company page", async () => {
-        companyPage.evaluate.mockResolvedValue(null);
-        const { response, status } = createResponse();
-
-        await scrapeLinkedInJobPage(createRequest({ url: validLinkedInJobUrl }), response);
-
-        expect(status).toHaveBeenCalledWith(502);
-    });
-
-    it("responds 502 when the first address paragraph does not match the expected format", async () => {
-        companyPage.evaluate.mockResolvedValue(null);
-        const { response, status } = createResponse();
-
-        await scrapeLinkedInJobPage(createRequest({ url: validLinkedInJobUrl }), response);
-
-        expect(status).toHaveBeenCalledWith(502);
-    });
-
-    it("responds 502 when the second address paragraph does not have enough comma-separated parts", async () => {
         companyPage.evaluate.mockResolvedValue(null);
         const { response, status } = createResponse();
 
