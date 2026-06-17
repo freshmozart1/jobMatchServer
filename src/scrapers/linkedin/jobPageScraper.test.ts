@@ -636,7 +636,7 @@ describe("scrapeLinkedInJobPage", () => {
     expect("sourceJobId" in jobData).toBe(false);
   });
 
-  it("responds 502 when div.address-0 is not found on the company page", async () => {
+  it("responds 502 when #address-0 is not found on the company page", async () => {
     companyPage.evaluate.mockResolvedValue(null);
     const { response, status } = createResponse();
 

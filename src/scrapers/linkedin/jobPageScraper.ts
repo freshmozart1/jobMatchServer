@@ -100,9 +100,9 @@ async function extractCompanyAddress(
   if (!companyPage)
     throw new Error(`Could not open company page: ${companyPageUrl}`);
   try {
-    await companyPage.waitForSelector("div.address-0", { timeout: 15_000 });
+    await companyPage.waitForSelector("#address-0", { timeout: 15_000 });
     const paragraphs = await companyPage.evaluate(() => {
-      const addressDiv = document.querySelector("div.address-0");
+      const addressDiv = document.querySelector("#address-0");
       if (!addressDiv) return null;
       return Array.from(addressDiv.querySelectorAll("p")).map(
         (p) => p.textContent?.trim() ?? "",
