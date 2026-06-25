@@ -1,29 +1,29 @@
-import type { Request, Response } from 'express';
-import type { Browser } from 'puppeteer';
-import { getScraperErrorStatus } from './jobLinkScraper.js';
-import isSupportedLinkedInUrl from './isSupportedLinkedInUrl.js';
-import waitForLinkedInPage from './waitForLinkedInPage.js';
-import { extractLinkedInJobPage } from './extractLinkedInJobPage.js';
+import type { Request, Response } from "express";
+import type { Browser } from "puppeteer";
+import { getScraperErrorStatus } from "./jobLinkScraper.js";
+import isSupportedLinkedInUrl from "./isSupportedLinkedInUrl.js";
+import waitForLinkedInPage from "./waitForLinkedInPage.js";
+import { extractLinkedInJobPage } from "./extractLinkedInJobPage.js";
 import {
   normalizeLinkedInJobPageUrl,
   extractLinkedInJobId,
-} from './linkedInJobPageUrl.js';
-import { extractCompanyAddress } from './linkedInCompanyAddress.js';
+} from "./linkedInJobPageUrl.js";
+import { extractCompanyAddress } from "./linkedInCompanyAddress.js";
 import {
   coalesceText,
   normalizeDescription,
   extractJobTitle,
   getTitleFromPageTitle,
   getCompanyFromPageTitle,
-} from './linkedInTextUtils.js';
-import { computeAverageLikedJobSimilarity } from './linkedInJobSimilarity.js';
-import { createJobEmbedding } from '../../embeddings/jobEmbedding.js';
-import { MongoClient } from 'mongodb';
+} from "./linkedInTextUtils.js";
+import { computeJobMatch } from "./linkedInJobSimilarity.js";
+import { createJobEmbedding } from "../../embeddings/jobEmbedding.js";
+import { MongoClient } from "mongodb";
 import {
   connectionStringConfigured,
   MONGODB_CONNECTION,
-} from '#database/database.js';
-import { createErrorMessage } from '../../errors/createErrorMessage.js';
+} from "#database/database.js";
+import { createErrorMessage } from "../../errors/createErrorMessage.js";
 
 export async function scrapeLinkedInJobPage(
   request: Request,
@@ -31,13 +31,13 @@ export async function scrapeLinkedInJobPage(
 ): Promise<void> {
   const jobUrl = getUrlFromBody(request.body);
   const bodyHasNoUrlError = new Error(
-    'Request body must include a valid string url.',
+    "Request body must include a valid string url.",
   );
   const unsupportedUrlError = new Error(
-    'No job page scraper is registered for this URL.',
+    "No job page scraper is registered for this URL.",
   );
   const couldntNormalizeUrlError = new Error(
-    'Could not normalize LinkedIn job page URL.',
+    "Could not normalize LinkedIn job page URL.",
   );
 
   if (!connectionStringConfigured(response)) return;
@@ -46,16 +46,16 @@ export async function scrapeLinkedInJobPage(
     createErrorMessage(
       response,
       bodyHasNoUrlError,
-      'Failed to scrape job page.',
+      "Failed to scrape job page.",
       400,
     );
     return;
   }
-  if (!isSupportedLinkedInUrl(jobUrl, 'jobPage')) {
+  if (!isSupportedLinkedInUrl(jobUrl, "jobPage")) {
     createErrorMessage(
       response,
       unsupportedUrlError,
-      'Failed to scrape job page.',
+      "Failed to scrape job page.",
       422,
     );
     return;
@@ -118,20 +118,17 @@ export async function scrapeLinkedInJobPage(
     };
 
     const embedding = await createJobEmbedding(jobFields);
-    const similarity = await computeAverageLikedJobSimilarity(
-      client,
-      embedding,
-    );
+    const match = await computeJobMatch(client, embedding);
     response.status(200).json({
       ...jobFields,
       embedding,
-      ...(similarity !== undefined ? { cosineSimilarity: similarity } : {}),
+      ...(match !== undefined ? { match } : {}),
     });
   } catch (error) {
     createErrorMessage(
       response,
       error,
-      'Failed to scrape job page.',
+      "Failed to scrape job page.",
       getScraperErrorStatus(error),
     );
   } finally {
@@ -143,13 +140,13 @@ export async function scrapeLinkedInJobPage(
 }
 
 export function getUrlFromBody(body: unknown): string | null {
-  if (!body || typeof body !== 'object' || !('url' in body)) {
+  if (!body || typeof body !== "object" || !("url" in body)) {
     return null;
   }
 
   const url = body.url;
 
-  if (typeof url !== 'string' || url.trim().length === 0) {
+  if (typeof url !== "string" || url.trim().length === 0) {
     return null;
   }
 
