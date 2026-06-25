@@ -73,17 +73,17 @@ export function parseCompanyAddress(
   const [p1, p2] = paragraphs;
   if (!p1 || !p2) return null;
 
-  const streetMatch = p1.match(/^(.+?)\s+(\d+)$/);
-  if (!streetMatch) return null;
-  const street = streetMatch[1]!;
-  const housenumber = parseInt(streetMatch[2]!, 10);
+  const streetAddress = p1;
+  const firstComma = p2.indexOf(",");
+  const lastComma = p2.lastIndexOf(",");
+  if (firstComma === -1 || firstComma === lastComma) return null;
 
-  const parts = p2.split(",").map((s) => s.trim());
-  if (parts.length < 3) return null;
-  const [city, postalCode, countryCode] = parts;
+  const city = p2.slice(0, firstComma).trim();
+  const postalCode = p2.slice(firstComma + 1, lastComma).trim();
+  const countryCode = p2.slice(lastComma + 1).trim();
   if (!city || !postalCode || !countryCode) return null;
 
-  return { street, housenumber, city, postalCode, countryCode };
+  return { streetAddress, city, postalCode, countryCode };
 }
 
 async function extractCompanyAddress(
