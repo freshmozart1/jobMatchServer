@@ -1,4 +1,5 @@
 import type { Request, Response } from 'express';
+import { readFileSync } from 'fs';
 import { readFile } from 'fs/promises';
 import { MongoClient, ObjectId } from 'mongodb';
 import path from 'path';
@@ -28,6 +29,11 @@ const BODY_SEGMENT_ORDER: CoverLetterSegmentName[] = [
   'greetings',
 ];
 
+const coverLetterTemplate = readFileSync(
+  new URL('./coverLetter.html', import.meta.url),
+  'utf-8',
+);
+
 function escapeHtml(text: string): string {
   return text
     .replace(/&/g, '&amp;')
@@ -53,28 +59,28 @@ function coverLetterToHtml(
     .filter((p) => p.trim())
     .map((p) => `<p>${escapeHtml(p)}</p>`)
     .join('');
-  const e = escapeHtml;
-  return `<!DOCTYPE html><html><head><style>
-@page{size:A4;margin:0}*{box-sizing:border-box}
-body{font-family:Arial,sans-serif;font-size:10pt;line-height:1.5;position:relative;width:210mm;height:297mm;margin:0;padding:0}
-.header{position:absolute;left:0;top:0;width:210mm;height:27mm;text-align:right;padding:5mm 20mm 0}
-.header-name{font-size:11pt;font-weight:bold}
-.header-addr{font-size:9pt}
-.address-window{position:absolute;left:20mm;top:27mm;width:85mm;height:45mm}
-.absenderzeile{font-size:6pt;height:5mm;white-space:nowrap;overflow:hidden}
-.recipient p{margin:0;line-height:1.4}
-.reference{position:absolute;left:125mm;top:32mm;width:75mm;font-size:9pt;text-align:right}
-.reference p{margin:0}
-.subject{position:absolute;left:25mm;top:94.75mm;right:20mm;font-weight:bold}
-.body{position:absolute;left:25mm;top:107mm;right:20mm;bottom:37mm;overflow:hidden}
-.body p{margin:0 0 1em}
-</style></head><body>\
-<div class="header"><div class="header-name">${e(user.name)}</div><div class="header-addr">${e(user.address.streetAddress)} · ${e(user.address.postalCode)} ${e(user.address.city)}</div></div>\
-<div class="address-window"><div class="absenderzeile">${e(user.name)} · ${e(user.address.streetAddress)} · ${e(user.address.postalCode)} ${e(user.address.city)}</div><div class="recipient"><p>${e(job.company)}</p><p>${e(job.companyAddress.streetAddress)}</p><p>${e(job.companyAddress.postalCode)} ${e(job.companyAddress.city)}</p></div></div>\
-<div class="reference"><p>${e(date)}</p><p>${e(user.tel)}</p><p>${e(user.email)}</p></div>\
-<div class="subject">${e(coverLetter.subject.text)}</div>\
-<div class="body">${bodyParas}</div>\
-</body></html>`;
+  return coverLetterTemplate
+    .replace(/\{\{userName\}\}/g, () => escapeHtml(user.name))
+    .replace(/\{\{userStreetAddress\}\}/g, () =>
+      escapeHtml(user.address.streetAddress),
+    )
+    .replace(/\{\{userPostalCode\}\}/g, () =>
+      escapeHtml(user.address.postalCode),
+    )
+    .replace(/\{\{userCity\}\}/g, () => escapeHtml(user.address.city))
+    .replace(/\{\{userTel\}\}/g, () => escapeHtml(user.tel))
+    .replace(/\{\{userEmail\}\}/g, () => escapeHtml(user.email))
+    .replace(/\{\{jobCompany\}\}/g, () => escapeHtml(job.company))
+    .replace(/\{\{jobStreetAddress\}\}/g, () =>
+      escapeHtml(job.companyAddress.streetAddress),
+    )
+    .replace(/\{\{jobPostalCode\}\}/g, () =>
+      escapeHtml(job.companyAddress.postalCode),
+    )
+    .replace(/\{\{jobCity\}\}/g, () => escapeHtml(job.companyAddress.city))
+    .replace(/\{\{date\}\}/g, () => escapeHtml(date))
+    .replace(/\{\{subject\}\}/g, () => escapeHtml(coverLetter.subject.text))
+    .replace(/\{\{bodyParas\}\}/g, () => bodyParas);
 }
 
 export default async function getApplication(
