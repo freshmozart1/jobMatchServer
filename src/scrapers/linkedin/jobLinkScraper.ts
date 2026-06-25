@@ -137,6 +137,8 @@ function buildLinkedInJobSearchUrl(keyword: string, location: string, distance: 
     return url.toString() + '&f_TPR=r86400';
 }
 
+// TODO: #16 Refactor return
+
 async function inspectRenderedAnchors(page: Page): Promise<InspectedPage> {
     return page.evaluate(() => {
         const anchors = Array.from(document.querySelectorAll<HTMLAnchorElement>("a[href]")).map((anchor) => {
