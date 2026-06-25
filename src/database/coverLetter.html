@@ -1,0 +1,115 @@
+<!doctype html>
+<html>
+
+<head>
+  <title>Cover Letter</title>
+  <style>
+    @page {
+      size: A4;
+      margin: 0;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: Arial, sans-serif;
+      font-size: 10pt;
+      line-height: 1.5;
+      position: relative;
+      width: 210mm;
+      height: 297mm;
+      margin: 0;
+      padding: 0;
+    }
+
+    .header {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 210mm;
+      height: 27mm;
+      text-align: right;
+      padding: 5mm 20mm 0;
+    }
+
+    .address-window {
+      position: absolute;
+      left: 20mm;
+      top: 27mm;
+      width: 85mm;
+      height: 45mm;
+    }
+
+    .sender {
+      font-size: 6pt;
+      height: 5mm;
+      white-space: nowrap;
+      overflow: hidden;
+    }
+
+    .recipient p {
+      margin: 0;
+      line-height: 1.4;
+    }
+
+    .reference {
+      position: absolute;
+      left: 125mm;
+      top: 32mm;
+      width: 75mm;
+      font-size: 9pt;
+      text-align: right;
+    }
+
+    .reference p {
+      margin: 0;
+    }
+
+    .subject {
+      position: absolute;
+      left: 25mm;
+      top: 94.75mm;
+      right: 20mm;
+      font-weight: bold;
+    }
+
+    .body {
+      position: absolute;
+      left: 25mm;
+      top: 107mm;
+      right: 20mm;
+      bottom: 37mm;
+      overflow: hidden;
+    }
+
+    .body p {
+      margin: 0 0 1em;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="header"></div>
+  <div class="address-window">
+    <div class="sender">
+      {{userName}} · {{userStreetAddress}} · {{userPostalCode}} {{userCity}}
+    </div>
+    <div class="recipient">
+      <p>{{jobCompany}}</p>
+      <p>{{jobStreetAddress}}</p>
+      <p>{{jobPostalCode}} {{jobCity}}</p>
+    </div>
+  </div>
+  <div class="reference">
+    <p>{{userName}}</p>
+    <p style="margin-top: 9pt;">{{userTel}}</p>
+    <p>{{userEmail}}</p>
+    <p style="margin-top: 9pt;">{{date}}</p>
+  </div>
+  <div class="subject">{{subject}}</div>
+  <div class="body">{{bodyParas}}</div>
+</body>
+
+</html>
