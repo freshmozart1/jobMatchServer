@@ -27,3 +27,14 @@ export async function embed(input: string): Promise<TextEmbedding> {
 
     return embedding;
 }
+export function calculateEmbeddingAverage(embeddings: number[][]): number[] {
+  if (embeddings.length === 0 || !embeddings[0]) return [];
+  const sum = new Array<number>(embeddings[0].length).fill(0);
+  for (const embedding of embeddings) {
+    for (let i = 0; i < sum.length; i++) {
+      const s = sum[i], e = embedding[i];
+      if (typeof s === "number" && typeof e === "number") sum[i] = s + e;
+    }
+  }
+  return sum.map(e => e / embeddings.length);
+}
