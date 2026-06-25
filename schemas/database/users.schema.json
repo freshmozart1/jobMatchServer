@@ -1,0 +1,50 @@
+{
+    "bsonType": "object",
+    "required": [
+        "address",
+        "name",
+        "email",
+        "tel"
+    ],
+    "properties": {
+        "address": {
+            "bsonType": "object",
+            "required": [
+                "streetAddress",
+                "city",
+                "postalCode",
+                "countryCode"
+            ],
+            "properties": {
+                "streetAddress": {
+                    "bsonType": "string",
+                    "description": "The street address must be a string and is required"
+                },
+                "city": {
+                    "bsonType": "string",
+                    "description": "The city must be a string and is required"
+                },
+                "postalCode": {
+                    "bsonType": "string",
+                    "description": "The postal code must be a string and is required"
+                },
+                "countryCode": {
+                    "bsonType": "string",
+                    "description": "The country code must be a string and is required"
+                }
+            }
+        },
+        "name": {
+            "bsonType": "string",
+            "description": "The name must be a string and is required"
+        },
+        "email": {
+            "bsonType": "string",
+            "description": "The email must be a string and is required"
+        },
+        "tel": {
+            "bsonType": "string",
+            "description": "The telephone number must be a string and is required"
+        }
+    }
+}
