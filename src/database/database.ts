@@ -1,4 +1,5 @@
 import type {
+  StoredCertificate,
   StoredCoverLetter,
   StoredCv,
   StoredScrapedJob,
@@ -10,10 +11,15 @@ import type { MongoClient } from 'mongodb';
 export const MONGODB_CONNECTION = process.env['MONGODB_CONNECTION_STRING'];
 
 export function getCollection<
-  T extends StoredCoverLetter | StoredScrapedJob | StoredCv | StoredUser,
+  T extends
+    | StoredCertificate
+    | StoredCoverLetter
+    | StoredScrapedJob
+    | StoredCv
+    | StoredUser,
 >(
   client: MongoClient,
-  collectionName: 'coverLetters' | 'jobs' | 'cv' | 'users',
+  collectionName: 'certificates' | 'coverLetters' | 'jobs' | 'cv' | 'users',
 ) {
   return client.db('jobMatch').collection<T>(collectionName);
 }

@@ -70,6 +70,12 @@ export type StoredCv = {
   filePath: string;
 };
 
+export type StoredCertificate = {
+  filePath: string;
+  originalName: string;
+  mimeType: string;
+};
+
 export type StoredUser = {
   name: string;
   email: string;
