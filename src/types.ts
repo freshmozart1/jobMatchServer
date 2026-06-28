@@ -1,4 +1,4 @@
-export type LinkedInUrlVariant = 'jobPage' | 'jobSearchPage';
+export type LinkedInUrlVariant = "jobPage" | "jobSearchPage";
 
 export type LinkedInJobLinkSearchParams = {
   keywords: string[];
@@ -44,12 +44,12 @@ export type ScrapedJob = {
 export type TextEmbedding = number[];
 
 export type CoverLetterSegmentName =
-  | 'subject'
-  | 'salutation'
-  | 'introduction'
-  | 'mainBody'
-  | 'conclusion'
-  | 'greetings';
+  | "subject"
+  | "salutation"
+  | "introduction"
+  | "mainBody"
+  | "conclusion"
+  | "greetings";
 
 export type CoverLetterTextSegments = Record<CoverLetterSegmentName, string>;
 
@@ -68,6 +68,13 @@ export type StoredCoverLetter = Record<
 export type StoredCv = {
   jobId: string;
   filePath: string;
+};
+
+export type StoredCertificate = {
+  jobId: string;
+  filePath: string;
+  originalName: string;
+  mimeType: string;
 };
 
 export type StoredUser = {
