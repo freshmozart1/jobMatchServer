@@ -151,7 +151,7 @@ app.post('/jobs/create', createJobInDatabase);
 
 app.post('/jobs/filter-job-links', filterJobLinks);
 
-app.get('/jobs/top-x-similar-cover-letters', getTopXSimilarCoverLetters);
+app.post('/jobs/top-x-similar-cover-letters', getTopXSimilarCoverLetters);
 
 app.post('/cover-letters/upload/text', uploadCoverLetterAsText);
 
