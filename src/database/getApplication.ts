@@ -6,8 +6,10 @@ import path from "path";
 import { PDFDocument } from "pdf-lib";
 import puppeteer from "puppeteer";
 import { createErrorMessage } from "../errors/createErrorMessage.js";
+import { isPathInside } from "../utils/isPathInside.js";
 import type {
   CoverLetterSegmentName,
+  StoredCertificate,
   StoredCoverLetter,
   StoredCv,
   StoredScrapedJob,
@@ -119,10 +121,8 @@ export default async function getApplication(
     });
     if (!user) throw new Error("User not found");
 
-    const uploadsDir = path.resolve("uploads/cv");
     const resolvedPath = path.resolve(cv.filePath);
-    const relativePath = path.relative(uploadsDir, resolvedPath);
-    if (relativePath.startsWith("..") || path.isAbsolute(relativePath)) {
+    if (!isPathInside("uploads/cv", cv.filePath)) {
       createErrorMessage(
         response,
         new Error("Invalid file path"),
@@ -132,14 +132,31 @@ export default async function getApplication(
       return;
     }
 
+    // Certificates are optional: a job without certificates still produces a
+    // valid application PDF. Any certificate that cannot be embedded (unsafe
+    // path, non-renderable image, or corrupt file) is skipped, never fatal.
+    const certificates = await getCollection<StoredCertificate>(
+      client,
+      "certificates",
+    )
+      .find({ jobId: job._id.toHexString() })
+      .toArray();
+    const safeCertificates = certificates.filter((certificate) =>
+      isPathInside("uploads/certificates", certificate.filePath),
+    );
+
     const html = coverLetterToHtml(coverLetter, job, user);
 
     const browser = await puppeteer.launch({ headless: true });
     let coverLetterPdfBytes: Uint8Array;
     try {
       const page = await browser.newPage();
-      await page.setContent(html, { waitUntil: "load" });
-      coverLetterPdfBytes = await page.pdf({ format: "A4" });
+      try {
+        await page.setContent(html, { waitUntil: "load" });
+        coverLetterPdfBytes = await page.pdf({ format: "A4" });
+      } finally {
+        await page.close();
+      }
     } finally {
       await browser.close();
     }
@@ -155,6 +172,45 @@ export default async function getApplication(
     const cvDoc = await PDFDocument.load(cvBytes);
     for (const p of await merged.copyPages(cvDoc, cvDoc.getPageIndices()))
       merged.addPage(p);
+
+    for (const certificate of safeCertificates) {
+      try {
+        const certificateBytes = await readFile(
+          path.resolve(certificate.filePath),
+        );
+        if (certificate.mimeType === "application/pdf") {
+          const certDoc = await PDFDocument.load(certificateBytes);
+          for (const p of await merged.copyPages(
+            certDoc,
+            certDoc.getPageIndices(),
+          ))
+            merged.addPage(p);
+        } else if (
+          certificate.mimeType === "image/jpeg" ||
+          certificate.mimeType === "image/jpg"
+        ) {
+          const img = await merged.embedJpg(certificateBytes);
+          const certPage = merged.addPage([595.28, 841.89]);
+          certPage.drawImage(img, {
+            x: 0,
+            y: 0,
+            width: 595.28,
+            height: 841.89,
+          });
+        } else if (certificate.mimeType === "image/png") {
+          const img = await merged.embedPng(certificateBytes);
+          const certPage = merged.addPage([595.28, 841.89]);
+          certPage.drawImage(img, {
+            x: 0,
+            y: 0,
+            width: 595.28,
+            height: 841.89,
+          });
+        }
+      } catch {
+        continue;
+      }
+    }
 
     const mergedBytes = await merged.save();
 
