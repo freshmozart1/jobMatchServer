@@ -1,26 +1,26 @@
-import { beforeEach, describe, expect, it, jest } from '@jest/globals';
-import path from 'path';
+import { beforeEach, describe, expect, it, jest } from "@jest/globals";
+import path from "path";
 import type {
   StoredCertificate,
   StoredCoverLetter,
   StoredCv,
   StoredScrapedJob,
   StoredUser,
-} from '#types';
+} from "#types";
 import {
   getCollection,
   mockLocalDatabaseModule,
-} from '../testMockModules/localDatabase.test.js';
+} from "../testMockModules/localDatabase.test.js";
 import {
   close,
   connect,
   createFind,
   createToArray,
   mockMongoDbModule,
-} from '../testMockModules/mongodb.test.js';
-import { createJob, duplicateKey } from '../testHelpers/createJob.test.js';
-import createRequest from '../testHelpers/createRequest.test.js';
-import createResponse from '../testHelpers/createResponse.test.js';
+} from "../testMockModules/mongodb.test.js";
+import { createJob, duplicateKey } from "../testHelpers/createJob.test.js";
+import createRequest from "../testHelpers/createRequest.test.js";
+import createResponse from "../testHelpers/createResponse.test.js";
 
 const findOneCoverLetter =
   jest.fn<
@@ -54,10 +54,14 @@ type MockBrowser = {
   newPage: () => Promise<MockPage>;
   close: () => Promise<void>;
 };
+type MockPdfImage = object;
+type MockPdfPage = { drawImage: (img: unknown, options: unknown) => void };
 type MockMergedDoc = {
-  addPage: (page: unknown) => void;
+  addPage: (page: unknown) => MockPdfPage;
   copyPages: (doc: unknown, indices: number[]) => Promise<unknown[]>;
   save: () => Promise<Uint8Array>;
+  embedJpg: (bytes: Buffer) => Promise<MockPdfImage>;
+  embedPng: (bytes: Buffer) => Promise<MockPdfImage>;
 };
 type MockPdfDocRef = { getPageIndices: () => number[] };
 
@@ -69,32 +73,35 @@ const mockBrowserClose = jest.fn<() => Promise<void>>();
 const mockNewPage = jest.fn<() => Promise<MockPage>>();
 const mockLaunch = jest.fn<() => Promise<MockBrowser>>();
 
-const mockAddPage = jest.fn<(page: unknown) => void>();
+const mockDrawImage = jest.fn<(img: unknown, options: unknown) => void>();
+const mockAddPage = jest.fn<(page: unknown) => MockPdfPage>();
 const mockGetPageIndices = jest.fn<() => number[]>();
 const mockCopyPages =
   jest.fn<(doc: unknown, indices: number[]) => Promise<unknown[]>>();
 const mockSave = jest.fn<() => Promise<Uint8Array>>();
+const mockEmbedJpg = jest.fn<(bytes: Buffer) => Promise<MockPdfImage>>();
+const mockEmbedPng = jest.fn<(bytes: Buffer) => Promise<MockPdfImage>>();
 const mockPdfDocumentCreate = jest.fn<() => Promise<MockMergedDoc>>();
 const mockPdfDocumentLoad = jest.fn<() => Promise<MockPdfDocRef>>();
 
 const mockReadFile = jest.fn<(path: string) => Promise<Buffer>>();
 
-const mockJobId = '507f1f77bcf86cd799439011';
+const mockJobId = "507f1f77bcf86cd799439011";
 
 const storedCv: StoredCv = {
   jobId: mockJobId,
-  filePath: 'uploads/cv/testfile.pdf',
+  filePath: "uploads/cv/testfile.pdf",
 };
 
 const mockUser: StoredUser = {
-  name: 'Jane Doe',
-  email: 'jane.doe@example.com',
-  tel: '+49 30 12345678',
+  name: "Jane Doe",
+  email: "jane.doe@example.com",
+  tel: "+49 30 12345678",
   address: {
-    streetAddress: 'Hauptstraße 1',
-    city: 'Berlin',
-    postalCode: '10115',
-    countryCode: 'DE',
+    streetAddress: "Hauptstraße 1",
+    city: "Berlin",
+    postalCode: "10115",
+    countryCode: "DE",
   },
 };
 
@@ -105,12 +112,12 @@ const mockMergedBytes = new Uint8Array([7, 8, 9]);
 const mockCoverLetter: StoredCoverLetter & {
   _id: { toHexString: () => string };
 } = {
-  subject: { text: 'Application for Software Engineer', embedding: null },
-  salutation: { text: 'Dear Hiring Manager,', embedding: null },
-  introduction: { text: 'I am writing to apply.', embedding: null },
-  mainBody: { text: 'I have experience.\n\nI am passionate.', embedding: null },
-  conclusion: { text: 'Thank you.', embedding: null },
-  greetings: { text: 'Best regards,\nJohn Doe', embedding: null },
+  subject: { text: "Application for Software Engineer", embedding: null },
+  salutation: { text: "Dear Hiring Manager,", embedding: null },
+  introduction: { text: "I am writing to apply.", embedding: null },
+  mainBody: { text: "I have experience.\n\nI am passionate.", embedding: null },
+  conclusion: { text: "Thank you.", embedding: null },
+  greetings: { text: "Best regards,\nJohn Doe", embedding: null },
   jobDuplicateKey: duplicateKey,
   _id: { toHexString: () => mockJobId },
 };
@@ -118,21 +125,21 @@ const mockCoverLetter: StoredCoverLetter & {
 mockMongoDbModule();
 mockLocalDatabaseModule();
 
-jest.unstable_mockModule('puppeteer', () => ({
+jest.unstable_mockModule("puppeteer", () => ({
   default: { launch: mockLaunch },
 }));
 
-jest.unstable_mockModule('pdf-lib', () => ({
+jest.unstable_mockModule("pdf-lib", () => ({
   PDFDocument: { create: mockPdfDocumentCreate, load: mockPdfDocumentLoad },
 }));
 
-jest.unstable_mockModule('fs/promises', () => ({
+jest.unstable_mockModule("fs/promises", () => ({
   readFile: mockReadFile,
 }));
 
-const { default: getApplication } = await import('./getApplication.js');
+const { default: getApplication } = await import("./getApplication.js");
 
-describe('getApplication', () => {
+describe("getApplication", () => {
   beforeEach(() => {
     jest.clearAllMocks();
 
@@ -149,11 +156,11 @@ describe('getApplication', () => {
 
     getCollection.mockImplementation(
       (_client: unknown, collectionName: unknown) => {
-        if (collectionName === 'coverLetters')
+        if (collectionName === "coverLetters")
           return { findOne: findOneCoverLetter };
-        if (collectionName === 'jobs') return { findOne: findOneJob };
-        if (collectionName === 'cv') return { findOne: findOneCv };
-        if (collectionName === 'certificates')
+        if (collectionName === "jobs") return { findOne: findOneJob };
+        if (collectionName === "cv") return { findOne: findOneCv };
+        if (collectionName === "certificates")
           return { find: findCertificates };
         return { findOne: findOneUser };
       },
@@ -180,6 +187,8 @@ describe('getApplication', () => {
       addPage: mockAddPage,
       copyPages: mockCopyPages,
       save: mockSave,
+      embedJpg: mockEmbedJpg,
+      embedPng: mockEmbedPng,
     };
     mockPdfDocumentCreate.mockResolvedValue(mockMergedDoc);
     mockPdfDocumentLoad.mockResolvedValue({
@@ -188,11 +197,14 @@ describe('getApplication', () => {
     mockGetPageIndices.mockReturnValue([0]);
     mockCopyPages.mockResolvedValue([{}]);
     mockSave.mockResolvedValue(mockMergedBytes);
+    mockAddPage.mockReturnValue({ drawImage: mockDrawImage });
+    mockEmbedJpg.mockResolvedValue({});
+    mockEmbedPng.mockResolvedValue({});
 
     mockReadFile.mockResolvedValue(mockCvBytes);
   });
 
-  it('sends merged application PDF when all documents are found', async () => {
+  it("sends merged application PDF when all documents are found", async () => {
     const request = createRequest<object, never, { jobDuplicateKey: string }>({
       params: { jobDuplicateKey: duplicateKey },
     });
@@ -218,17 +230,18 @@ describe('getApplication', () => {
       expect.stringContaining(
         '<div class="subject">Application for Software Engineer</div>',
       ),
-      { waitUntil: 'load' },
+      { waitUntil: "load" },
     );
     expect(mockSetContent).toHaveBeenCalledWith(
-      expect.stringContaining('<p>I have experience.</p>'),
-      { waitUntil: 'load' },
+      expect.stringContaining("<p>I have experience.</p>"),
+      { waitUntil: "load" },
     );
     expect(mockBrowserClose).toHaveBeenCalledTimes(1);
+    expect(mockPageClose).toHaveBeenCalledTimes(1);
     expect(mockReadFile).toHaveBeenCalledWith(path.resolve(storedCv.filePath));
-    expect(setHeader).toHaveBeenCalledWith('Content-Type', 'application/pdf');
+    expect(setHeader).toHaveBeenCalledWith("Content-Type", "application/pdf");
     expect(setHeader).toHaveBeenCalledWith(
-      'Content-Disposition',
+      "Content-Disposition",
       'attachment; filename="application.pdf"',
     );
     expect(end).toHaveBeenCalledWith(Buffer.from(mockMergedBytes));
@@ -238,12 +251,12 @@ describe('getApplication', () => {
     expect(close).toHaveBeenCalledTimes(1);
   });
 
-  it('appends a PDF certificate after the CV when certificates exist', async () => {
+  it("appends a PDF certificate after the CV when certificates exist", async () => {
     const certificate: StoredCertificate = {
       jobId: mockJobId,
-      filePath: 'uploads/certificates/cert1.pdf',
-      originalName: 'cert1.pdf',
-      mimeType: 'application/pdf',
+      filePath: "uploads/certificates/cert1.pdf",
+      originalName: "cert1.pdf",
+      mimeType: "application/pdf",
     };
     certToArray.mockResolvedValue([certificate]);
 
@@ -272,18 +285,19 @@ describe('getApplication', () => {
     // No image rendering, so only the cover letter uses a browser page.
     expect(mockLaunch).toHaveBeenCalledTimes(1);
     expect(mockNewPage).toHaveBeenCalledTimes(1);
+    expect(mockPageClose).toHaveBeenCalledTimes(1);
     expect(end).toHaveBeenCalledWith(Buffer.from(mockMergedBytes));
     expect(status).not.toHaveBeenCalled();
     expect(json).not.toHaveBeenCalled();
   });
 
-  it('renders image certificates within a single browser session', async () => {
+  it("embeds PNG certificate using pdf-lib without a browser page", async () => {
     certToArray.mockResolvedValue([
       {
         jobId: mockJobId,
-        filePath: 'uploads/certificates/cert.png',
-        originalName: 'cert.png',
-        mimeType: 'image/png',
+        filePath: "uploads/certificates/cert.png",
+        originalName: "cert.png",
+        mimeType: "image/png",
       },
     ]);
 
@@ -302,31 +316,28 @@ describe('getApplication', () => {
 
     await getApplication(request, response);
 
-    // A single browser renders both the cover letter and the image.
+    // Browser is used only for the cover letter — image certs use pdf-lib.
     expect(mockLaunch).toHaveBeenCalledTimes(1);
     expect(mockBrowserClose).toHaveBeenCalledTimes(1);
-    expect(mockNewPage).toHaveBeenCalledTimes(2);
-    expect(mockPdf).toHaveBeenCalledTimes(2);
-    // The image page is closed after rendering.
+    expect(mockNewPage).toHaveBeenCalledTimes(1);
     expect(mockPageClose).toHaveBeenCalledTimes(1);
-    expect(mockSetContent).toHaveBeenCalledWith(
-      expect.stringContaining('data:image/png;base64,'),
-      { waitUntil: 'load' },
-    );
-    // Cover letter + CV + rendered image = 3 documents merged.
-    expect(mockPdfDocumentLoad).toHaveBeenCalledTimes(3);
+    expect(mockPdf).toHaveBeenCalledTimes(1);
+    // Cover letter + CV are loaded as PDFDocuments; the PNG is embedded natively.
+    expect(mockPdfDocumentLoad).toHaveBeenCalledTimes(2);
+    expect(mockEmbedPng).toHaveBeenCalledTimes(1);
+    expect(mockDrawImage).toHaveBeenCalledTimes(1);
     expect(end).toHaveBeenCalledWith(Buffer.from(mockMergedBytes));
     expect(status).not.toHaveBeenCalled();
     expect(json).not.toHaveBeenCalled();
   });
 
-  it('skips non-renderable image certificates without failing', async () => {
+  it("embeds JPEG certificate using pdf-lib without a browser page", async () => {
     certToArray.mockResolvedValue([
       {
         jobId: mockJobId,
-        filePath: 'uploads/certificates/cert.tiff',
-        originalName: 'cert.tiff',
-        mimeType: 'image/tiff',
+        filePath: "uploads/certificates/cert.jpg",
+        originalName: "cert.jpg",
+        mimeType: "image/jpeg",
       },
     ]);
 
@@ -345,22 +356,60 @@ describe('getApplication', () => {
 
     await getApplication(request, response);
 
-    // The tiff is not rendered: only the cover letter uses a browser page.
     expect(mockNewPage).toHaveBeenCalledTimes(1);
-    // Only cover letter + CV are merged.
+    expect(mockPageClose).toHaveBeenCalledTimes(1);
     expect(mockPdfDocumentLoad).toHaveBeenCalledTimes(2);
+    expect(mockEmbedJpg).toHaveBeenCalledTimes(1);
+    expect(mockDrawImage).toHaveBeenCalledTimes(1);
     expect(end).toHaveBeenCalledWith(Buffer.from(mockMergedBytes));
     expect(status).not.toHaveBeenCalled();
     expect(json).not.toHaveBeenCalled();
   });
 
-  it('skips certificates whose path escapes the certificates directory', async () => {
+  it("skips certificates with unrecognised MIME types without failing", async () => {
     certToArray.mockResolvedValue([
       {
         jobId: mockJobId,
-        filePath: '../../etc/passwd',
-        originalName: 'passwd',
-        mimeType: 'application/pdf',
+        filePath: "uploads/certificates/cert.tiff",
+        originalName: "cert.tiff",
+        mimeType: "image/tiff",
+      },
+    ]);
+
+    const request = createRequest<object, never, { jobDuplicateKey: string }>({
+      params: { jobDuplicateKey: duplicateKey },
+    });
+    const { response, status, json } = createResponse();
+    const setHeader = jest.fn<(name: string, value: string) => void>();
+    const end = jest.fn<(data: Buffer) => void>();
+    (
+      response as unknown as { setHeader: typeof setHeader; end: typeof end }
+    ).setHeader = setHeader;
+    (
+      response as unknown as { setHeader: typeof setHeader; end: typeof end }
+    ).end = end;
+
+    await getApplication(request, response);
+
+    // Unrecognised MIME type: only the cover letter uses a browser page.
+    expect(mockNewPage).toHaveBeenCalledTimes(1);
+    expect(mockPageClose).toHaveBeenCalledTimes(1);
+    // Only cover letter + CV are merged.
+    expect(mockPdfDocumentLoad).toHaveBeenCalledTimes(2);
+    expect(mockEmbedPng).not.toHaveBeenCalled();
+    expect(mockEmbedJpg).not.toHaveBeenCalled();
+    expect(end).toHaveBeenCalledWith(Buffer.from(mockMergedBytes));
+    expect(status).not.toHaveBeenCalled();
+    expect(json).not.toHaveBeenCalled();
+  });
+
+  it("skips certificates whose path escapes the certificates directory", async () => {
+    certToArray.mockResolvedValue([
+      {
+        jobId: mockJobId,
+        filePath: "../../etc/passwd",
+        originalName: "passwd",
+        mimeType: "application/pdf",
       },
     ]);
 
@@ -380,7 +429,7 @@ describe('getApplication', () => {
     await getApplication(request, response);
 
     expect(mockReadFile).not.toHaveBeenCalledWith(
-      path.resolve('../../etc/passwd'),
+      path.resolve("../../etc/passwd"),
     );
     // Only cover letter + CV are merged; the unsafe certificate is dropped.
     expect(mockPdfDocumentLoad).toHaveBeenCalledTimes(2);
@@ -389,7 +438,7 @@ describe('getApplication', () => {
     expect(json).not.toHaveBeenCalled();
   });
 
-  it('returns 404 when the cover letter is not found', async () => {
+  it("returns 404 when the cover letter is not found", async () => {
     findOneCoverLetter.mockResolvedValue(null);
     const request = createRequest<object, never, { jobDuplicateKey: string }>({
       params: { jobDuplicateKey: duplicateKey },
@@ -400,15 +449,15 @@ describe('getApplication', () => {
 
     expect(status).toHaveBeenCalledWith(404);
     expect(json).toHaveBeenCalledWith({
-      error: 'Cover letter not found',
-      message: 'Error retrieving application',
+      error: "Cover letter not found",
+      message: "Error retrieving application",
     });
     expect(findOneJob).not.toHaveBeenCalled();
     expect(findOneCv).not.toHaveBeenCalled();
     expect(close).toHaveBeenCalledTimes(1);
   });
 
-  it('returns 404 when the job is not found', async () => {
+  it("returns 404 when the job is not found", async () => {
     findOneJob.mockResolvedValue(null);
     const request = createRequest<object, never, { jobDuplicateKey: string }>({
       params: { jobDuplicateKey: duplicateKey },
@@ -419,14 +468,14 @@ describe('getApplication', () => {
 
     expect(status).toHaveBeenCalledWith(404);
     expect(json).toHaveBeenCalledWith({
-      error: 'Job not found',
-      message: 'Error retrieving application',
+      error: "Job not found",
+      message: "Error retrieving application",
     });
     expect(findOneCv).not.toHaveBeenCalled();
     expect(close).toHaveBeenCalledTimes(1);
   });
 
-  it('returns 404 when the CV is not found', async () => {
+  it("returns 404 when the CV is not found", async () => {
     findOneCv.mockResolvedValue(null);
     const request = createRequest<object, never, { jobDuplicateKey: string }>({
       params: { jobDuplicateKey: duplicateKey },
@@ -437,14 +486,14 @@ describe('getApplication', () => {
 
     expect(status).toHaveBeenCalledWith(404);
     expect(json).toHaveBeenCalledWith({
-      error: 'CV not found',
-      message: 'Error retrieving application',
+      error: "CV not found",
+      message: "Error retrieving application",
     });
     expect(close).toHaveBeenCalledTimes(1);
   });
 
-  it('returns 500 when the CV file path is a directory traversal attack', async () => {
-    findOneCv.mockResolvedValue({ ...storedCv, filePath: '../../etc/passwd' });
+  it("returns 500 when the CV file path is a directory traversal attack", async () => {
+    findOneCv.mockResolvedValue({ ...storedCv, filePath: "../../etc/passwd" });
     const request = createRequest<object, never, { jobDuplicateKey: string }>({
       params: { jobDuplicateKey: duplicateKey },
     });
@@ -454,14 +503,14 @@ describe('getApplication', () => {
 
     expect(status).toHaveBeenCalledWith(500);
     expect(json).toHaveBeenCalledWith({
-      error: 'Invalid file path',
-      message: 'Error retrieving application',
+      error: "Invalid file path",
+      message: "Error retrieving application",
     });
     expect(mockLaunch).not.toHaveBeenCalled();
     expect(close).toHaveBeenCalledTimes(1);
   });
 
-  it('returns 500 when the user is not found', async () => {
+  it("returns 500 when the user is not found", async () => {
     findOneUser.mockResolvedValue(null);
     const request = createRequest<object, never, { jobDuplicateKey: string }>({
       params: { jobDuplicateKey: duplicateKey },
@@ -472,15 +521,15 @@ describe('getApplication', () => {
 
     expect(status).toHaveBeenCalledWith(500);
     expect(json).toHaveBeenCalledWith({
-      error: 'User not found',
-      message: 'Error retrieving application',
+      error: "User not found",
+      message: "Error retrieving application",
     });
     expect(mockLaunch).not.toHaveBeenCalled();
     expect(close).toHaveBeenCalledTimes(1);
   });
 
-  it('returns 500 when connect rejects', async () => {
-    connect.mockRejectedValue(new Error('Connection failed'));
+  it("returns 500 when connect rejects", async () => {
+    connect.mockRejectedValue(new Error("Connection failed"));
     const request = createRequest<object, never, { jobDuplicateKey: string }>({
       params: { jobDuplicateKey: duplicateKey },
     });
@@ -490,8 +539,8 @@ describe('getApplication', () => {
 
     expect(status).toHaveBeenCalledWith(500);
     expect(json).toHaveBeenCalledWith({
-      error: 'Connection failed',
-      message: 'Error retrieving application',
+      error: "Connection failed",
+      message: "Error retrieving application",
     });
     expect(close).toHaveBeenCalledTimes(1);
   });

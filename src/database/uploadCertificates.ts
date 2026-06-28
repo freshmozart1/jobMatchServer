@@ -8,17 +8,8 @@ import {
 import type { StoredCertificate, StoredScrapedJob } from "#types";
 import { createErrorMessage } from "../errors/createErrorMessage.js";
 
-const ALLOWED_MIMETYPES = /^(application\/pdf|image\/.+)$/;
-const ALLOWED_EXTENSIONS = new Set([
-  ".pdf",
-  ".jpg",
-  ".jpeg",
-  ".png",
-  ".gif",
-  ".webp",
-  ".tiff",
-  ".bmp",
-]);
+const ALLOWED_MIMETYPES = /^(application\/pdf|image\/(jpeg|jpg|png))$/;
+const ALLOWED_EXTENSIONS = new Set([".pdf", ".jpg", ".jpeg", ".png"]);
 
 function isAllowedFile(file: Express.Multer.File): boolean {
   if (ALLOWED_MIMETYPES.test(file.mimetype)) return true;
