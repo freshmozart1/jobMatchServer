@@ -135,6 +135,7 @@ app.get('/jobs/top-x-similar-cover-letters', getTopXSimilarCoverLetters);
 
 app.post('/cover-letters/upload/text', uploadCoverLetterAsText);
 
+//TODO: #26 Check if multer allows uploading any file and if it does, restrict it to only allow PDF files. Also, check if the file is actually a PDF and not just a file with a .pdf extension.
 const upload = multer({ dest: `uploads/cv` });
 app.post('/cv/upload', upload.single('file'), uploadCV);
 
