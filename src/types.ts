@@ -1,4 +1,4 @@
-export type LinkedInUrlVariant = 'jobPage' | 'jobSearchPage';
+export type LinkedInUrlVariant = "jobPage" | "jobSearchPage";
 
 export type LinkedInJobLinkSearchParams = {
   keywords: string[];
@@ -37,18 +37,18 @@ export type ScrapedJob = {
   duplicateKey: string;
   companyAddress: CompanyAddress;
   embedding: TextEmbedding;
-  cosineSimilarity?: number;
+  match?: number;
 };
 
 export type TextEmbedding = number[];
 
 export type CoverLetterSegmentName =
-  | 'subject'
-  | 'salutation'
-  | 'introduction'
-  | 'mainBody'
-  | 'conclusion'
-  | 'greetings';
+  | "subject"
+  | "salutation"
+  | "introduction"
+  | "mainBody"
+  | "conclusion"
+  | "greetings";
 
 export type CoverLetterTextSegments = Record<CoverLetterSegmentName, string>;
 
