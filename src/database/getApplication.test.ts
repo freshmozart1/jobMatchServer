@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, jest } from '@jest/globals';
 import path from 'path';
 import type {
+  StoredCertificate,
   StoredCoverLetter,
   StoredCv,
   StoredScrapedJob,
@@ -13,6 +14,8 @@ import {
 import {
   close,
   connect,
+  createFind,
+  createToArray,
   mockMongoDbModule,
 } from '../testMockModules/mongodb.test.js';
 import { createJob, duplicateKey } from '../testHelpers/createJob.test.js';
@@ -37,12 +40,15 @@ const findOneJob =
   >();
 const findOneCv = jest.fn<(filter: unknown) => Promise<StoredCv | null>>();
 const findOneUser = jest.fn<(filter: unknown) => Promise<StoredUser | null>>();
+const certToArray = createToArray<StoredCertificate>();
+const findCertificates = createFind<StoredCertificate>();
 
 type MockPdfOptions = { format?: string };
 type MockSetContentOptions = { waitUntil?: string };
 type MockPage = {
   setContent: (html: string, options?: MockSetContentOptions) => Promise<void>;
   pdf: (options?: MockPdfOptions) => Promise<Uint8Array>;
+  close: () => Promise<void>;
 };
 type MockBrowser = {
   newPage: () => Promise<MockPage>;
@@ -58,6 +64,7 @@ type MockPdfDocRef = { getPageIndices: () => number[] };
 const mockPdf = jest.fn<(options?: MockPdfOptions) => Promise<Uint8Array>>();
 const mockSetContent =
   jest.fn<(html: string, options?: MockSetContentOptions) => Promise<void>>();
+const mockPageClose = jest.fn<() => Promise<void>>();
 const mockBrowserClose = jest.fn<() => Promise<void>>();
 const mockNewPage = jest.fn<() => Promise<MockPage>>();
 const mockLaunch = jest.fn<() => Promise<MockBrowser>>();
@@ -146,12 +153,22 @@ describe('getApplication', () => {
           return { findOne: findOneCoverLetter };
         if (collectionName === 'jobs') return { findOne: findOneJob };
         if (collectionName === 'cv') return { findOne: findOneCv };
+        if (collectionName === 'certificates')
+          return { find: findCertificates };
         return { findOne: findOneUser };
       },
     );
 
-    mockNewPage.mockResolvedValue({ setContent: mockSetContent, pdf: mockPdf });
+    certToArray.mockResolvedValue([]);
+    findCertificates.mockReturnValue({ toArray: certToArray });
+
+    mockNewPage.mockResolvedValue({
+      setContent: mockSetContent,
+      pdf: mockPdf,
+      close: mockPageClose,
+    });
     mockSetContent.mockResolvedValue();
+    mockPageClose.mockResolvedValue();
     mockPdf.mockResolvedValue(mockCoverLetterPdfBytes);
     mockBrowserClose.mockResolvedValue(undefined);
     mockLaunch.mockResolvedValue({
@@ -219,6 +236,157 @@ describe('getApplication', () => {
     expect(json).not.toHaveBeenCalled();
     expect(connect).toHaveBeenCalledTimes(1);
     expect(close).toHaveBeenCalledTimes(1);
+  });
+
+  it('appends a PDF certificate after the CV when certificates exist', async () => {
+    const certificate: StoredCertificate = {
+      jobId: mockJobId,
+      filePath: 'uploads/certificates/cert1.pdf',
+      originalName: 'cert1.pdf',
+      mimeType: 'application/pdf',
+    };
+    certToArray.mockResolvedValue([certificate]);
+
+    const request = createRequest<object, never, { jobDuplicateKey: string }>({
+      params: { jobDuplicateKey: duplicateKey },
+    });
+    const { response, status, json } = createResponse();
+    const setHeader = jest.fn<(name: string, value: string) => void>();
+    const end = jest.fn<(data: Buffer) => void>();
+    (
+      response as unknown as { setHeader: typeof setHeader; end: typeof end }
+    ).setHeader = setHeader;
+    (
+      response as unknown as { setHeader: typeof setHeader; end: typeof end }
+    ).end = end;
+
+    await getApplication(request, response);
+
+    expect(findCertificates).toHaveBeenCalledWith({ jobId: mockJobId });
+    expect(mockReadFile).toHaveBeenCalledWith(
+      path.resolve(certificate.filePath),
+    );
+    // Cover letter + CV + certificate = 3 documents merged.
+    expect(mockPdfDocumentLoad).toHaveBeenCalledTimes(3);
+    expect(mockCopyPages).toHaveBeenCalledTimes(3);
+    // No image rendering, so only the cover letter uses a browser page.
+    expect(mockLaunch).toHaveBeenCalledTimes(1);
+    expect(mockNewPage).toHaveBeenCalledTimes(1);
+    expect(end).toHaveBeenCalledWith(Buffer.from(mockMergedBytes));
+    expect(status).not.toHaveBeenCalled();
+    expect(json).not.toHaveBeenCalled();
+  });
+
+  it('renders image certificates within a single browser session', async () => {
+    certToArray.mockResolvedValue([
+      {
+        jobId: mockJobId,
+        filePath: 'uploads/certificates/cert.png',
+        originalName: 'cert.png',
+        mimeType: 'image/png',
+      },
+    ]);
+
+    const request = createRequest<object, never, { jobDuplicateKey: string }>({
+      params: { jobDuplicateKey: duplicateKey },
+    });
+    const { response, status, json } = createResponse();
+    const setHeader = jest.fn<(name: string, value: string) => void>();
+    const end = jest.fn<(data: Buffer) => void>();
+    (
+      response as unknown as { setHeader: typeof setHeader; end: typeof end }
+    ).setHeader = setHeader;
+    (
+      response as unknown as { setHeader: typeof setHeader; end: typeof end }
+    ).end = end;
+
+    await getApplication(request, response);
+
+    // A single browser renders both the cover letter and the image.
+    expect(mockLaunch).toHaveBeenCalledTimes(1);
+    expect(mockBrowserClose).toHaveBeenCalledTimes(1);
+    expect(mockNewPage).toHaveBeenCalledTimes(2);
+    expect(mockPdf).toHaveBeenCalledTimes(2);
+    // The image page is closed after rendering.
+    expect(mockPageClose).toHaveBeenCalledTimes(1);
+    expect(mockSetContent).toHaveBeenCalledWith(
+      expect.stringContaining('data:image/png;base64,'),
+      { waitUntil: 'load' },
+    );
+    // Cover letter + CV + rendered image = 3 documents merged.
+    expect(mockPdfDocumentLoad).toHaveBeenCalledTimes(3);
+    expect(end).toHaveBeenCalledWith(Buffer.from(mockMergedBytes));
+    expect(status).not.toHaveBeenCalled();
+    expect(json).not.toHaveBeenCalled();
+  });
+
+  it('skips non-renderable image certificates without failing', async () => {
+    certToArray.mockResolvedValue([
+      {
+        jobId: mockJobId,
+        filePath: 'uploads/certificates/cert.tiff',
+        originalName: 'cert.tiff',
+        mimeType: 'image/tiff',
+      },
+    ]);
+
+    const request = createRequest<object, never, { jobDuplicateKey: string }>({
+      params: { jobDuplicateKey: duplicateKey },
+    });
+    const { response, status, json } = createResponse();
+    const setHeader = jest.fn<(name: string, value: string) => void>();
+    const end = jest.fn<(data: Buffer) => void>();
+    (
+      response as unknown as { setHeader: typeof setHeader; end: typeof end }
+    ).setHeader = setHeader;
+    (
+      response as unknown as { setHeader: typeof setHeader; end: typeof end }
+    ).end = end;
+
+    await getApplication(request, response);
+
+    // The tiff is not rendered: only the cover letter uses a browser page.
+    expect(mockNewPage).toHaveBeenCalledTimes(1);
+    // Only cover letter + CV are merged.
+    expect(mockPdfDocumentLoad).toHaveBeenCalledTimes(2);
+    expect(end).toHaveBeenCalledWith(Buffer.from(mockMergedBytes));
+    expect(status).not.toHaveBeenCalled();
+    expect(json).not.toHaveBeenCalled();
+  });
+
+  it('skips certificates whose path escapes the certificates directory', async () => {
+    certToArray.mockResolvedValue([
+      {
+        jobId: mockJobId,
+        filePath: '../../etc/passwd',
+        originalName: 'passwd',
+        mimeType: 'application/pdf',
+      },
+    ]);
+
+    const request = createRequest<object, never, { jobDuplicateKey: string }>({
+      params: { jobDuplicateKey: duplicateKey },
+    });
+    const { response, status, json } = createResponse();
+    const setHeader = jest.fn<(name: string, value: string) => void>();
+    const end = jest.fn<(data: Buffer) => void>();
+    (
+      response as unknown as { setHeader: typeof setHeader; end: typeof end }
+    ).setHeader = setHeader;
+    (
+      response as unknown as { setHeader: typeof setHeader; end: typeof end }
+    ).end = end;
+
+    await getApplication(request, response);
+
+    expect(mockReadFile).not.toHaveBeenCalledWith(
+      path.resolve('../../etc/passwd'),
+    );
+    // Only cover letter + CV are merged; the unsafe certificate is dropped.
+    expect(mockPdfDocumentLoad).toHaveBeenCalledTimes(2);
+    expect(end).toHaveBeenCalledWith(Buffer.from(mockMergedBytes));
+    expect(status).not.toHaveBeenCalled();
+    expect(json).not.toHaveBeenCalled();
   });
 
   it('returns 404 when the cover letter is not found', async () => {

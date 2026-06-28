@@ -5,9 +5,11 @@ import { MongoClient, ObjectId } from "mongodb";
 import path from "path";
 import { PDFDocument } from "pdf-lib";
 import puppeteer from "puppeteer";
+import type { Browser } from "puppeteer";
 import { createErrorMessage } from "../errors/createErrorMessage.js";
 import type {
   CoverLetterSegmentName,
+  StoredCertificate,
   StoredCoverLetter,
   StoredCv,
   StoredScrapedJob,
@@ -33,6 +35,34 @@ const coverLetterTemplate = readFileSync(
   new URL("./coverLetter.html", import.meta.url),
   "utf-8",
 );
+
+const BROWSER_RENDERABLE_IMAGE = /^image\/(jpeg|jpg|png|gif|webp)$/;
+
+function isPathInside(baseDir: string, candidate: string): boolean {
+  const base = path.resolve(baseDir);
+  const relative = path.relative(base, path.resolve(candidate));
+  return !relative.startsWith("..") && !path.isAbsolute(relative);
+}
+
+async function imageToPdfBytes(
+  browser: Browser,
+  bytes: Buffer,
+  mimeType: string,
+): Promise<Uint8Array> {
+  const dataUri = `data:${mimeType};base64,${bytes.toString("base64")}`;
+  const html =
+    "<!doctype html><html><head><style>" +
+    "*{margin:0;padding:0}img{display:block;width:100%;height:auto}" +
+    "</style></head><body>" +
+    `<img src="${dataUri}"></body></html>`;
+  const page = await browser.newPage();
+  try {
+    await page.setContent(html, { waitUntil: "load" });
+    return await page.pdf({ format: "A4" });
+  } finally {
+    await page.close();
+  }
+}
 
 function escapeHtml(text: string): string {
   return text
@@ -119,10 +149,8 @@ export default async function getApplication(
     });
     if (!user) throw new Error("User not found");
 
-    const uploadsDir = path.resolve("uploads/cv");
     const resolvedPath = path.resolve(cv.filePath);
-    const relativePath = path.relative(uploadsDir, resolvedPath);
-    if (relativePath.startsWith("..") || path.isAbsolute(relativePath)) {
+    if (!isPathInside("uploads/cv", cv.filePath)) {
       createErrorMessage(
         response,
         new Error("Invalid file path"),
@@ -132,14 +160,52 @@ export default async function getApplication(
       return;
     }
 
+    // Certificates are optional: a job without certificates still produces a
+    // valid application PDF. Any certificate that cannot be embedded (unsafe
+    // path, non-renderable image, or corrupt file) is skipped, never fatal.
+    const certificates = await getCollection<StoredCertificate>(
+      client,
+      "certificates",
+    )
+      .find({ jobId: job._id.toHexString() })
+      .toArray();
+    const safeCertificates = certificates.filter((certificate) =>
+      isPathInside("uploads/certificates", certificate.filePath),
+    );
+
     const html = coverLetterToHtml(coverLetter, job, user);
 
     const browser = await puppeteer.launch({ headless: true });
     let coverLetterPdfBytes: Uint8Array;
+    const certificatePdfByteArrays: Uint8Array[] = [];
     try {
       const page = await browser.newPage();
       await page.setContent(html, { waitUntil: "load" });
       coverLetterPdfBytes = await page.pdf({ format: "A4" });
+
+      for (const certificate of safeCertificates) {
+        try {
+          const certificateBytes = await readFile(
+            path.resolve(certificate.filePath),
+          );
+          if (certificate.mimeType === "application/pdf") {
+            certificatePdfByteArrays.push(certificateBytes);
+          } else if (BROWSER_RENDERABLE_IMAGE.test(certificate.mimeType)) {
+            certificatePdfByteArrays.push(
+              await imageToPdfBytes(
+                browser,
+                certificateBytes,
+                certificate.mimeType,
+              ),
+            );
+          }
+          // Other formats (e.g. tiff, bmp) are skipped silently.
+        } catch {
+          // A single unreadable/corrupt certificate must not break the
+          // application; skip it and continue.
+          continue;
+        }
+      }
     } finally {
       await browser.close();
     }
@@ -155,6 +221,20 @@ export default async function getApplication(
     const cvDoc = await PDFDocument.load(cvBytes);
     for (const p of await merged.copyPages(cvDoc, cvDoc.getPageIndices()))
       merged.addPage(p);
+
+    for (const certificateBytes of certificatePdfByteArrays) {
+      try {
+        const certificateDoc = await PDFDocument.load(certificateBytes);
+        for (const p of await merged.copyPages(
+          certificateDoc,
+          certificateDoc.getPageIndices(),
+        ))
+          merged.addPage(p);
+      } catch {
+        // Skip a certificate whose bytes fail to load as a PDF.
+        continue;
+      }
+    }
 
     const mergedBytes = await merged.save();
 
