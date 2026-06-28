@@ -24,6 +24,7 @@ import uploadCV from '#database/uploadCV.js';
 import getCV from '#database/getCV.js';
 import getCVStatus from '#database/getCVStatus.js';
 import uploadCertificates from '#database/uploadCertificates.js';
+import getCertificatesStatus from '#database/getCertificatesStatus.js';
 import getApplication from '#database/getApplication.js';
 
 export const app = express();
@@ -161,6 +162,8 @@ app.post('/cv/upload', upload.single('file'), uploadCV);
 app.get('/cv/:jobDuplicateKey', getCV);
 
 app.get('/cv/:jobDuplicateKey/status', getCVStatus);
+
+app.get('/certificates/:jobDuplicateKey/status', getCertificatesStatus);
 
 //TODO #29
 const uploadCertificateFiles = multer({
