@@ -1,9 +1,10 @@
-export type LinkedInUrlVariant = "jobPage" | "jobSearchPage";
+export type LinkedInUrlVariant = 'jobPage' | 'jobSearchPage';
 
 export type LinkedInJobLinkSearchParams = {
   keywords: string[];
   location: string;
   distance: number;
+  datePosted: string;
 };
 
 export type LinkedInJobLinksByKeyword = Record<string, string[]>;
@@ -43,12 +44,12 @@ export type ScrapedJob = {
 export type TextEmbedding = number[];
 
 export type CoverLetterSegmentName =
-  | "subject"
-  | "salutation"
-  | "introduction"
-  | "mainBody"
-  | "conclusion"
-  | "greetings";
+  | 'subject'
+  | 'salutation'
+  | 'introduction'
+  | 'mainBody'
+  | 'conclusion'
+  | 'greetings';
 
 export type CoverLetterTextSegments = Record<CoverLetterSegmentName, string>;
 
