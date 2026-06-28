@@ -1,193 +1,217 @@
-import puppeteer, { type Browser, type Page } from "puppeteer";
+import puppeteer, { type Browser, type Page } from 'puppeteer';
 
 const DEFAULT_NAVIGATION_TIMEOUT_MS = 30_000;
 const DEFAULT_PAGE_TIMEOUT_MS = 15_000;
-const SIGN_IN_MODAL_DISMISS_SELECTOR = ".modal__dismiss";
+const SIGN_IN_MODAL_DISMISS_SELECTOR = '.modal__dismiss';
 const SIGN_IN_MODAL_TIMEOUT_MS = 5_000;
 const SIGN_IN_MODAL_SETTLE_MS = 300;
-const LINKEDIN_SEE_MORE_JOB_POSTINGS_PATH = "/jobs-guest/jobs/api/seeMoreJobPostings/search";
+const LINKEDIN_SEE_MORE_JOB_POSTINGS_PATH =
+  '/jobs-guest/jobs/api/seeMoreJobPostings/search';
 const LAZY_LOAD_RESPONSE_TIMEOUT_MS = 5_000;
 const LAZY_LOAD_SCROLL_SETTLE_MS = 300;
 const LAZY_LOAD_MAX_SCROLL_ATTEMPTS = 80;
 const SCROLL_BOTTOM_TOLERANCE_PX = 32;
 
 type LinkedInLazyLoadResponse = {
-    url(): string;
-    status(): number;
-    request(): {
-        method(): string;
-    };
+  url(): string;
+  status(): number;
+  request(): {
+    method(): string;
+  };
 };
 
 type LinkedInLazyLoadScrollOptions = {
-    maxScrollAttempts?: number;
-    responseTimeoutMs?: number;
-    scrollSettleMs?: number;
+  maxScrollAttempts?: number;
+  responseTimeoutMs?: number;
+  scrollSettleMs?: number;
 };
 
-export default async function waitForLinkedInPage(url: string): Promise<{ browser: Browser; page: Page }> {
-    const browser = await puppeteer.launch({
-        headless: true,
-        defaultViewport: {
-            width: 1366,
-            height: 900,
-        },
+export default async function waitForLinkedInPage(
+  url: string,
+): Promise<{ browser: Browser; page: Page }> {
+  const browser = await puppeteer.launch({
+    headless: true,
+    defaultViewport: {
+      width: 1366,
+      height: 900,
+    },
+  });
+
+  try {
+    const page = await browser.newPage();
+    page.setDefaultNavigationTimeout(DEFAULT_NAVIGATION_TIMEOUT_MS);
+    page.setDefaultTimeout(DEFAULT_PAGE_TIMEOUT_MS);
+
+    await page.setUserAgent({
+      userAgent:
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) ' +
+        'AppleWebKit/537.36 (KHTML, like Gecko) ' +
+        'Chrome/124.0.0.0 Safari/537.36',
+      platform: 'macOS',
+    });
+    await page.goto(url, {
+      waitUntil: 'domcontentloaded',
+      timeout: DEFAULT_NAVIGATION_TIMEOUT_MS,
     });
 
-    try {
-        const page = await browser.newPage();
-        page.setDefaultNavigationTimeout(DEFAULT_NAVIGATION_TIMEOUT_MS);
-        page.setDefaultTimeout(DEFAULT_PAGE_TIMEOUT_MS);
+    await dismissLinkedInSignInModalIfPresent(page);
 
-        await page.setUserAgent(
-            {
-                userAgent:
-                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) " +
-                    "AppleWebKit/537.36 (KHTML, like Gecko) " +
-                    "Chrome/124.0.0.0 Safari/537.36",
-                platform: "macOS",
-            }
-        );
-        await page.goto(url, { waitUntil: "domcontentloaded", timeout: DEFAULT_NAVIGATION_TIMEOUT_MS });
+    // await page.waitForSelector("body");
+    await new Promise((resolve) => setTimeout(resolve, 750));
 
-        await dismissLinkedInSignInModalIfPresent(page);
+    await scrollLinkedInLazyLoadedJobsUntilComplete(page);
 
-        // await page.waitForSelector("body");
-        await new Promise((resolve) => setTimeout(resolve, 750));
-
-        await scrollLinkedInLazyLoadedJobsUntilComplete(page);
-
-        return { browser, page };
-    } catch (error) {
-        await browser.close().catch(() => undefined);
-        throw error;
-    }
+    return { browser, page };
+  } catch (error) {
+    await browser.close().catch(() => undefined);
+    throw error;
+  }
 }
 
 async function dismissLinkedInSignInModalIfPresent(page: Page): Promise<void> {
-    const dismissButton = await page.waitForSelector(SIGN_IN_MODAL_DISMISS_SELECTOR, {
-        timeout: SIGN_IN_MODAL_TIMEOUT_MS,
-        visible: true,
-    }).catch((error: unknown) => {
-        if (isOptionalSignInModalWaitError(error)) {
-            return null;
-        }
+  const dismissButton = await page
+    .waitForSelector(SIGN_IN_MODAL_DISMISS_SELECTOR, {
+      timeout: SIGN_IN_MODAL_TIMEOUT_MS,
+      visible: true,
+    })
+    .catch((error: unknown) => {
+      if (isOptionalSignInModalWaitError(error)) {
+        return null;
+      }
 
-        throw error;
+      throw error;
     });
 
-    if (!dismissButton) {
-        return;
-    }
+  if (!dismissButton) {
+    return;
+  }
 
-    await dismissButton.click();
-    await new Promise((resolve) => setTimeout(resolve, SIGN_IN_MODAL_SETTLE_MS));
+  await dismissButton.click();
+  await new Promise((resolve) => setTimeout(resolve, SIGN_IN_MODAL_SETTLE_MS));
 }
 
 export async function scrollLinkedInLazyLoadedJobsUntilComplete(
-    page: Page,
-    options: LinkedInLazyLoadScrollOptions = {},
+  page: Page,
+  options: LinkedInLazyLoadScrollOptions = {},
 ): Promise<void> {
-    const maxScrollAttempts = options.maxScrollAttempts ?? LAZY_LOAD_MAX_SCROLL_ATTEMPTS;
-    const responseTimeoutMs = options.responseTimeoutMs ?? LAZY_LOAD_RESPONSE_TIMEOUT_MS;
-    const scrollSettleMs = options.scrollSettleMs ?? LAZY_LOAD_SCROLL_SETTLE_MS;
+  const maxScrollAttempts =
+    options.maxScrollAttempts ?? LAZY_LOAD_MAX_SCROLL_ATTEMPTS;
+  const responseTimeoutMs =
+    options.responseTimeoutMs ?? LAZY_LOAD_RESPONSE_TIMEOUT_MS;
+  const scrollSettleMs = options.scrollSettleMs ?? LAZY_LOAD_SCROLL_SETTLE_MS;
 
-    for (let scrollAttempt = 0; scrollAttempt < maxScrollAttempts; scrollAttempt += 1) {
-        // Attach the rejection handler synchronously, before the await below.
-        // The timeout timer starts the moment waitForResponse is called, so if the
-        // handler were only wired up after `await scrollToPageBottom(page)` the
-        // timeout could reject during that gap with no listener attached, surfacing
-        // as an unhandled rejection that crashes the process under Node's default policy.
-        const responsePromise = page
-            .waitForResponse(isLinkedInSeeMoreJobPostingsResponse, {
-                timeout: responseTimeoutMs,
-            })
-            .catch((error: unknown) => {
-                if (isResponseWaitTimeoutError(error)) {
-                    return null;
-                }
-
-                throw error;
-            });
-
-        const scrollState = await scrollToPageBottom(page);
-        const response = await responsePromise;
-
-        if (!response) {
-            console.debug(
-                `No LinkedIn lazy-load request detected after bottom scroll, scrollAttempt: ${scrollAttempt}, distanceToBottom: ${scrollState.distanceToBottom}`,
-            );
-            return;
+  for (
+    let scrollAttempt = 0;
+    scrollAttempt < maxScrollAttempts;
+    scrollAttempt += 1
+  ) {
+    // Attach the rejection handler synchronously, before the await below.
+    // The timeout timer starts the moment waitForResponse is called, so if the
+    // handler were only wired up after `await scrollToPageBottom(page)` the
+    // timeout could reject during that gap with no listener attached, surfacing
+    // as an unhandled rejection that crashes the process under Node's default policy.
+    const responsePromise = page
+      .waitForResponse(isLinkedInSeeMoreJobPostingsResponse, {
+        timeout: responseTimeoutMs,
+      })
+      .catch((error: unknown) => {
+        if (isResponseWaitTimeoutError(error)) {
+          return null;
         }
 
-        assertSuccessfulLinkedInSeeMoreJobPostingsResponse(response);
+        throw error;
+      });
 
-        const start = extractLinkedInLazyLoadStart(response.url());
+    const scrollState = await scrollToPageBottom(page);
+    const response = await responsePromise;
 
-        console.debug(
-            `LinkedIn lazy-load response received, scrollAttempt: ${scrollAttempt}, status: ${response.status()}, start: ${start ?? "unknown"}`,
-        );
-
-        if (scrollSettleMs > 0) {
-            await new Promise((resolve) => setTimeout(resolve, scrollSettleMs));
-        }
+    if (!response) {
+      console.debug(
+        `No LinkedIn lazy-load request detected after bottom scroll, scrollAttempt: ${scrollAttempt}, distanceToBottom: ${scrollState.distanceToBottom}`,
+      );
+      return;
     }
 
-    throw new Error(`Max LinkedIn lazy-load scroll attempts reached: ${maxScrollAttempts}`);
-}
+    assertSuccessfulLinkedInSeeMoreJobPostingsResponse(response);
 
-export function isLinkedInSeeMoreJobPostingsResponse(response: LinkedInLazyLoadResponse): boolean {
-    try {
-        const url = new URL(response.url());
+    console.debug(
+      `LinkedIn lazy-load response received, scrollAttempt: ${scrollAttempt}, status: ${response.status()}`,
+    );
 
-        return response.request().method() === "GET" && url.pathname === LINKEDIN_SEE_MORE_JOB_POSTINGS_PATH;
-    } catch {
-        return false;
+    if (scrollSettleMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, scrollSettleMs));
     }
+  }
+
+  throw new Error(
+    `Max LinkedIn lazy-load scroll attempts reached: ${maxScrollAttempts}`,
+  );
 }
 
-async function scrollToPageBottom(page: Page): Promise<{ distanceToBottom: number }> {
-    return page.evaluate((bottomTolerancePx) => {
-        const scrollElement = document.scrollingElement ?? document.documentElement;
+export function isLinkedInSeeMoreJobPostingsResponse(
+  response: LinkedInLazyLoadResponse,
+): boolean {
+  try {
+    const url = new URL(response.url());
 
-        window.scrollTo(0, scrollElement.scrollHeight);
-
-        const distanceToBottom = Math.max(0, scrollElement.scrollHeight - window.scrollY - window.innerHeight);
-
-        return {
-            distanceToBottom: distanceToBottom <= bottomTolerancePx ? 0 : distanceToBottom,
-        };
-    }, SCROLL_BOTTOM_TOLERANCE_PX);
+    return (
+      response.request().method() === 'GET' &&
+      url.pathname === LINKEDIN_SEE_MORE_JOB_POSTINGS_PATH
+    );
+  } catch {
+    return false;
+  }
 }
 
-function assertSuccessfulLinkedInSeeMoreJobPostingsResponse(response: LinkedInLazyLoadResponse): void {
-    const status = response.status();
+async function scrollToPageBottom(
+  page: Page,
+): Promise<{ distanceToBottom: number }> {
+  return page.evaluate((bottomTolerancePx) => {
+    const scrollElement = document.scrollingElement ?? document.documentElement;
 
-    if (status >= 200 && status < 300) {
-        return;
-    }
+    window.scrollTo(0, scrollElement.scrollHeight);
 
-    throw new Error(`LinkedIn lazy-load request failed with status ${status}: ${response.url()}`);
+    const distanceToBottom = Math.max(
+      0,
+      scrollElement.scrollHeight - window.scrollY - window.innerHeight,
+    );
+
+    return {
+      distanceToBottom:
+        distanceToBottom <= bottomTolerancePx ? 0 : distanceToBottom,
+    };
+  }, SCROLL_BOTTOM_TOLERANCE_PX);
 }
 
-function extractLinkedInLazyLoadStart(responseUrl: string): string | null {
-    try {
-        return new URL(responseUrl).searchParams.get("start");
-    } catch {
-        return null;
-    }
+function assertSuccessfulLinkedInSeeMoreJobPostingsResponse(
+  response: LinkedInLazyLoadResponse,
+): void {
+  const status = response.status();
+
+  if (status >= 200 && status < 300) {
+    return;
+  }
+
+  throw new Error(
+    `LinkedIn lazy-load request failed with status ${status}: ${response.url()}`,
+  );
 }
 
 function isResponseWaitTimeoutError(error: unknown): boolean {
-    return (
-        error instanceof Error &&
-        (error.name === "TimeoutError" || error.message.includes("Timed out") || error.message.includes("waiting for response"))
-    );
+  return (
+    error instanceof Error &&
+    (error.name === 'TimeoutError' ||
+      error.message.includes('Timed out') ||
+      error.message.includes('waiting for response'))
+  );
 }
 
 function isOptionalSignInModalWaitError(error: unknown): boolean {
-    return (
-        error instanceof Error &&
-        (error.name === "TimeoutError" || error.message.includes(`Waiting for selector \`${SIGN_IN_MODAL_DISMISS_SELECTOR}\` failed`))
-    );
+  return (
+    error instanceof Error &&
+    (error.name === 'TimeoutError' ||
+      error.message.includes(
+        `Waiting for selector \`${SIGN_IN_MODAL_DISMISS_SELECTOR}\` failed`,
+      ))
+  );
 }
