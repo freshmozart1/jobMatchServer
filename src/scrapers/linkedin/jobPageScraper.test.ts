@@ -1,18 +1,18 @@
-import { beforeEach, describe, expect, it, jest } from "@jest/globals";
-import type { Request } from "express";
-import type { ExtractedLinkedInJobPage } from "#types";
-import createResponse from "../../testHelpers/createResponse.test.js";
+import { beforeEach, describe, expect, it, jest } from '@jest/globals';
+import type { Request } from 'express';
+import type { ExtractedLinkedInJobPage } from '#types';
+import createResponse from '../../testHelpers/createResponse.test.js';
 import {
   mockLocalDatabaseModule,
   getCollection,
-} from "../../testMockModules/localDatabase.test.js";
+} from '../../testMockModules/localDatabase.test.js';
 import {
   mockMongoDbModule,
   connect,
   close,
   createToArray,
   createFind,
-} from "../../testMockModules/mongodb.test.js";
+} from '../../testMockModules/mongodb.test.js';
 
 const mockWaitForLinkedInPage =
   jest.fn<() => Promise<{ browser: object; page: object }>>();
@@ -20,10 +20,12 @@ const mockCreateJobEmbedding = jest.fn<() => Promise<number[]>>();
 const toArray = createToArray<{ embedding: number[] }>();
 const find = createFind<{ embedding: number[] }>();
 
-jest.unstable_mockModule("./waitForLinkedInPage.js", () => ({
+jest.unstable_mockModule('./waitForLinkedInPage.js', () => ({
   default: mockWaitForLinkedInPage,
+  LINKEDIN_USER_AGENT:
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
 }));
-jest.unstable_mockModule("../../embeddings/jobEmbedding.js", () => ({
+jest.unstable_mockModule('../../embeddings/jobEmbedding.js', () => ({
   createJobEmbedding: mockCreateJobEmbedding,
 }));
 
@@ -31,25 +33,24 @@ mockMongoDbModule();
 mockLocalDatabaseModule();
 
 const { scrapeLinkedInJobPage, getUrlFromBody } =
-  await import("./jobPageScraper.js");
-const { parseCompanyAddress } = await import("./linkedInCompanyAddress.js");
+  await import('./jobPageScraper.js');
+const { parseCompanyAddress } = await import('./linkedInCompanyAddress.js');
 const { resetLikedEmbeddingsCache, resetDislikedEmbeddingsCache } =
-  await import("./linkedInJobSimilarity.js");
+  await import('./linkedInJobSimilarity.js');
 
 type CompanyPageMock = {
+  setUserAgent: ReturnType<typeof jest.fn<(ua: object) => Promise<void>>>;
+  goto: ReturnType<
+    typeof jest.fn<(url: string, options?: object) => Promise<null>>
+  >;
   waitForSelector: ReturnType<typeof jest.fn<() => Promise<void>>>;
   evaluate: ReturnType<typeof jest.fn<() => Promise<string[] | null>>>;
   close: ReturnType<typeof jest.fn<() => Promise<void>>>;
 };
 
-type TargetMock = {
-  asPage: ReturnType<typeof jest.fn<() => Promise<CompanyPageMock | null>>>;
-  opener: ReturnType<typeof jest.fn<() => object | null>>;
-};
-
 type BrowserMock = {
   close: ReturnType<typeof jest.fn<() => Promise<void>>>;
-  waitForTarget: ReturnType<typeof jest.fn<() => Promise<TargetMock>>>;
+  newPage: ReturnType<typeof jest.fn<() => Promise<CompanyPageMock>>>;
 };
 
 type PageMock = {
@@ -58,37 +59,42 @@ type PageMock = {
   title: ReturnType<typeof jest.fn<() => Promise<string>>>;
   url: ReturnType<typeof jest.fn<() => string>>;
   browser: ReturnType<typeof jest.fn<() => BrowserMock>>;
-  target: ReturnType<typeof jest.fn<() => object>>;
 };
 
 const validLinkedInJobUrl =
-  "https://www.linkedin.com/jobs/view/software-engineer-123456789/";
+  'https://www.linkedin.com/jobs/view/software-engineer-123456789/';
 
 const defaultCompanyAddress = {
-  streetAddress: "Musterstraße 42",
-  city: "Berlin",
-  postalCode: "10115",
-  countryCode: "DE",
+  streetAddress: 'Musterstraße 42',
+  city: 'Berlin',
+  postalCode: '10115',
+  countryCode: 'DE',
 };
 const defaultCompanyAddressParagraphs = [
-  "Musterstraße 42",
-  "Berlin, 10115, DE",
+  'Musterstraße 42',
+  'Berlin, 10115, DE',
 ];
 
 const defaultExtractedPage: ExtractedLinkedInJobPage = {
-  title: "Software Engineer",
-  company: "Acme Corp",
-  location: "Berlin, Germany",
-  descriptionText: "A great job opportunity.",
-  postedAt: "2024-01-15",
-  tags: ["Full-time"],
-  companyPageUrl: "https://www.linkedin.com/company/acme-corp/",
+  title: 'Software Engineer',
+  company: 'Acme Corp',
+  location: 'Berlin, Germany',
+  descriptionText: 'A great job opportunity.',
+  postedAt: '2024-01-15',
+  tags: ['Full-time'],
+  companyPageUrl: 'https://www.linkedin.com/company/acme-corp/',
 };
 
 function createCompanyPageMock(
   paragraphs: string[] | null = defaultCompanyAddressParagraphs,
 ): CompanyPageMock {
   return {
+    setUserAgent: jest
+      .fn<(ua: object) => Promise<void>>()
+      .mockResolvedValue(undefined),
+    goto: jest
+      .fn<(url: string, options?: object) => Promise<null>>()
+      .mockResolvedValue(null),
     waitForSelector: jest
       .fn<() => Promise<void>>()
       .mockResolvedValue(undefined),
@@ -99,32 +105,20 @@ function createCompanyPageMock(
   };
 }
 
-function createTargetMock(
-  companyPage: CompanyPageMock = createCompanyPageMock(),
-): TargetMock {
-  return {
-    asPage: jest
-      .fn<() => Promise<CompanyPageMock | null>>()
-      .mockResolvedValue(companyPage),
-    opener: jest.fn<() => object | null>().mockReturnValue(null),
-  };
-}
-
 function createBrowserMock(
   companyPage: CompanyPageMock = createCompanyPageMock(),
 ): BrowserMock {
-  const target = createTargetMock(companyPage);
   return {
     close: jest.fn<() => Promise<void>>().mockResolvedValue(undefined),
-    waitForTarget: jest
-      .fn<() => Promise<TargetMock>>()
-      .mockResolvedValue(target),
+    newPage: jest
+      .fn<() => Promise<CompanyPageMock>>()
+      .mockResolvedValue(companyPage),
   };
 }
 
 function createPageMock({
   url = validLinkedInJobUrl,
-  title = "Software Engineer at Acme Corp | LinkedIn",
+  title = 'Software Engineer at Acme Corp | LinkedIn',
   extractedPage = defaultExtractedPage,
   browser: browserMock,
 }: {
@@ -145,7 +139,6 @@ function createPageMock({
     browser: jest
       .fn<() => BrowserMock>()
       .mockReturnValue(browserMock ?? createBrowserMock()),
-    target: jest.fn<() => object>().mockReturnValue({}),
   };
 }
 
@@ -153,118 +146,118 @@ function createRequest(body: unknown): Request {
   return { body } as Request;
 }
 
-describe("getUrlFromBody", () => {
-  it("returns null for null body", () => {
+describe('getUrlFromBody', () => {
+  it('returns null for null body', () => {
     expect(getUrlFromBody(null)).toBeNull();
   });
 
-  it("returns null for undefined body", () => {
+  it('returns null for undefined body', () => {
     expect(getUrlFromBody(undefined)).toBeNull();
   });
 
-  it("returns null for a string body", () => {
-    expect(getUrlFromBody("https://example.com")).toBeNull();
+  it('returns null for a string body', () => {
+    expect(getUrlFromBody('https://example.com')).toBeNull();
   });
 
-  it("returns null for a number body", () => {
+  it('returns null for a number body', () => {
     expect(getUrlFromBody(42)).toBeNull();
   });
 
-  it("returns null for an array body", () => {
-    expect(getUrlFromBody(["https://example.com"])).toBeNull();
+  it('returns null for an array body', () => {
+    expect(getUrlFromBody(['https://example.com'])).toBeNull();
   });
 
-  it("returns null when the body has no url property", () => {
-    expect(getUrlFromBody({ href: "https://example.com" })).toBeNull();
+  it('returns null when the body has no url property', () => {
+    expect(getUrlFromBody({ href: 'https://example.com' })).toBeNull();
   });
 
-  it("returns null when url is not a string", () => {
+  it('returns null when url is not a string', () => {
     expect(getUrlFromBody({ url: 123 })).toBeNull();
     expect(getUrlFromBody({ url: null })).toBeNull();
     expect(getUrlFromBody({ url: true })).toBeNull();
     expect(getUrlFromBody({ url: [] })).toBeNull();
   });
 
-  it("returns null for an empty url string", () => {
-    expect(getUrlFromBody({ url: "" })).toBeNull();
+  it('returns null for an empty url string', () => {
+    expect(getUrlFromBody({ url: '' })).toBeNull();
   });
 
-  it("returns null for a whitespace-only url string", () => {
-    expect(getUrlFromBody({ url: "   " })).toBeNull();
+  it('returns null for a whitespace-only url string', () => {
+    expect(getUrlFromBody({ url: '   ' })).toBeNull();
   });
 
-  it("returns null for an invalid URL string", () => {
-    expect(getUrlFromBody({ url: "not-a-url" })).toBeNull();
-    expect(getUrlFromBody({ url: "://missing-protocol" })).toBeNull();
+  it('returns null for an invalid URL string', () => {
+    expect(getUrlFromBody({ url: 'not-a-url' })).toBeNull();
+    expect(getUrlFromBody({ url: '://missing-protocol' })).toBeNull();
   });
 
-  it("returns the normalized URL string for a valid URL", () => {
+  it('returns the normalized URL string for a valid URL', () => {
     expect(
-      getUrlFromBody({ url: "https://www.linkedin.com/jobs/view/123456789/" }),
-    ).toBe("https://www.linkedin.com/jobs/view/123456789/");
+      getUrlFromBody({ url: 'https://www.linkedin.com/jobs/view/123456789/' }),
+    ).toBe('https://www.linkedin.com/jobs/view/123456789/');
   });
 
-  it("trims whitespace from the url before parsing", () => {
+  it('trims whitespace from the url before parsing', () => {
     expect(
       getUrlFromBody({
-        url: "  https://www.linkedin.com/jobs/view/123456789/  ",
+        url: '  https://www.linkedin.com/jobs/view/123456789/  ',
       }),
-    ).toBe("https://www.linkedin.com/jobs/view/123456789/");
+    ).toBe('https://www.linkedin.com/jobs/view/123456789/');
   });
 
-  it("accepts a body with additional properties", () => {
+  it('accepts a body with additional properties', () => {
     expect(
-      getUrlFromBody({ url: "https://example.com/", extra: "ignored" }),
-    ).toBe("https://example.com/");
+      getUrlFromBody({ url: 'https://example.com/', extra: 'ignored' }),
+    ).toBe('https://example.com/');
   });
 });
 
-describe("parseCompanyAddress", () => {
-  it("returns the parsed address for valid paragraphs", () => {
+describe('parseCompanyAddress', () => {
+  it('returns the parsed address for valid paragraphs', () => {
     expect(
-      parseCompanyAddress(["Musterstraße 42", "Berlin, 10115, DE"]),
+      parseCompanyAddress(['Musterstraße 42', 'Berlin, 10115, DE']),
     ).toEqual(defaultCompanyAddress);
   });
 
-  it("returns null when the paragraphs array is empty", () => {
+  it('returns null when the paragraphs array is empty', () => {
     expect(parseCompanyAddress([])).toBeNull();
   });
 
-  it("returns null when the second paragraph does not have enough comma-separated parts", () => {
-    expect(parseCompanyAddress(["Musterstraße 42", "Berlin"])).toBeNull();
+  it('returns null when the second paragraph does not have enough comma-separated parts', () => {
+    expect(parseCompanyAddress(['Musterstraße 42', 'Berlin'])).toBeNull();
   });
 
-  it("returns null when the second paragraph has only one comma", () => {
-    expect(parseCompanyAddress(["Musterstraße 42", "Berlin, DE"])).toBeNull();
+  it('returns null when the second paragraph has only one comma', () => {
+    expect(parseCompanyAddress(['Musterstraße 42', 'Berlin, DE'])).toBeNull();
   });
 
-  it("returns the parsed address for a house number range, keeping the raw postal code", () => {
+  it('returns the parsed address for a house number range, keeping the raw postal code', () => {
     expect(
       parseCompanyAddress([
-        "Altenholzer Straße 10-14",
-        "Altenholz , Schleswig Holstein 24161, DE",
+        'Altenholzer Straße 10-14',
+        'Altenholz , Schleswig Holstein 24161, DE',
       ]),
     ).toEqual({
-      streetAddress: "Altenholzer Straße 10-14",
-      city: "Altenholz",
-      postalCode: "Schleswig Holstein 24161",
-      countryCode: "DE",
+      streetAddress: 'Altenholzer Straße 10-14',
+      city: 'Altenholz',
+      postalCode: 'Schleswig Holstein 24161',
+      countryCode: 'DE',
     });
   });
 
-  it("returns the parsed address when the state abbreviation is prefixed to the postal code", () => {
+  it('returns the parsed address when the state abbreviation is prefixed to the postal code', () => {
     expect(
-      parseCompanyAddress(["Musterstraße 42", "Bremen, HB 28197, DE"]),
+      parseCompanyAddress(['Musterstraße 42', 'Bremen, HB 28197, DE']),
     ).toEqual({
-      streetAddress: "Musterstraße 42",
-      city: "Bremen",
-      postalCode: "HB 28197",
-      countryCode: "DE",
+      streetAddress: 'Musterstraße 42',
+      city: 'Bremen',
+      postalCode: 'HB 28197',
+      countryCode: 'DE',
     });
   });
 });
 
-describe("scrapeLinkedInJobPage", () => {
+describe('scrapeLinkedInJobPage', () => {
   let browser: BrowserMock;
   let companyPage: CompanyPageMock;
   let page: PageMock;
@@ -287,20 +280,20 @@ describe("scrapeLinkedInJobPage", () => {
     getCollection.mockReturnValue({ find: find });
   });
 
-  it("responds 400 when the body has no url", async () => {
+  it('responds 400 when the body has no url', async () => {
     const { response, status, json } = createResponse();
 
     await scrapeLinkedInJobPage(createRequest({}), response);
 
     expect(status).toHaveBeenCalledWith(400);
     expect(json).toHaveBeenCalledWith({
-      message: "Failed to scrape job page.",
-      error: "Request body must include a valid string url.",
+      message: 'Failed to scrape job page.',
+      error: 'Request body must include a valid string url.',
     });
     expect(mockWaitForLinkedInPage).not.toHaveBeenCalled();
   });
 
-  it("responds 400 when the body is null", async () => {
+  it('responds 400 when the body is null', async () => {
     const { response, status } = createResponse();
 
     await scrapeLinkedInJobPage(createRequest(null), response);
@@ -309,36 +302,36 @@ describe("scrapeLinkedInJobPage", () => {
     expect(mockWaitForLinkedInPage).not.toHaveBeenCalled();
   });
 
-  it("responds 400 when the url is not a valid URL string", async () => {
+  it('responds 400 when the url is not a valid URL string', async () => {
     const { response, status } = createResponse();
 
-    await scrapeLinkedInJobPage(createRequest({ url: "not-a-url" }), response);
+    await scrapeLinkedInJobPage(createRequest({ url: 'not-a-url' }), response);
 
     expect(status).toHaveBeenCalledWith(400);
     expect(mockWaitForLinkedInPage).not.toHaveBeenCalled();
   });
 
-  it("responds 422 when the url is not a supported LinkedIn job page url", async () => {
+  it('responds 422 when the url is not a supported LinkedIn job page url', async () => {
     const { response, status, json } = createResponse();
 
     await scrapeLinkedInJobPage(
-      createRequest({ url: "https://example.com/" }),
+      createRequest({ url: 'https://example.com/' }),
       response,
     );
 
     expect(status).toHaveBeenCalledWith(422);
     expect(json).toHaveBeenCalledWith({
-      message: "Failed to scrape job page.",
-      error: "No job page scraper is registered for this URL.",
+      message: 'Failed to scrape job page.',
+      error: 'No job page scraper is registered for this URL.',
     });
     expect(mockWaitForLinkedInPage).not.toHaveBeenCalled();
   });
 
-  it("responds 422 for a LinkedIn URL that is not a job page", async () => {
+  it('responds 422 for a LinkedIn URL that is not a job page', async () => {
     const { response, status } = createResponse();
 
     await scrapeLinkedInJobPage(
-      createRequest({ url: "https://www.linkedin.com/jobs/search/" }),
+      createRequest({ url: 'https://www.linkedin.com/jobs/search/' }),
       response,
     );
 
@@ -346,7 +339,7 @@ describe("scrapeLinkedInJobPage", () => {
     expect(mockWaitForLinkedInPage).not.toHaveBeenCalled();
   });
 
-  it("responds 200 with the scraped job data on success", async () => {
+  it('responds 200 with the scraped job data on success', async () => {
     const { response, status, json } = createResponse();
 
     await scrapeLinkedInJobPage(
@@ -357,22 +350,22 @@ describe("scrapeLinkedInJobPage", () => {
     expect(status).toHaveBeenCalledWith(200);
     const jobData = json.mock.calls[0]?.[0] as Record<string, unknown>;
     expect(jobData).toMatchObject({
-      sourceHostname: "www.linkedin.com",
-      sourceJobId: "123456789",
+      sourceHostname: 'www.linkedin.com',
+      sourceJobId: '123456789',
       sourceUrl: validLinkedInJobUrl,
-      title: "Software Engineer",
-      company: "Acme Corp",
-      location: "Berlin, Germany",
-      descriptionText: "A great job opportunity.",
-      postedAt: "2024-01-15",
-      tags: ["Full-time"],
-      duplicateKey: "linkedin:123456789",
+      title: 'Software Engineer',
+      company: 'Acme Corp',
+      location: 'Berlin, Germany',
+      descriptionText: 'A great job opportunity.',
+      postedAt: '2024-01-15',
+      tags: ['Full-time'],
+      duplicateKey: 'linkedin:123456789',
       embedding: [1, 0, 0],
       companyAddress: defaultCompanyAddress,
     });
   });
 
-  it("includes a valid ISO scrapedAt timestamp", async () => {
+  it('includes a valid ISO scrapedAt timestamp', async () => {
     const { response, json } = createResponse();
     const before = new Date().toISOString();
 
@@ -383,12 +376,12 @@ describe("scrapeLinkedInJobPage", () => {
 
     const after = new Date().toISOString();
     const jobData = json.mock.calls[0]?.[0] as Record<string, unknown>;
-    expect(typeof jobData["scrapedAt"]).toBe("string");
-    expect((jobData["scrapedAt"] as string) >= before).toBe(true);
-    expect((jobData["scrapedAt"] as string) <= after).toBe(true);
+    expect(typeof jobData['scrapedAt']).toBe('string');
+    expect((jobData['scrapedAt'] as string) >= before).toBe(true);
+    expect((jobData['scrapedAt'] as string) <= after).toBe(true);
   });
 
-  it("closes the browser after a successful scrape", async () => {
+  it('closes the browser after a successful scrape', async () => {
     const { response } = createResponse();
 
     await scrapeLinkedInJobPage(
@@ -399,7 +392,7 @@ describe("scrapeLinkedInJobPage", () => {
     expect(browser.close).toHaveBeenCalledTimes(1);
   });
 
-  it("closes the MongoDB client after a successful scrape", async () => {
+  it('closes the MongoDB client after a successful scrape', async () => {
     const { response } = createResponse();
 
     await scrapeLinkedInJobPage(
@@ -410,8 +403,8 @@ describe("scrapeLinkedInJobPage", () => {
     expect(close).toHaveBeenCalledTimes(1);
   });
 
-  it("closes the browser when page evaluation throws", async () => {
-    page.evaluate.mockRejectedValue(new Error("Evaluation failed"));
+  it('closes the browser when page evaluation throws', async () => {
+    page.evaluate.mockRejectedValue(new Error('Evaluation failed'));
     const { response } = createResponse();
 
     await scrapeLinkedInJobPage(
@@ -422,8 +415,8 @@ describe("scrapeLinkedInJobPage", () => {
     expect(browser.close).toHaveBeenCalledTimes(1);
   });
 
-  it("closes the MongoDB client even when a MongoDB error is thrown", async () => {
-    toArray.mockRejectedValue(new Error("MongoDB read failed"));
+  it('closes the MongoDB client even when a MongoDB error is thrown', async () => {
+    toArray.mockRejectedValue(new Error('MongoDB read failed'));
     const { response } = createResponse();
 
     await scrapeLinkedInJobPage(
@@ -434,9 +427,9 @@ describe("scrapeLinkedInJobPage", () => {
     expect(close).toHaveBeenCalledTimes(1);
   });
 
-  it("responds 504 when a timeout error is thrown", async () => {
+  it('responds 504 when a timeout error is thrown', async () => {
     mockWaitForLinkedInPage.mockRejectedValue(
-      new Error("Navigation timeout exceeded"),
+      new Error('Navigation timeout exceeded'),
     );
     const { response, status } = createResponse();
 
@@ -448,8 +441,8 @@ describe("scrapeLinkedInJobPage", () => {
     expect(status).toHaveBeenCalledWith(504);
   });
 
-  it("responds 502 when a non-timeout error is thrown", async () => {
-    mockWaitForLinkedInPage.mockRejectedValue(new Error("Connection refused"));
+  it('responds 502 when a non-timeout error is thrown', async () => {
+    mockWaitForLinkedInPage.mockRejectedValue(new Error('Connection refused'));
     const { response, status, json } = createResponse();
 
     await scrapeLinkedInJobPage(
@@ -459,12 +452,12 @@ describe("scrapeLinkedInJobPage", () => {
 
     expect(status).toHaveBeenCalledWith(502);
     expect(json).toHaveBeenCalledWith({
-      message: "Failed to scrape job page.",
-      error: "Connection refused",
+      message: 'Failed to scrape job page.',
+      error: 'Connection refused',
     });
   });
 
-  it("omits match when no liked jobs exist", async () => {
+  it('omits match when no liked jobs exist', async () => {
     toArray.mockResolvedValue([]);
     const { response, json } = createResponse();
 
@@ -474,10 +467,10 @@ describe("scrapeLinkedInJobPage", () => {
     );
 
     const jobData = json.mock.calls[0]?.[0] as Record<string, unknown>;
-    expect("match" in jobData).toBe(false);
+    expect('match' in jobData).toBe(false);
   });
 
-  it("includes match when liked jobs exist", async () => {
+  it('includes match when liked jobs exist', async () => {
     toArray
       .mockResolvedValueOnce([{ embedding: [1, 0, 0] }])
       .mockResolvedValueOnce([]);
@@ -490,11 +483,11 @@ describe("scrapeLinkedInJobPage", () => {
     );
 
     const jobData = json.mock.calls[0]?.[0] as Record<string, unknown>;
-    expect(typeof jobData["match"]).toBe("number");
-    expect(jobData["match"]).toBeCloseTo(1, 5);
+    expect(typeof jobData['match']).toBe('number');
+    expect(jobData['match']).toBeCloseTo(1, 5);
   });
 
-  it("uses 1 - negativeSimilarity when disliked similarity dominates", async () => {
+  it('uses 1 - negativeSimilarity when disliked similarity dominates', async () => {
     toArray
       .mockResolvedValueOnce([{ embedding: [1, 0, 0] }])
       .mockResolvedValueOnce([{ embedding: [0, 1, 0] }]);
@@ -507,13 +500,13 @@ describe("scrapeLinkedInJobPage", () => {
     );
 
     const jobData = json.mock.calls[0]?.[0] as Record<string, unknown>;
-    expect(typeof jobData["match"]).toBe("number");
-    expect(jobData["match"]).toBeCloseTo(0, 5);
+    expect(typeof jobData['match']).toBe('number');
+    expect(jobData['match']).toBeCloseTo(0, 5);
   });
 
-  it("uses the page url for canonical URL when it is a valid LinkedIn job url", async () => {
+  it('uses the page url for canonical URL when it is a valid LinkedIn job url', async () => {
     page = createPageMock({
-      url: "https://www.linkedin.com/jobs/view/different-job-999888777/",
+      url: 'https://www.linkedin.com/jobs/view/different-job-999888777/',
     });
     mockWaitForLinkedInPage.mockResolvedValue({ browser, page });
     const { response, json } = createResponse();
@@ -524,14 +517,14 @@ describe("scrapeLinkedInJobPage", () => {
     );
 
     const jobData = json.mock.calls[0]?.[0] as Record<string, unknown>;
-    expect(jobData["sourceUrl"]).toBe(
-      "https://www.linkedin.com/jobs/view/different-job-999888777/",
+    expect(jobData['sourceUrl']).toBe(
+      'https://www.linkedin.com/jobs/view/different-job-999888777/',
     );
-    expect(jobData["sourceJobId"]).toBe("999888777");
+    expect(jobData['sourceJobId']).toBe('999888777');
   });
 
-  it("falls back to the request url for canonical URL when the page url cannot be normalized", async () => {
-    page = createPageMock({ url: "https://www.linkedin.com/authwall" });
+  it('falls back to the request url for canonical URL when the page url cannot be normalized', async () => {
+    page = createPageMock({ url: 'https://www.linkedin.com/authwall' });
     mockWaitForLinkedInPage.mockResolvedValue({ browser, page });
     const { response, json } = createResponse();
 
@@ -541,10 +534,10 @@ describe("scrapeLinkedInJobPage", () => {
     );
 
     const jobData = json.mock.calls[0]?.[0] as Record<string, unknown>;
-    expect(jobData["sourceUrl"]).toBe(validLinkedInJobUrl);
+    expect(jobData['sourceUrl']).toBe(validLinkedInJobUrl);
   });
 
-  it("omits tags when the extracted tags array is empty", async () => {
+  it('omits tags when the extracted tags array is empty', async () => {
     page = createPageMock({
       extractedPage: { ...defaultExtractedPage, tags: [] },
     });
@@ -557,10 +550,10 @@ describe("scrapeLinkedInJobPage", () => {
     );
 
     const jobData = json.mock.calls[0]?.[0] as Record<string, unknown>;
-    expect("tags" in jobData).toBe(false);
+    expect('tags' in jobData).toBe(false);
   });
 
-  it("omits location when the extracted location is null", async () => {
+  it('omits location when the extracted location is null', async () => {
     page = createPageMock({
       extractedPage: { ...defaultExtractedPage, location: null },
     });
@@ -573,11 +566,11 @@ describe("scrapeLinkedInJobPage", () => {
     );
 
     const jobData = json.mock.calls[0]?.[0] as Record<string, unknown>;
-    expect("location" in jobData).toBe(false);
+    expect('location' in jobData).toBe(false);
   });
 
-  it("omits descriptionText when the extracted description is modal or legal text", async () => {
-    const modalText = "Einloggen bei LinkedIn, um Mitglied werden zu können.";
+  it('omits descriptionText when the extracted description is modal or legal text', async () => {
+    const modalText = 'Einloggen bei LinkedIn, um Mitglied werden zu können.';
     page = createPageMock({
       extractedPage: { ...defaultExtractedPage, descriptionText: modalText },
     });
@@ -590,11 +583,11 @@ describe("scrapeLinkedInJobPage", () => {
     );
 
     const jobData = json.mock.calls[0]?.[0] as Record<string, unknown>;
-    expect("descriptionText" in jobData).toBe(false);
+    expect('descriptionText' in jobData).toBe(false);
   });
 
-  it("omits descriptionText for English LinkedIn sign-in modal text", async () => {
-    const modalText = "Sign in to LinkedIn to Join now and see more jobs.";
+  it('omits descriptionText for English LinkedIn sign-in modal text', async () => {
+    const modalText = 'Sign in to LinkedIn to Join now and see more jobs.';
     page = createPageMock({
       extractedPage: { ...defaultExtractedPage, descriptionText: modalText },
     });
@@ -607,14 +600,14 @@ describe("scrapeLinkedInJobPage", () => {
     );
 
     const jobData = json.mock.calls[0]?.[0] as Record<string, unknown>;
-    expect("descriptionText" in jobData).toBe(false);
+    expect('descriptionText' in jobData).toBe(false);
   });
 
-  it("strips the LinkedIn suffix from the extracted title", async () => {
+  it('strips the LinkedIn suffix from the extracted title', async () => {
     page = createPageMock({
       extractedPage: {
         ...defaultExtractedPage,
-        title: "Software Engineer | LinkedIn",
+        title: 'Software Engineer | LinkedIn',
       },
     });
     mockWaitForLinkedInPage.mockResolvedValue({ browser, page });
@@ -626,12 +619,12 @@ describe("scrapeLinkedInJobPage", () => {
     );
 
     const jobData = json.mock.calls[0]?.[0] as Record<string, unknown>;
-    expect(jobData["title"]).toBe("Software Engineer");
+    expect(jobData['title']).toBe('Software Engineer');
   });
 
-  it("extracts title and company from an English-format page title as fallback", async () => {
+  it('extracts title and company from an English-format page title as fallback', async () => {
     page = createPageMock({
-      title: "Senior Developer at Big Corp | LinkedIn",
+      title: 'Senior Developer at Big Corp | LinkedIn',
       extractedPage: { ...defaultExtractedPage, title: null, company: null },
     });
     mockWaitForLinkedInPage.mockResolvedValue({ browser, page });
@@ -643,13 +636,13 @@ describe("scrapeLinkedInJobPage", () => {
     );
 
     const jobData = json.mock.calls[0]?.[0] as Record<string, unknown>;
-    expect(jobData["title"]).toBe("Senior Developer");
-    expect(jobData["company"]).toBe("Big Corp");
+    expect(jobData['title']).toBe('Senior Developer');
+    expect(jobData['company']).toBe('Big Corp');
   });
 
-  it("extracts title from a German-format page title as fallback", async () => {
+  it('extracts title from a German-format page title as fallback', async () => {
     page = createPageMock({
-      title: "Acme GmbH sucht Senior Developer in Berlin | LinkedIn",
+      title: 'Acme GmbH sucht Senior Developer in Berlin | LinkedIn',
       extractedPage: { ...defaultExtractedPage, title: null, company: null },
     });
     mockWaitForLinkedInPage.mockResolvedValue({ browser, page });
@@ -661,11 +654,11 @@ describe("scrapeLinkedInJobPage", () => {
     );
 
     const jobData = json.mock.calls[0]?.[0] as Record<string, unknown>;
-    expect(jobData["title"]).toBe("Senior Developer");
+    expect(jobData['title']).toBe('Senior Developer');
   });
 
-  it("uses the canonical URL as duplicateKey when no job ID can be extracted", async () => {
-    const urlWithoutId = "https://www.linkedin.com/jobs/view/senior-developer/";
+  it('uses the canonical URL as duplicateKey when no job ID can be extracted', async () => {
+    const urlWithoutId = 'https://www.linkedin.com/jobs/view/senior-developer/';
     page = createPageMock({ url: urlWithoutId });
     mockWaitForLinkedInPage.mockResolvedValue({ browser, page });
     const { response, json } = createResponse();
@@ -673,11 +666,34 @@ describe("scrapeLinkedInJobPage", () => {
     await scrapeLinkedInJobPage(createRequest({ url: urlWithoutId }), response);
 
     const jobData = json.mock.calls[0]?.[0] as Record<string, unknown>;
-    expect(jobData["duplicateKey"]).toBe(urlWithoutId);
-    expect("sourceJobId" in jobData).toBe(false);
+    expect(jobData['duplicateKey']).toBe(urlWithoutId);
+    expect('sourceJobId' in jobData).toBe(false);
   });
 
-  it("responds 502 when #address-0 is not found on the company page", async () => {
+  it('strips tracking query params from the company URL before navigating', async () => {
+    page = createPageMock({
+      extractedPage: {
+        ...defaultExtractedPage,
+        companyPageUrl:
+          'https://www.linkedin.com/company/acme-corp/?trk=public_jobs_topcard-org-name',
+      },
+      browser,
+    });
+    mockWaitForLinkedInPage.mockResolvedValue({ browser, page });
+    const { response } = createResponse();
+
+    await scrapeLinkedInJobPage(
+      createRequest({ url: validLinkedInJobUrl }),
+      response,
+    );
+
+    expect(companyPage.goto).toHaveBeenCalledWith(
+      'https://www.linkedin.com/company/acme-corp/',
+      expect.objectContaining({ waitUntil: 'domcontentloaded' }),
+    );
+  });
+
+  it('responds 502 when #address-0 is not found on the company page', async () => {
     companyPage.evaluate.mockResolvedValue(null);
     const { response, status } = createResponse();
 
@@ -689,7 +705,7 @@ describe("scrapeLinkedInJobPage", () => {
     expect(status).toHaveBeenCalledWith(502);
   });
 
-  it("closes the company page after extracting the address", async () => {
+  it('closes the company page after extracting the address', async () => {
     const { response } = createResponse();
 
     await scrapeLinkedInJobPage(
@@ -700,9 +716,9 @@ describe("scrapeLinkedInJobPage", () => {
     expect(companyPage.close).toHaveBeenCalledTimes(1);
   });
 
-  it("closes the company page even when its evaluation throws", async () => {
+  it('closes the company page even when its evaluation throws', async () => {
     companyPage.evaluate.mockRejectedValue(
-      new Error("Evaluation failed on company page"),
+      new Error('Evaluation failed on company page'),
     );
     const { response } = createResponse();
 

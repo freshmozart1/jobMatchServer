@@ -1,6 +1,6 @@
 import type { CompanyAddress } from '#types';
 import type { Page } from 'puppeteer';
-
+import { LINKEDIN_USER_AGENT } from './waitForLinkedInPage.js';
 
 function stripGermanStateNameFromPostalCode(postalCode: string): string {
   const stateNames = [
@@ -19,7 +19,7 @@ function stripGermanStateNameFromPostalCode(postalCode: string): string {
     'Sachsen',
     'Sachsen-Anhalt',
     'Schleswig-Holstein',
-    'Thüringen'
+    'Thüringen',
   ];
   //Remove state name from beginning of postal code if present
   for (const stateName of stateNames) {
@@ -42,7 +42,9 @@ export function parseCompanyAddress(
   if (firstComma === -1 || firstComma === lastComma) return null;
 
   const city = p2.slice(0, firstComma).trim();
-  const postalCode = stripGermanStateNameFromPostalCode(p2.slice(firstComma + 1, lastComma).trim());
+  const postalCode = stripGermanStateNameFromPostalCode(
+    p2.slice(firstComma + 1, lastComma).trim(),
+  );
   const countryCode = p2.slice(lastComma + 1).trim();
   if (!city || !postalCode || !countryCode) return null;
 
@@ -53,16 +55,18 @@ export async function extractCompanyAddress(
   page: Page,
   companyPageUrl: string,
 ): Promise<CompanyAddress> {
-  const [companyTarget] = await Promise.all([
-    page
-      .browser()
-      .waitForTarget((t) => t.opener() === page.target(), { timeout: 15_000 }),
-    page.click('a.topcard__org-name-link.topcard__flavor--black-link'),
-  ]);
-  const companyPage = await companyTarget.asPage();
-  if (!companyPage)
-    throw new Error(`Could not open company page: ${companyPageUrl}`);
+  const companyPage = await page.browser().newPage();
   try {
+    await companyPage.setUserAgent({
+      userAgent: LINKEDIN_USER_AGENT,
+      platform: 'macOS',
+    });
+    const cleanUrl = new URL(companyPageUrl);
+    cleanUrl.search = '';
+    await companyPage.goto(cleanUrl.toString(), {
+      waitUntil: 'domcontentloaded',
+      timeout: 30_000,
+    });
     await companyPage.waitForSelector('#address-0', { timeout: 15_000 });
     const paragraphs = await companyPage.evaluate(() => {
       const addressDiv = document.querySelector('#address-0');

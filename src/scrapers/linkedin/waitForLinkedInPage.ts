@@ -1,5 +1,10 @@
 import puppeteer, { type Browser, type Page } from 'puppeteer';
 
+export const LINKEDIN_USER_AGENT =
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) ' +
+  'AppleWebKit/537.36 (KHTML, like Gecko) ' +
+  'Chrome/124.0.0.0 Safari/537.36';
+
 const DEFAULT_NAVIGATION_TIMEOUT_MS = 30_000;
 const DEFAULT_PAGE_TIMEOUT_MS = 15_000;
 const SIGN_IN_MODAL_DISMISS_SELECTOR = '.modal__dismiss';
@@ -43,10 +48,7 @@ export default async function waitForLinkedInPage(
     page.setDefaultTimeout(DEFAULT_PAGE_TIMEOUT_MS);
 
     await page.setUserAgent({
-      userAgent:
-        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) ' +
-        'AppleWebKit/537.36 (KHTML, like Gecko) ' +
-        'Chrome/124.0.0.0 Safari/537.36',
+      userAgent: LINKEDIN_USER_AGENT,
       platform: 'macOS',
     });
     await page.goto(url, {
