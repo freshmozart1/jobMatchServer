@@ -37,19 +37,17 @@ const { resetLikedEmbeddingsCache, resetDislikedEmbeddingsCache } =
   await import("./linkedInJobSimilarity.js");
 
 type CompanyPageMock = {
+  goto: ReturnType<
+    typeof jest.fn<(url: string, options?: object) => Promise<null>>
+  >;
   waitForSelector: ReturnType<typeof jest.fn<() => Promise<void>>>;
   evaluate: ReturnType<typeof jest.fn<() => Promise<string[] | null>>>;
   close: ReturnType<typeof jest.fn<() => Promise<void>>>;
 };
 
-type TargetMock = {
-  asPage: ReturnType<typeof jest.fn<() => Promise<CompanyPageMock | null>>>;
-  opener: ReturnType<typeof jest.fn<() => object | null>>;
-};
-
 type BrowserMock = {
   close: ReturnType<typeof jest.fn<() => Promise<void>>>;
-  waitForTarget: ReturnType<typeof jest.fn<() => Promise<TargetMock>>>;
+  newPage: ReturnType<typeof jest.fn<() => Promise<CompanyPageMock>>>;
 };
 
 type PageMock = {
@@ -58,7 +56,6 @@ type PageMock = {
   title: ReturnType<typeof jest.fn<() => Promise<string>>>;
   url: ReturnType<typeof jest.fn<() => string>>;
   browser: ReturnType<typeof jest.fn<() => BrowserMock>>;
-  target: ReturnType<typeof jest.fn<() => object>>;
 };
 
 const validLinkedInJobUrl =
@@ -89,6 +86,9 @@ function createCompanyPageMock(
   paragraphs: string[] | null = defaultCompanyAddressParagraphs,
 ): CompanyPageMock {
   return {
+    goto: jest
+      .fn<(url: string, options?: object) => Promise<null>>()
+      .mockResolvedValue(null),
     waitForSelector: jest
       .fn<() => Promise<void>>()
       .mockResolvedValue(undefined),
@@ -99,26 +99,14 @@ function createCompanyPageMock(
   };
 }
 
-function createTargetMock(
-  companyPage: CompanyPageMock = createCompanyPageMock(),
-): TargetMock {
-  return {
-    asPage: jest
-      .fn<() => Promise<CompanyPageMock | null>>()
-      .mockResolvedValue(companyPage),
-    opener: jest.fn<() => object | null>().mockReturnValue(null),
-  };
-}
-
 function createBrowserMock(
   companyPage: CompanyPageMock = createCompanyPageMock(),
 ): BrowserMock {
-  const target = createTargetMock(companyPage);
   return {
     close: jest.fn<() => Promise<void>>().mockResolvedValue(undefined),
-    waitForTarget: jest
-      .fn<() => Promise<TargetMock>>()
-      .mockResolvedValue(target),
+    newPage: jest
+      .fn<() => Promise<CompanyPageMock>>()
+      .mockResolvedValue(companyPage),
   };
 }
 
@@ -145,7 +133,6 @@ function createPageMock({
     browser: jest
       .fn<() => BrowserMock>()
       .mockReturnValue(browserMock ?? createBrowserMock()),
-    target: jest.fn<() => object>().mockReturnValue({}),
   };
 }
 
@@ -675,6 +662,29 @@ describe("scrapeLinkedInJobPage", () => {
     const jobData = json.mock.calls[0]?.[0] as Record<string, unknown>;
     expect(jobData["duplicateKey"]).toBe(urlWithoutId);
     expect("sourceJobId" in jobData).toBe(false);
+  });
+
+  it("strips tracking query params from the company URL before navigating", async () => {
+    page = createPageMock({
+      extractedPage: {
+        ...defaultExtractedPage,
+        companyPageUrl:
+          "https://www.linkedin.com/company/acme-corp/?trk=public_jobs_topcard-org-name",
+      },
+      browser,
+    });
+    mockWaitForLinkedInPage.mockResolvedValue({ browser, page });
+    const { response } = createResponse();
+
+    await scrapeLinkedInJobPage(
+      createRequest({ url: validLinkedInJobUrl }),
+      response,
+    );
+
+    expect(companyPage.goto).toHaveBeenCalledWith(
+      "https://www.linkedin.com/company/acme-corp/",
+      expect.objectContaining({ waitUntil: "domcontentloaded" }),
+    );
   });
 
   it("responds 502 when #address-0 is not found on the company page", async () => {
