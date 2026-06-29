@@ -1,5 +1,6 @@
 import type { CompanyAddress } from '#types';
 import type { Page } from 'puppeteer';
+import { LINKEDIN_USER_AGENT } from './waitForLinkedInPage.js';
 
 function stripGermanStateNameFromPostalCode(postalCode: string): string {
   const stateNames = [
@@ -56,6 +57,10 @@ export async function extractCompanyAddress(
 ): Promise<CompanyAddress> {
   const companyPage = await page.browser().newPage();
   try {
+    await companyPage.setUserAgent({
+      userAgent: LINKEDIN_USER_AGENT,
+      platform: 'macOS',
+    });
     const cleanUrl = new URL(companyPageUrl);
     cleanUrl.search = '';
     await companyPage.goto(cleanUrl.toString(), {
