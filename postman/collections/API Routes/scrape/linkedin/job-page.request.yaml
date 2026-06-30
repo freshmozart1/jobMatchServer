@@ -1,8 +1,9 @@
 $kind: http-request
+name: job-page
 url: http://localhost:3000/scrape/linkedin/job-page
 method: POST
 body:
   type: json
-  content: '{"url":"https://de.linkedin.com/jobs/view/softwareentwickler-m-w-d-at-signal-iduna-asset-management-gmbh-4425152530/"}'
+  content: '{"url":"https://de.linkedin.com/jobs/view/senior-softwareentwickler-ki-gest%C3%BCtzte-entwicklung-m-w-d-at-buhck-gruppe-4431052305/"}'
 order: 1780404170417
 examples: ./.resources/job-page.resources/examples

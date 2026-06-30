@@ -8,7 +8,8 @@ body:
     {
         "keywords": ["Full Stack Engineer"],
         "location": "Hamburg",
-        "distance": 25
+        "distance": 25,
+        "datePosted": "86400"
     }
 order: 1199279532930212
 examples: ./.resources/job-links.resources/examples
