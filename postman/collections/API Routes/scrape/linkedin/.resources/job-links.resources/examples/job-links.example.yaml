@@ -16,7 +16,7 @@ response:
   headers:
     x-powered-by: Express
     content-type: application/json; charset=utf-8
-    content-length: "11925"
+    content-length: '11925'
     etag: W/"2e95-DkoYP+fosfBwalCcSRbL/W4tG0A"
     date: Sun, 07 Jun 2026 18:02:43 GMT
     connection: keep-alive

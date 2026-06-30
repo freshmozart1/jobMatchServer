@@ -9,16 +9,20 @@ Verify this project's changes by building and running tests.
 ## Steps
 
 1. **Build first** — Jest runs against compiled output in `dist/`, not source TypeScript:
+
    ```bash
    npm run build
    ```
+
    If the build fails, stop and report the TypeScript errors.
 
 2. **Run tests**:
    - If $ARGUMENTS is empty, run the full suite:
+
      ```bash
      npm run test:once
      ```
+
      (Do NOT use `npm run test` — it loops forever in watch mode.)
 
    - If $ARGUMENTS is a file path or pattern, run that specific file:

@@ -1,8 +1,8 @@
-import type { StoredScrapedJob } from "#types";
-import { MongoClient } from "mongodb";
-import { getCollection } from "#database/database.js";
-import calculateCosineSimilarity from "../../embeddings/calculateCosineSimilarity.js";
-import { calculateEmbeddingAverage } from "../../embeddings/embeddings.js";
+import type { StoredScrapedJob } from '#types';
+import { MongoClient } from 'mongodb';
+import { getCollection } from '#database/database.js';
+import calculateCosineSimilarity from '../../embeddings/calculateCosineSimilarity.js';
+import { calculateEmbeddingAverage } from '../../embeddings/embeddings.js';
 
 let likedEmbeddingsCache: { embeddings: number[][]; expiry: number } | null =
   null;
@@ -34,7 +34,7 @@ export async function getEmbeddings(
     return dislikedEmbeddingsCache.embeddings;
   }
   const embeddings = (
-    await getCollection<StoredScrapedJob>(client, "jobs")
+    await getCollection<StoredScrapedJob>(client, 'jobs')
       .find({ like: liked })
       .toArray()
   ).map((j) => j.embedding);

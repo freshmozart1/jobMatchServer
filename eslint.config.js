@@ -1,21 +1,21 @@
-import js from "@eslint/js";
-import tseslint from "typescript-eslint";
+import js from '@eslint/js';
+import tseslint from 'typescript-eslint';
 
 export default [
-    {
-        ignores: ["src/tokenService/**"]
+  {
+    ignores: ['dist/**', 'src/tokenService/**'],
+  },
+  js.configs.recommended,
+  ...tseslint.configs.recommended,
+  {
+    files: ['**/*.ts'],
+    languageOptions: {
+      parserOptions: {
+        project: './tsconfig.json',
+      },
     },
-    js.configs.recommended,
-    ...tseslint.configs.recommended,
-    {
-        files: ["**/*.ts"],
-        languageOptions: {
-            parserOptions: {
-                project: "./tsconfig.json",
-            },
-        },
-        rules: {
-            "@typescript-eslint/no-unused-vars": "warn",
-        },
+    rules: {
+      '@typescript-eslint/no-unused-vars': 'warn',
     },
+  },
 ];

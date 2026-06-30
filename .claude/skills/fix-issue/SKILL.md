@@ -18,13 +18,17 @@ You are implementing a GitHub issue for this repository. $ARGUMENTS should be an
    - Update both `package.json` imports and `tsconfig.json` paths if adding a new path alias
 
 4. **Build and test**:
+
    ```bash
    npm run build
    ```
+
    If there are relevant test files, run them:
+
    ```bash
    node --experimental-vm-modules --localstorage-file=/tmp/jest-localstorage.json ./node_modules/jest/bin/jest.js --config jest.config.mjs --runInBand dist/path/to/relevant.test.js
    ```
+
    Fix any build errors or test failures before continuing.
 
 5. **Create a branch** named after the issue type and number:
@@ -33,6 +37,7 @@ You are implementing a GitHub issue for this repository. $ARGUMENTS should be an
    - `refactor/issue-$ARGUMENTS-<short-description>` for refactors
 
 6. **Commit** with a conventional message:
+
    ```
    type: short description (closes #$ARGUMENTS)
    ```

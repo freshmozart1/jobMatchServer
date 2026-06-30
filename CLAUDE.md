@@ -15,6 +15,7 @@ npm run test:once    # build then run Jest once — use this, not `npm run test`
 ```
 
 To run a single test file:
+
 ```bash
 node --experimental-vm-modules --localstorage-file=/tmp/jest-localstorage.json ./node_modules/jest/bin/jest.js --config jest.config.mjs --runInBand dist/path/to/file.test.js
 ```
@@ -36,10 +37,10 @@ node --experimental-vm-modules --localstorage-file=/tmp/jest-localstorage.json .
 
 ## Required environment variables
 
-| Variable | Notes |
-|---|---|
-| `MONGODB_CONNECTION_STRING` | MongoDB connection URI; checked at startup and before every DB call |
-| `OPENAI_API_KEY` | Picked up automatically by the OpenAI SDK — no explicit reference in source |
+| Variable                    | Notes                                                                       |
+| --------------------------- | --------------------------------------------------------------------------- |
+| `MONGODB_CONNECTION_STRING` | MongoDB connection URI; checked at startup and before every DB call         |
+| `OPENAI_API_KEY`            | Picked up automatically by the OpenAI SDK — no explicit reference in source |
 
 No `.env` file or dotenv library is used. Set variables in the shell or a process manager.
 

@@ -5,31 +5,17 @@
     "rootDir": "./src",
     "outDir": "./dist",
     "paths": {
-      "#scrapers/*": [
-        "./src/scrapers/*"
-      ],
-      "#types": [
-        "./src/types.ts"
-      ],
-      "#database/*": [
-        "./src/database/*"
-      ],
-      "#index": [
-        "./src/index.ts"
-      ]
+      "#scrapers/*": ["./src/scrapers/*"],
+      "#types": ["./src/types.ts"],
+      "#database/*": ["./src/database/*"],
+      "#index": ["./src/index.ts"]
     },
     // Environment Settings
     // See also https://aka.ms/tsconfig/module
     "module": "nodenext",
     "target": "esnext",
-    "lib": [
-      "esnext",
-      "dom"
-    ],
-    "types": [
-      "node",
-      "jest"
-    ],
+    "lib": ["esnext", "dom"],
+    "types": ["node", "jest"],
     // Other Outputs
     "sourceMap": true,
     "declaration": true,
@@ -52,6 +38,6 @@
     "noUncheckedSideEffectImports": true,
     "moduleDetection": "force",
     "skipLibCheck": true,
-    "moduleResolution": "nodenext",
-  },
+    "moduleResolution": "nodenext"
+  }
 }

@@ -1,12 +1,12 @@
-import type { Request, Response } from "express";
-import { readFileSync } from "fs";
-import { readFile } from "fs/promises";
-import { MongoClient, ObjectId } from "mongodb";
-import path from "path";
-import { PDFDocument } from "pdf-lib";
-import puppeteer from "puppeteer";
-import { createErrorMessage } from "../errors/createErrorMessage.js";
-import { isPathInside } from "../utils/isPathInside.js";
+import type { Request, Response } from 'express';
+import { readFileSync } from 'fs';
+import { readFile } from 'fs/promises';
+import { MongoClient, ObjectId } from 'mongodb';
+import path from 'path';
+import { PDFDocument } from 'pdf-lib';
+import puppeteer from 'puppeteer';
+import { createErrorMessage } from '../errors/createErrorMessage.js';
+import { isPathInside } from '../utils/isPathInside.js';
 import type {
   CoverLetterSegmentName,
   StoredCertificate,
@@ -14,35 +14,35 @@ import type {
   StoredCv,
   StoredScrapedJob,
   StoredUser,
-} from "#types";
+} from '#types';
 import {
   connectionStringConfigured,
   getCollection,
   MONGODB_CONNECTION,
-} from "./database.js";
+} from './database.js';
 
-const USER_ID = new ObjectId("6a3d03b1dba1b11cee01161c");
+const USER_ID = new ObjectId('6a3d03b1dba1b11cee01161c');
 
 const BODY_SEGMENT_ORDER: CoverLetterSegmentName[] = [
-  "salutation",
-  "introduction",
-  "mainBody",
-  "conclusion",
-  "greetings",
+  'salutation',
+  'introduction',
+  'mainBody',
+  'conclusion',
+  'greetings',
 ];
 
 const coverLetterTemplate = readFileSync(
-  new URL("./coverLetter.html", import.meta.url),
-  "utf-8",
+  new URL('./coverLetter.html', import.meta.url),
+  'utf-8',
 );
 
 function escapeHtml(text: string): string {
   return text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
 }
 
 function coverLetterToHtml(
@@ -50,17 +50,17 @@ function coverLetterToHtml(
   job: StoredScrapedJob,
   user: StoredUser,
 ): string {
-  const date = new Date().toLocaleDateString("de-DE", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
+  const date = new Date().toLocaleDateString('de-DE', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
   });
   const bodyParas = BODY_SEGMENT_ORDER.flatMap((name) =>
-    coverLetter[name].text ? coverLetter[name].text.split("\n\n") : [],
+    coverLetter[name].text ? coverLetter[name].text.split('\n\n') : [],
   )
     .filter((p) => p.trim())
-    .map((p) => `<p>${escapeHtml(p).replace(/\n/g, "<br>")}</p>`)
-    .join("");
+    .map((p) => `<p>${escapeHtml(p).replace(/\n/g, '<br>')}</p>`)
+    .join('');
   return coverLetterTemplate
     .replace(/\{\{userName\}\}/g, () => escapeHtml(user.name))
     .replace(/\{\{userStreetAddress\}\}/g, () =>
@@ -92,9 +92,9 @@ export default async function getApplication(
   if (!connectionStringConfigured(response)) return;
 
   const { jobDuplicateKey } = request.params;
-  const coverLetterNotFoundError = new Error("Cover letter not found");
-  const jobNotFoundError = new Error("Job not found");
-  const cvNotFoundError = new Error("CV not found");
+  const coverLetterNotFoundError = new Error('Cover letter not found');
+  const jobNotFoundError = new Error('Job not found');
+  const cvNotFoundError = new Error('CV not found');
 
   const client = new MongoClient(MONGODB_CONNECTION!);
   try {
@@ -102,31 +102,31 @@ export default async function getApplication(
 
     const coverLetter = await getCollection<StoredCoverLetter>(
       client,
-      "coverLetters",
+      'coverLetters',
     ).findOne({ jobDuplicateKey });
     if (!coverLetter) throw coverLetterNotFoundError;
 
-    const job = await getCollection<StoredScrapedJob>(client, "jobs").findOne({
+    const job = await getCollection<StoredScrapedJob>(client, 'jobs').findOne({
       duplicateKey: jobDuplicateKey,
     });
     if (!job) throw jobNotFoundError;
 
-    const cv = await getCollection<StoredCv>(client, "cv").findOne({
+    const cv = await getCollection<StoredCv>(client, 'cv').findOne({
       jobId: job._id.toHexString(),
     });
     if (!cv) throw cvNotFoundError;
 
-    const user = await getCollection<StoredUser>(client, "users").findOne({
+    const user = await getCollection<StoredUser>(client, 'users').findOne({
       _id: USER_ID,
     });
-    if (!user) throw new Error("User not found");
+    if (!user) throw new Error('User not found');
 
     const resolvedPath = path.resolve(cv.filePath);
-    if (!isPathInside("uploads/cv", cv.filePath)) {
+    if (!isPathInside('uploads/cv', cv.filePath)) {
       createErrorMessage(
         response,
-        new Error("Invalid file path"),
-        "Error retrieving application",
+        new Error('Invalid file path'),
+        'Error retrieving application',
         500,
       );
       return;
@@ -137,12 +137,12 @@ export default async function getApplication(
     // path, non-renderable image, or corrupt file) is skipped, never fatal.
     const certificates = await getCollection<StoredCertificate>(
       client,
-      "certificates",
+      'certificates',
     )
       .find({ jobId: job._id.toHexString() })
       .toArray();
     const safeCertificates = certificates.filter((certificate) =>
-      isPathInside("uploads/certificates", certificate.filePath),
+      isPathInside('uploads/certificates', certificate.filePath),
     );
 
     const html = coverLetterToHtml(coverLetter, job, user);
@@ -152,8 +152,8 @@ export default async function getApplication(
     try {
       const page = await browser.newPage();
       try {
-        await page.setContent(html, { waitUntil: "load" });
-        coverLetterPdfBytes = await page.pdf({ format: "A4" });
+        await page.setContent(html, { waitUntil: 'load' });
+        coverLetterPdfBytes = await page.pdf({ format: 'A4' });
       } finally {
         await page.close();
       }
@@ -178,7 +178,7 @@ export default async function getApplication(
         const certificateBytes = await readFile(
           path.resolve(certificate.filePath),
         );
-        if (certificate.mimeType === "application/pdf") {
+        if (certificate.mimeType === 'application/pdf') {
           const certDoc = await PDFDocument.load(certificateBytes);
           for (const p of await merged.copyPages(
             certDoc,
@@ -186,8 +186,8 @@ export default async function getApplication(
           ))
             merged.addPage(p);
         } else if (
-          certificate.mimeType === "image/jpeg" ||
-          certificate.mimeType === "image/jpg"
+          certificate.mimeType === 'image/jpeg' ||
+          certificate.mimeType === 'image/jpg'
         ) {
           const img = await merged.embedJpg(certificateBytes);
           const certPage = merged.addPage([595.28, 841.89]);
@@ -197,7 +197,7 @@ export default async function getApplication(
             width: 595.28,
             height: 841.89,
           });
-        } else if (certificate.mimeType === "image/png") {
+        } else if (certificate.mimeType === 'image/png') {
           const img = await merged.embedPng(certificateBytes);
           const certPage = merged.addPage([595.28, 841.89]);
           certPage.drawImage(img, {
@@ -214,9 +214,9 @@ export default async function getApplication(
 
     const mergedBytes = await merged.save();
 
-    response.setHeader("Content-Type", "application/pdf");
+    response.setHeader('Content-Type', 'application/pdf');
     response.setHeader(
-      "Content-Disposition",
+      'Content-Disposition',
       'attachment; filename="application.pdf"',
     );
     response.end(Buffer.from(mergedBytes));
@@ -224,7 +224,7 @@ export default async function getApplication(
     createErrorMessage(
       response,
       error,
-      "Error retrieving application",
+      'Error retrieving application',
       error === coverLetterNotFoundError ||
         error === jobNotFoundError ||
         error === cvNotFoundError

@@ -51,7 +51,7 @@ export async function extractLinkedInJobPage(
 
     function normalizeRenderedDescription(value: string): string | null {
       const normalizedValue = value
-        .replace(/ /g, ' ')
+        .replace(/\u00A0/g, ' ')
         .replace(/\r\n?/g, '\n')
         .replace(/[\t ]+\n/g, '\n')
         .replace(/\n[\t ]+/g, '\n')
@@ -127,7 +127,9 @@ export async function extractLinkedInJobPage(
       marker: string,
       value: string,
     ): string {
-      const normalizedValue = value.replace(/ /g, ' ').replace(/[\t ]+/g, ' ');
+      const normalizedValue = value
+        .replace(/\u00A0/g, ' ')
+        .replace(/[\t ]+/g, ' ');
       const leadingSpace = /^[\t ]/.test(normalizedValue) ? ' ' : '';
       const trailingNewlines = normalizedValue.match(/\n+$/)?.[0] ?? '';
       const trailingSpace = trailingNewlines

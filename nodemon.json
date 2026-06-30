@@ -1,11 +1,6 @@
 {
-    "watch": [
-        "src"
-    ],
-    "ext": "ts",
-    "ignore": [
-        "dist",
-        "src/tokenService/*"
-    ],
-    "exec": "TS_NODE_TRANSPILE_ONLY=true node --conditions=development --loader ts-node/esm src/index.ts"
+  "watch": ["src"],
+  "ext": "ts",
+  "ignore": ["dist", "src/tokenService/*"],
+  "exec": "TS_NODE_TRANSPILE_ONLY=true node --conditions=development --loader ts-node/esm src/index.ts"
 }

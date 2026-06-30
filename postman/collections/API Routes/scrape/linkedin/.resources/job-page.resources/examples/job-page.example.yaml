@@ -13,14 +13,15 @@ response:
     access-control-allow-methods: GET,POST,OPTIONS
     access-control-allow-headers: Content-Type
     content-type: application/json; charset=utf-8
-    content-length: "34248"
+    content-length: '34248'
     etag: W/"85c8-aXcJR7DY/5/zU8gRkgk07mUmLS4"
     date: Wed, 17 Jun 2026 11:45:20 GMT
     connection: keep-alive
     keep-alive: timeout=5
   body:
     type: json
-    content: '{"sourceHostname":"de.linkedin.com","sourceJobId":"4425152530","sourceUrl":"https://de.linkedin.com/jobs/view/softwareentwickler-m-w-d-at-signal-iduna-asset-management-gmbh-4425152530/","title":"Softwareentwickler
+    content:
+      '{"sourceHostname":"de.linkedin.com","sourceJobId":"4425152530","sourceUrl":"https://de.linkedin.com/jobs/view/softwareentwickler-m-w-d-at-signal-iduna-asset-management-gmbh-4425152530/","title":"Softwareentwickler
       (m/w/d)","company":"SIGNAL IDUNA Asset Management
       GmbH","location":"Hamburg","descriptionText":"Fullstack Entwickler (m/w/d)
       Java/Typescript\n\nDas sind wir\n\nDie SIGNAL IDUNA Asset Management GmbH
