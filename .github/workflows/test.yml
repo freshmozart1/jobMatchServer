@@ -1,0 +1,32 @@
+name: Test
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+    branches: ['**']
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      mongodb:
+        image: mongo:8
+        ports:
+          - 27017:27017
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - run: npm ci
+
+      - run: npm run test:once
+        env:
+          MONGODB_CONNECTION_STRING: mongodb://localhost:27017
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
