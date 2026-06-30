@@ -44,8 +44,13 @@ node --experimental-vm-modules --localstorage-file=/tmp/jest-localstorage.json .
 
 No `.env` file or dotenv library is used. Set variables in the shell or a process manager.
 
-## Git conventions
+## Git / GitHub flow
 
-- Feature branches off `master`: `feat/...`, `fix/...`, `refactor/...`, `docs/...`
-- Conventional commit messages; PRs merge into `master`
-- Commit format: `type: short description (closes #N) (#PR)`
+Follow the [GitHub flow](https://docs.github.com/en/get-started/using-github/github-flow) for all changes:
+
+1. **Create a branch** off `master` with a short, descriptive name using the appropriate prefix: `feat/...`, `fix/...`, `refactor/...`, `docs/...`
+2. **Make changes** — commit each isolated change with a conventional commit message: `type: short description (closes #N)`
+3. **Open a pull request** — summarise what changed and why; target `master`
+4. **Address review comments** — push additional commits to the same branch
+5. **Merge the pull request** once approved — squash or merge commit, your call
+6. **Delete the branch** after it is merged
