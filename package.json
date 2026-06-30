@@ -29,6 +29,8 @@
     }
   },
   "scripts": {
+    "lint": "eslint .",
+    "format": "prettier --write .",
     "dev": "nodemon",
     "build": "tsc && cp src/database/coverLetter.html dist/database/coverLetter.html",
     "mongo": "mongod --dbpath /opt/homebrew/var/mongodb",
