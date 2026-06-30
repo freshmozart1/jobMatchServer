@@ -24,8 +24,6 @@ jobs:
           node-version: '24'
           cache: 'npm'
 
-      - run: npm install -g npm@11
-
       - run: npm install
 
       - run: npm run test:once
