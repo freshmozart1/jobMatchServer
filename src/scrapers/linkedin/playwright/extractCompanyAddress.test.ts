@@ -1,4 +1,4 @@
-import { describe, expect, it, jest } from "@jest/globals";
+import { describe, expect, it, jest } from '@jest/globals';
 
 type PageMock = {
   goto: ReturnType<
@@ -13,20 +13,28 @@ type ContextMock = {
 };
 
 type BrowserMock = {
-  close: ReturnType<typeof jest.fn<() => Promise<void>>>;
   newContext: ReturnType<typeof jest.fn<() => Promise<ContextMock>>>;
 };
 
-const mockChromiumLaunch = jest.fn<() => Promise<BrowserMock>>();
+type BrowserServerMock = {
+  close: ReturnType<typeof jest.fn<() => Promise<void>>>;
+  kill: ReturnType<typeof jest.fn<() => Promise<void>>>;
+  wsEndpoint: ReturnType<typeof jest.fn<() => string>>;
+};
 
-jest.unstable_mockModule("playwright", () => ({
-  chromium: { launch: mockChromiumLaunch },
+const mockLaunchTrackedBrowserServer =
+  jest.fn<
+    () => Promise<{ browserServer: BrowserServerMock; browser: BrowserMock }>
+  >();
+
+jest.unstable_mockModule('#utils/launchTrackedBrowserServer.js', () => ({
+  launchTrackedBrowserServer: mockLaunchTrackedBrowserServer,
 }));
 
-const { extractCompanyAddress } = await import("./extractCompanyAddress.js");
+const { extractCompanyAddress } = await import('./extractCompanyAddress.js');
 
 function createPageMock(
-  paragraphs: string[] | null = ["Musterstraße 42", "Berlin, 10115, DE"],
+  paragraphs: string[] | null = ['Musterstraße 42', 'Berlin, 10115, DE'],
 ): PageMock {
   return {
     goto: jest
@@ -46,53 +54,69 @@ function createBrowserMock(page: PageMock = createPageMock()): BrowserMock {
     newPage: jest.fn<() => Promise<PageMock>>().mockResolvedValue(page),
   };
   return {
-    close: jest.fn<() => Promise<void>>().mockResolvedValue(undefined),
     newContext: jest
       .fn<() => Promise<ContextMock>>()
       .mockResolvedValue(context),
   };
 }
 
-describe("extractCompanyAddress", () => {
-  it("returns the parsed address from the company page", async () => {
-    const browser = createBrowserMock();
-    mockChromiumLaunch.mockResolvedValue(browser);
+function createBrowserServerMock(): BrowserServerMock {
+  return {
+    close: jest.fn<() => Promise<void>>().mockResolvedValue(undefined),
+    kill: jest.fn<() => Promise<void>>().mockResolvedValue(undefined),
+    wsEndpoint: jest.fn<() => string>().mockReturnValue('ws://fake'),
+  };
+}
+
+describe('extractCompanyAddress', () => {
+  it('returns the parsed address from the company page', async () => {
+    const browserServer = createBrowserServerMock();
+    mockLaunchTrackedBrowserServer.mockResolvedValue({
+      browserServer,
+      browser: createBrowserMock(),
+    });
 
     const address = await extractCompanyAddress(
-      "https://www.linkedin.com/company/acme-corp/",
+      'https://www.linkedin.com/company/acme-corp/',
     );
 
     expect(address).toEqual({
-      streetAddress: "Musterstraße 42",
-      city: "Berlin",
-      postalCode: "10115",
-      countryCode: "DE",
+      streetAddress: 'Musterstraße 42',
+      city: 'Berlin',
+      postalCode: '10115',
+      countryCode: 'DE',
     });
-    expect(browser.close).toHaveBeenCalledTimes(1);
+    expect(browserServer.close).toHaveBeenCalledTimes(1);
   });
 
-  it("strips query params before navigating", async () => {
+  it('strips query params before navigating', async () => {
     const page = createPageMock();
-    const browser = createBrowserMock(page);
-    mockChromiumLaunch.mockResolvedValue(browser);
+    const browserServer = createBrowserServerMock();
+    mockLaunchTrackedBrowserServer.mockResolvedValue({
+      browserServer,
+      browser: createBrowserMock(page),
+    });
 
     await extractCompanyAddress(
-      "https://www.linkedin.com/company/acme-corp/?trk=guest",
+      'https://www.linkedin.com/company/acme-corp/?trk=guest',
     );
 
     expect(page.goto).toHaveBeenCalledWith(
-      "https://www.linkedin.com/company/acme-corp/",
+      'https://www.linkedin.com/company/acme-corp/',
       expect.any(Object),
     );
   });
 
-  it("throws and still closes the browser when no address paragraphs are found", async () => {
-    const browser = createBrowserMock(createPageMock(null));
-    mockChromiumLaunch.mockResolvedValue(browser);
+  it('throws and still closes the browser server when no address paragraphs are found', async () => {
+    const browserServer = createBrowserServerMock();
+    mockLaunchTrackedBrowserServer.mockResolvedValue({
+      browserServer,
+      browser: createBrowserMock(createPageMock(null)),
+    });
 
     await expect(
-      extractCompanyAddress("https://www.linkedin.com/company/acme-corp/"),
-    ).rejects.toThrow("Could not extract company address");
-    expect(browser.close).toHaveBeenCalledTimes(1);
+      extractCompanyAddress('https://www.linkedin.com/company/acme-corp/'),
+    ).rejects.toThrow('Could not extract company address');
+    expect(browserServer.close).toHaveBeenCalledTimes(1);
   });
 });

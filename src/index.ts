@@ -27,6 +27,7 @@ import getCVStatus from '#database/getCVStatus.js';
 import uploadCertificates from '#database/uploadCertificates.js';
 import getCertificatesStatus from '#database/getCertificatesStatus.js';
 import getApplication from '#database/getApplication.js';
+import { closeAllTrackedBrowserServers } from '#utils/trackedPlaywrightBrowsers.js';
 
 export const app = express();
 
@@ -59,6 +60,7 @@ let tokenServiceStartPromise: Promise<TokenServiceStart> | undefined;
 let tokenServiceProcess: TokenServiceProcess | undefined;
 let activeServer: Server | undefined;
 let shutdownHandlersRegistered = false;
+let isShuttingDown = false;
 
 function findExecutable(command: string): string | undefined {
   const pathDirectories = process.env['PATH']?.split(delimiter) ?? [];
@@ -346,27 +348,58 @@ function registerShutdownHandlers(): void {
   shutdownHandlersRegistered = true;
 
   const shutdown = (signal: NodeJS.Signals): void => {
-    console.log(`Received ${signal}, shutting down...`);
-    tokenServiceProcess?.kill();
-
-    if (!activeServer) {
-      process.exit(0);
+    // SIGINT/SIGTERM/SIGUSR2 are all registered with `on` (not `once`) so a
+    // second signal arriving mid-shutdown (e.g. a slow-draining server, or two
+    // rapid nodemon restarts) still finds a listener instead of falling
+    // through to Node's default disposition, which would terminate the
+    // process immediately and skip cleanup below. This guard makes that
+    // re-entrant case a deliberate, logged force-exit instead.
+    if (isShuttingDown) {
+      console.log(`Received ${signal} during shutdown, forcing exit...`);
+      process.exit(1);
     }
 
-    activeServer.close((error?: Error) => {
-      if (error) {
-        console.error(error);
-        process.exit(1);
+    isShuttingDown = true;
+    console.log(`Received ${signal}, shutting down...`);
+
+    void closeAllTrackedBrowserServers().finally(() => {
+      tokenServiceProcess?.kill();
+
+      if (!activeServer) {
+        process.exit(0);
       }
 
-      process.exit(0);
+      activeServer.close((error?: Error) => {
+        if (error) {
+          console.error(error);
+          process.exit(1);
+        }
+
+        process.exit(0);
+      });
     });
   };
 
-  process.once('SIGINT', shutdown);
-  process.once('SIGTERM', shutdown);
+  process.on('SIGINT', shutdown);
+  process.on('SIGTERM', shutdown);
   process.once('exit', () => {
     tokenServiceProcess?.kill();
+  });
+
+  // nodemon restarts by sending SIGUSR2 (its default restart signal, see its
+  // README's "graceful reload" section), not SIGINT/SIGTERM, so without this
+  // handler every dev-loop restart bypasses `shutdown` above entirely and kills
+  // the process with no cleanup, orphaning any in-flight Playwright browser.
+  // Clean up, then re-signal SIGTERM (already handled by `shutdown`) so
+  // nodemon's restart proceeds. This assumes a nodemon-managed local dev
+  // process — this project currently has no other deployment/process-manager
+  // path, so no environment gating is added here.
+  process.on('SIGUSR2', () => {
+    closeAllTrackedBrowserServers()
+      .catch(() => undefined)
+      .finally(() => {
+        process.kill(process.pid, 'SIGTERM');
+      });
   });
 }
 

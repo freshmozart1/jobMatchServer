@@ -1,17 +1,19 @@
-import { chromium, type Browser, type Page } from "playwright";
+import { type Browser, type BrowserServer, type Page } from 'playwright';
+import { launchTrackedBrowserServer } from '#utils/launchTrackedBrowserServer.js';
+import { closeTrackedBrowserServer } from '#utils/trackedPlaywrightBrowsers.js';
 
 export const LINKEDIN_USER_AGENT =
-  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) " +
-  "AppleWebKit/537.36 (KHTML, like Gecko) " +
-  "Chrome/124.0.0.0 Safari/537.36";
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) ' +
+  'AppleWebKit/537.36 (KHTML, like Gecko) ' +
+  'Chrome/124.0.0.0 Safari/537.36';
 
 const DEFAULT_NAVIGATION_TIMEOUT_MS = 30_000;
 const DEFAULT_PAGE_TIMEOUT_MS = 15_000;
-const SIGN_IN_MODAL_DISMISS_SELECTOR = ".modal__dismiss";
+const SIGN_IN_MODAL_DISMISS_SELECTOR = '.modal__dismiss';
 const SIGN_IN_MODAL_TIMEOUT_MS = 5_000;
 const SIGN_IN_MODAL_SETTLE_MS = 300;
 const LINKEDIN_SEE_MORE_JOB_POSTINGS_PATH =
-  "/jobs-guest/jobs/api/seeMoreJobPostings/search";
+  '/jobs-guest/jobs/api/seeMoreJobPostings/search';
 const LAZY_LOAD_RESPONSE_TIMEOUT_MS = 5_000;
 const LAZY_LOAD_SCROLL_SETTLE_MS = 300;
 const LAZY_LOAD_MAX_SCROLL_ATTEMPTS = 80;
@@ -33,8 +35,8 @@ type LinkedInLazyLoadScrollOptions = {
 
 export default async function waitForLinkedInPage(
   url: string,
-): Promise<{ browser: Browser; page: Page }> {
-  const browser = await chromium.launch({ headless: true });
+): Promise<{ browser: Browser; browserServer: BrowserServer; page: Page }> {
+  const { browserServer, browser } = await launchTrackedBrowserServer();
 
   try {
     // Use newContext() so that page.context().newPage() works later
@@ -49,7 +51,7 @@ export default async function waitForLinkedInPage(
     page.setDefaultTimeout(DEFAULT_PAGE_TIMEOUT_MS);
 
     await page.goto(url, {
-      waitUntil: "domcontentloaded",
+      waitUntil: 'domcontentloaded',
       timeout: DEFAULT_NAVIGATION_TIMEOUT_MS,
     });
 
@@ -59,9 +61,9 @@ export default async function waitForLinkedInPage(
 
     await scrollLinkedInLazyLoadedJobsUntilComplete(page);
 
-    return { browser, page };
+    return { browser, browserServer, page };
   } catch (error) {
-    await browser.close().catch(() => undefined);
+    await closeTrackedBrowserServer(browserServer);
     throw error;
   }
 }
@@ -72,7 +74,7 @@ async function dismissLinkedInSignInModalIfPresent(page: Page): Promise<void> {
   const hasModal = await page
     .waitForSelector(SIGN_IN_MODAL_DISMISS_SELECTOR, {
       timeout: SIGN_IN_MODAL_TIMEOUT_MS,
-      state: "attached",
+      state: 'attached',
     })
     .then(() => true)
     .catch((error: unknown) => {
@@ -90,7 +92,7 @@ async function dismissLinkedInSignInModalIfPresent(page: Page): Promise<void> {
     document
       .querySelectorAll<HTMLElement>(dismissSel)
       .forEach((btn) => btn.click());
-    document.querySelectorAll(".modal__overlay").forEach((el) => el.remove());
+    document.querySelectorAll('.modal__overlay').forEach((el) => el.remove());
   }, SIGN_IN_MODAL_DISMISS_SELECTOR);
 
   await new Promise((resolve) => setTimeout(resolve, SIGN_IN_MODAL_SETTLE_MS));
@@ -161,7 +163,7 @@ export function isLinkedInSeeMoreJobPostingsResponse(
     const url = new URL(response.url());
 
     return (
-      response.request().method() === "GET" &&
+      response.request().method() === 'GET' &&
       url.pathname === LINKEDIN_SEE_MORE_JOB_POSTINGS_PATH
     );
   } catch {
@@ -206,16 +208,16 @@ function assertSuccessfulLinkedInSeeMoreJobPostingsResponse(
 function isResponseWaitTimeoutError(error: unknown): boolean {
   return (
     error instanceof Error &&
-    (error.name === "TimeoutError" ||
-      error.message.includes("Timeout") ||
-      error.message.includes("waiting for response"))
+    (error.name === 'TimeoutError' ||
+      error.message.includes('Timeout') ||
+      error.message.includes('waiting for response'))
   );
 }
 
 function isOptionalSignInModalWaitError(error: unknown): boolean {
   return (
     error instanceof Error &&
-    (error.name === "TimeoutError" ||
+    (error.name === 'TimeoutError' ||
       error.message.includes(SIGN_IN_MODAL_DISMISS_SELECTOR))
   );
 }
