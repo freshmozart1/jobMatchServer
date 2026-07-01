@@ -5,6 +5,7 @@ import createResponse from '../../../testHelpers/createResponse.test.js';
 import {
   mockLocalDatabaseModule,
   connectionStringConfigured,
+  getCollection,
 } from '../../../testMockModules/localDatabase.test.js';
 import {
   mockMongoDbModule,
@@ -101,6 +102,13 @@ describe('scrapeJob', () => {
     connect.mockResolvedValue(undefined);
     close.mockResolvedValue(undefined);
     connectionStringConfigured.mockReturnValue(true);
+    getCollection.mockReturnValue({
+      find: jest.fn().mockReturnValue({
+        toArray: jest
+          .fn<() => Promise<{ duplicateKey: string }[]>>()
+          .mockResolvedValue([]),
+      }),
+    });
   });
 
   it('responds 400 when maxPages is missing from the body', async () => {
