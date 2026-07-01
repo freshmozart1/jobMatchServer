@@ -27,6 +27,7 @@ import getCVStatus from '#database/getCVStatus.js';
 import uploadCertificates from '#database/uploadCertificates.js';
 import getCertificatesStatus from '#database/getCertificatesStatus.js';
 import getApplication from '#database/getApplication.js';
+import { closeAllTrackedBrowserServers } from '#utils/trackedPlaywrightBrowsers.js';
 
 export const app = express();
 
@@ -347,19 +348,22 @@ function registerShutdownHandlers(): void {
 
   const shutdown = (signal: NodeJS.Signals): void => {
     console.log(`Received ${signal}, shutting down...`);
-    tokenServiceProcess?.kill();
 
-    if (!activeServer) {
-      process.exit(0);
-    }
+    void closeAllTrackedBrowserServers().finally(() => {
+      tokenServiceProcess?.kill();
 
-    activeServer.close((error?: Error) => {
-      if (error) {
-        console.error(error);
-        process.exit(1);
+      if (!activeServer) {
+        process.exit(0);
       }
 
-      process.exit(0);
+      activeServer.close((error?: Error) => {
+        if (error) {
+          console.error(error);
+          process.exit(1);
+        }
+
+        process.exit(0);
+      });
     });
   };
 
@@ -367,6 +371,20 @@ function registerShutdownHandlers(): void {
   process.once('SIGTERM', shutdown);
   process.once('exit', () => {
     tokenServiceProcess?.kill();
+  });
+
+  // nodemon restarts by sending SIGUSR2 (its default restart signal, see its
+  // README's "graceful reload" section), not SIGINT/SIGTERM, so without this
+  // handler every dev-loop restart bypasses `shutdown` above entirely and kills
+  // the process with no cleanup, orphaning any in-flight Playwright browser.
+  // Clean up, then re-signal SIGTERM (already handled by `shutdown`) so
+  // nodemon's restart proceeds.
+  process.on('SIGUSR2', () => {
+    closeAllTrackedBrowserServers()
+      .catch(() => undefined)
+      .finally(() => {
+        process.kill(process.pid, 'SIGTERM');
+      });
   });
 }
 

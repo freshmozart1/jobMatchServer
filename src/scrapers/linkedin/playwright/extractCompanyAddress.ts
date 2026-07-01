@@ -1,25 +1,34 @@
-import { chromium } from "playwright";
-import type { CompanyAddress } from "#types";
-import { parseCompanyAddress } from "#utils/parseCompanyAddress.js";
-import { LINKEDIN_USER_AGENT } from "./waitForLinkedInPage.js";
+import { chromium } from 'playwright';
+import type { CompanyAddress } from '#types';
+import { parseCompanyAddress } from '#utils/parseCompanyAddress.js';
+import {
+  closeTrackedBrowserServer,
+  trackBrowserServer,
+} from '#utils/trackedPlaywrightBrowsers.js';
+import { LINKEDIN_USER_AGENT } from './waitForLinkedInPage.js';
 
 export async function extractCompanyAddress(
   companyPageUrl: string,
 ): Promise<CompanyAddress> {
-  const browser = await chromium.launch({ headless: true });
+  // Launched via launchServer()+connect() (rather than chromium.launch()) so the
+  // spawned Chromium process can be force-killed through BrowserServer.kill() if
+  // browserServer.close() ever hangs.
+  const browserServer = await chromium.launchServer({ headless: true });
+  trackBrowserServer(browserServer);
   try {
+    const browser = await chromium.connect(browserServer.wsEndpoint());
     const context = await browser.newContext({
       viewport: { width: 1366, height: 900 },
       userAgent: LINKEDIN_USER_AGENT,
     });
     const page = await context.newPage();
     const cleanUrl = new URL(companyPageUrl);
-    cleanUrl.search = "";
+    cleanUrl.search = '';
     await page.goto(cleanUrl.toString(), {
-      waitUntil: "domcontentloaded",
+      waitUntil: 'domcontentloaded',
       timeout: 30_000,
     });
-    await page.waitForSelector("#address-0", { timeout: 5_000 }).catch(() => {
+    await page.waitForSelector('#address-0', { timeout: 5_000 }).catch(() => {
       throw new Error(`No address found on company page: ${companyPageUrl}`);
     });
     const paragraphs = await page.evaluate(() => {
@@ -32,10 +41,10 @@ export async function extractCompanyAddress(
       const firstEl = addressEls[0];
       if (!firstEl) return null;
       const primaryEl =
-        addressEls.find((el) => /primär/i.test(el.textContent ?? "")) ??
+        addressEls.find((el) => /primär/i.test(el.textContent ?? '')) ??
         firstEl;
-      return Array.from(primaryEl.querySelectorAll("p"))
-        .map((p) => p.textContent?.trim() ?? "")
+      return Array.from(primaryEl.querySelectorAll('p'))
+        .map((p) => p.textContent?.trim() ?? '')
         .filter((t) => t.length > 0);
     });
     const address = paragraphs ? parseCompanyAddress(paragraphs) : null;
@@ -45,6 +54,6 @@ export async function extractCompanyAddress(
       );
     return address;
   } finally {
-    await browser.close();
+    await closeTrackedBrowserServer(browserServer);
   }
 }

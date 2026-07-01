@@ -10,6 +10,7 @@ import { getScrapeJobRequestParamsFromBody } from '#utils/getScrapeJobRequestPar
 import { buildLinkedInJobSearchUrl } from '#utils/buildLinkedInJobSearchUrl.js';
 import { getScraperErrorStatus } from '#utils/getScraperErrorStatus.js';
 import isSupportedLinkedInUrl from '#utils/isSupportedLinkedInUrl.js';
+import { closeTrackedBrowserServer } from '#utils/trackedPlaywrightBrowsers.js';
 import waitForLinkedInPage from './waitForLinkedInPage.js';
 import { extractLinkedInJobSearchResults } from './extractLinkedInJobSearchResults.js';
 import { extractCompanyAddress } from './extractCompanyAddress.js';
@@ -90,7 +91,7 @@ export async function scrapeJob(
           throw new Error('Only LinkedIn jobs search URLs are supported.');
         }
 
-        const { browser, page } = await waitForLinkedInPage(pageUrl);
+        const { browserServer, page } = await waitForLinkedInPage(pageUrl);
 
         try {
           const results = await extractLinkedInJobSearchResults(page);
@@ -179,7 +180,7 @@ export async function scrapeJob(
             }
           }
         } finally {
-          await browser.close();
+          await closeTrackedBrowserServer(browserServer);
         }
 
         pageNum += 1;

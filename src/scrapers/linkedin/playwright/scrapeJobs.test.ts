@@ -18,10 +18,12 @@ type SearchResult = {
   extracted: ExtractedLinkedInJobPage;
 };
 
-const mockWaitForLinkedInPage =
-  jest.fn<
-    () => Promise<{ browser: { close: () => Promise<void> }; page: object }>
-  >();
+const mockWaitForLinkedInPage = jest.fn<
+  () => Promise<{
+    browserServer: { close: () => Promise<void>; kill: () => Promise<void> };
+    page: object;
+  }>
+>();
 const mockExtractLinkedInJobSearchResults =
   jest.fn<() => Promise<SearchResult[]>>();
 const mockExtractCompanyAddress = jest.fn<() => Promise<CompanyAddress>>();
@@ -85,14 +87,19 @@ function sampleResult(jobId: string): SearchResult {
 }
 
 describe('scrapeJob', () => {
-  let browserClose: ReturnType<typeof jest.fn<() => Promise<void>>>;
+  let browserServerClose: ReturnType<typeof jest.fn<() => Promise<void>>>;
 
   beforeEach(() => {
     jest.clearAllMocks();
 
-    browserClose = jest.fn<() => Promise<void>>().mockResolvedValue(undefined);
+    browserServerClose = jest
+      .fn<() => Promise<void>>()
+      .mockResolvedValue(undefined);
     mockWaitForLinkedInPage.mockResolvedValue({
-      browser: { close: browserClose },
+      browserServer: {
+        close: browserServerClose,
+        kill: jest.fn<() => Promise<void>>().mockResolvedValue(undefined),
+      },
       page: {},
     });
     mockExtractLinkedInJobSearchResults.mockResolvedValue([]);
@@ -242,7 +249,7 @@ describe('scrapeJob', () => {
 
     await scrapeJob(createRequest(validBody), response);
 
-    expect(browserClose).toHaveBeenCalledTimes(1);
+    expect(browserServerClose).toHaveBeenCalledTimes(1);
     expect(status).toHaveBeenCalledWith(200);
     expect(mockExtractCompanyAddress).toHaveBeenCalledTimes(2);
     const body = json.mock.calls[0]?.[0] as Record<string, { jobs: unknown[] }>;
