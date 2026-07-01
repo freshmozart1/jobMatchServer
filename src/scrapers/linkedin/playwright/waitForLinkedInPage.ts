@@ -34,7 +34,7 @@ type LinkedInLazyLoadScrollOptions = {
 export default async function waitForLinkedInPage(
   url: string,
 ): Promise<{ browser: Browser; page: Page }> {
-  const browser = await chromium.launch({ headless: false });
+  const browser = await chromium.launch({ headless: true });
 
   try {
     // Use newContext() so that page.context().newPage() works later
