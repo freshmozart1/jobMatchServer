@@ -7,8 +7,6 @@ export type LinkedInJobLinkSearchParams = {
   datePosted: string;
 };
 
-export type LinkedInJobLinksByKeyword = Record<string, string[]>;
-
 export type ScrapeJobRequestParams = LinkedInJobLinkSearchParams & {
   maxPages: number;
 };
