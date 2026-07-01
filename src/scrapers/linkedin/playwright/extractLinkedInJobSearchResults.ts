@@ -1,15 +1,15 @@
-import type { Page } from "playwright";
-import type { ExtractedLinkedInJobPage } from "#types";
+import type { Page } from 'playwright';
+import type { ExtractedLinkedInJobPage } from '#types';
 
 // Selectors verified against the live LinkedIn guest job-search page (public, unauthenticated).
 // The guest page renders a two-pane layout at viewport widths ≥1128 px: a left list of job cards
 // and a right detail section (.two-pane-serp-page__detail-view) that updates in place via AJAX
 // when a card is clicked.
-const JOB_CARDS_SELECTOR = "ul.jobs-search__results-list > li";
-const JOB_CARD_URN_ATTR = "data-entity-urn";
-const JOB_CARD_LINK_SELECTOR = "a.base-card__full-link";
-const DETAIL_PANE_SELECTOR = ".two-pane-serp-page__detail-view";
-const DETAIL_PANE_API_PATH = "/jobs-guest/jobs/api/jobPosting/";
+const JOB_CARDS_SELECTOR = 'ul.jobs-search__results-list > li';
+const JOB_CARD_URN_ATTR = 'data-entity-urn';
+const JOB_CARD_LINK_SELECTOR = 'a.base-card__full-link';
+const DETAIL_PANE_SELECTOR = '.two-pane-serp-page__detail-view';
+const DETAIL_PANE_API_PATH = '/jobs-guest/jobs/api/jobPosting/';
 const DETAIL_PANE_UPDATE_TIMEOUT_MS = 5_000;
 
 export type LinkedInJobSearchResultCard = {
@@ -24,7 +24,7 @@ export async function listLinkedInJobSearchResultCards(
     ({ listSel, urnAttr, linkSel }) => {
       return Array.from(document.querySelectorAll<HTMLElement>(listSel)).map(
         (li) => {
-          const urn = li.querySelector<HTMLElement>("[" + urnAttr + "]");
+          const urn = li.querySelector<HTMLElement>('[' + urnAttr + ']');
           const rawUrn = urn?.getAttribute(urnAttr) ?? null;
           const jobIdMatch = rawUrn?.match(/jobPosting:(\d+)/);
           const jobId = jobIdMatch?.[1] ?? null;
@@ -51,17 +51,16 @@ export async function clickLinkedInJobSearchResultCard(
   // These modals appear repeatedly as contextual nags; removing them directly
   // is more reliable than waiting for multiple .modal__dismiss buttons.
   await page.evaluate(() => {
-    document.querySelectorAll(".modal__overlay").forEach((el) => el.remove());
+    document.querySelectorAll('.modal__overlay').forEach((el) => el.remove());
   });
 
-  // Click the list item. LinkedIn's JS intercepts the click, loads the job
-  // detail into the right pane via AJAX, and updates the URL's currentJobId
-  // param — no full page navigation occurs.
-  const target = card.jobId
-    ? page
-        .locator(`[${JOB_CARD_URN_ATTR}="urn:li:jobPosting:${card.jobId}"]`)
-        .first()
-    : page.locator(JOB_CARDS_SELECTOR).nth(index);
+  // Click the list item by its position within ul.jobs-search__results-list.
+  // LinkedIn's JS intercepts the click, loads the job detail into the right pane
+  // via AJAX, and updates the URL's currentJobId param — no full page navigation
+  // occurs. Always use an index-scoped locator: a page-wide [data-entity-urn]
+  // query can resolve to "Similar jobs" section cards that carry the same URN
+  // but are not interactable in the two-pane layout.
+  const target = page.locator(JOB_CARDS_SELECTOR).nth(index);
 
   // Wire up the response watcher BEFORE clicking so the response is never missed
   // if LinkedIn's AJAX call fires faster than a post-click waitForResponse setup.
@@ -85,7 +84,7 @@ export async function clickLinkedInJobSearchResultCard(
     if (!updatedUrl.includes(`currentJobId=${card.jobId}`)) {
       throw new Error(
         `Detail pane did not update after clicking card ${card.jobId} — ` +
-          "LinkedIn may be showing a sign-in gate. Remaining cards on this page will be skipped.",
+          'LinkedIn may be showing a sign-in gate. Remaining cards on this page will be skipped.',
       );
     }
   }
@@ -94,7 +93,7 @@ export async function clickLinkedInJobSearchResultCard(
   // updated with the newly selected job's content before extraction begins.
   await page
     .waitForSelector(`${DETAIL_PANE_SELECTOR} .top-card-layout__title`, {
-      state: "visible",
+      state: 'visible',
       timeout: 5_000,
     })
     .catch(() => undefined);
@@ -105,13 +104,13 @@ export async function extractLinkedInJobDetailPane(
 ): Promise<ExtractedLinkedInJobPage> {
   return page.evaluate((detailPaneSel) => {
     const paneMaybe = document.querySelector<HTMLElement>(detailPaneSel);
-    if (!paneMaybe) throw new Error("LinkedIn detail pane not found.");
+    if (!paneMaybe) throw new Error('LinkedIn detail pane not found.');
     // Shadow with an explicitly non-nullable typed binding so closures can
     // reference it without TypeScript widening back to HTMLElement | null.
     const pane: HTMLElement = paneMaybe;
 
     function normalizeText(value: string | null | undefined): string | null {
-      const v = value?.replace(/\s+/g, " ").trim() ?? "";
+      const v = value?.replace(/\s+/g, ' ').trim() ?? '';
       return v.length > 0 ? v : null;
     }
 
@@ -136,47 +135,47 @@ export async function extractLinkedInJobDetailPane(
 
     // Description: render rich HTML (lists, bold) into plain markdown-style text.
     function renderNode(node: Node): string {
-      if (node.nodeType === Node.TEXT_NODE) return node.textContent ?? "";
-      if (!(node instanceof HTMLElement)) return "";
+      if (node.nodeType === Node.TEXT_NODE) return node.textContent ?? '';
+      if (!(node instanceof HTMLElement)) return '';
       const tag = node.tagName.toLowerCase();
-      if (tag === "br") return "\n";
-      const children = Array.from(node.childNodes).map(renderNode).join("");
-      if (tag === "strong" || tag === "b") return `**${children}**`;
-      if (tag === "em" || tag === "i") return `*${children}*`;
-      if (tag === "li")
-        return `\n- ${children.replace(/ /g, " ").replace(/\s+/g, " ").trim()}`;
-      if (tag === "ul" || tag === "ol") return `\n${children}\n\n`;
+      if (tag === 'br') return '\n';
+      const children = Array.from(node.childNodes).map(renderNode).join('');
+      if (tag === 'strong' || tag === 'b') return `**${children}**`;
+      if (tag === 'em' || tag === 'i') return `*${children}*`;
+      if (tag === 'li')
+        return `\n- ${children.replace(/ /g, ' ').replace(/\s+/g, ' ').trim()}`;
+      if (tag === 'ul' || tag === 'ol') return `\n${children}\n\n`;
       return children;
     }
 
     function getDescription(): string | null {
-      const selectors = [".show-more-less-html__markup", ".description__text"];
+      const selectors = ['.show-more-less-html__markup', '.description__text'];
       for (const sel of selectors) {
         const el = pane.querySelector(sel);
         if (!el) continue;
         const rendered = Array.from(el.childNodes)
           .map(renderNode)
-          .join("")
-          .replace(/ /g, " ")
-          .replace(/\r\n?/g, "\n")
-          .replace(/[\t ]+\n/g, "\n")
-          .replace(/\n[\t ]+/g, "\n")
-          .replace(/[\t ]{2,}/g, " ")
-          .replace(/\n{3,}/g, "\n\n")
+          .join('')
+          .replace(/ /g, ' ')
+          .replace(/\r\n?/g, '\n')
+          .replace(/[\t ]+\n/g, '\n')
+          .replace(/\n[\t ]+/g, '\n')
+          .replace(/[\t ]{2,}/g, ' ')
+          .replace(/\n{3,}/g, '\n\n')
           .trim();
         if (rendered.length > 0) return rendered;
       }
       return null;
     }
 
-    const titleSelectors = [".top-card-layout__title", "h2", "h1"];
-    const locationSelectors = [".topcard__flavor--bullet"];
-    const postedAtSelectors = [".posted-time-ago__text", "time"];
-    const tagSelectors = [".description__job-criteria-text"];
+    const titleSelectors = ['.top-card-layout__title', 'h2', 'h1'];
+    const locationSelectors = ['.topcard__flavor--bullet'];
+    const postedAtSelectors = ['.posted-time-ago__text', 'time'];
+    const tagSelectors = ['.description__job-criteria-text'];
 
     const title = getFirstText(titleSelectors);
     const company = normalizeText(
-      pane.querySelector<HTMLElement>("a.topcard__org-name-link")?.textContent,
+      pane.querySelector<HTMLElement>('a.topcard__org-name-link')?.textContent,
     );
     const location = getFirstText(locationSelectors);
     const descriptionText = getDescription();
@@ -184,7 +183,7 @@ export async function extractLinkedInJobDetailPane(
     const tags = getAllTexts(tagSelectors).slice(0, 12);
 
     const companyAnchor = pane.querySelector<HTMLAnchorElement>(
-      "a.topcard__org-name-link",
+      'a.topcard__org-name-link',
     );
 
     return {
@@ -194,7 +193,7 @@ export async function extractLinkedInJobDetailPane(
       descriptionText,
       postedAt,
       tags,
-      companyPageUrl: companyAnchor?.href ?? "",
+      companyPageUrl: companyAnchor?.href ?? '',
     };
   }, DETAIL_PANE_SELECTOR);
 }
@@ -204,7 +203,8 @@ export async function extractLinkedInJobSearchResults(
 ): Promise<
   Array<{ detailUrl: string | null; extracted: ExtractedLinkedInJobPage }>
 > {
-  const cards: LinkedInJobSearchResultCard[] = await listLinkedInJobSearchResultCards(page);
+  const cards: LinkedInJobSearchResultCard[] =
+    await listLinkedInJobSearchResultCards(page);
   const results: Array<{
     detailUrl: string | null;
     extracted: ExtractedLinkedInJobPage;
@@ -220,7 +220,7 @@ export async function extractLinkedInJobSearchResults(
       results.push({ detailUrl: card.detailUrl, extracted });
     } catch (err) {
       console.warn(
-        `Skipping job card at index ${index} (${card.detailUrl ?? "unknown URL"}): ${err instanceof Error ? err.message : String(err)}`,
+        `Skipping job card at index ${index} (${card.detailUrl ?? 'unknown URL'}): ${err instanceof Error ? err.message : String(err)}`,
       );
     }
   }

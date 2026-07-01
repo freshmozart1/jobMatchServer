@@ -94,29 +94,21 @@ describe('listLinkedInJobSearchResultCards', () => {
 });
 
 describe('clickLinkedInJobSearchResultCard', () => {
-  it('targets the card by data-entity-urn when jobId is known', async () => {
+  it('always clicks by index within ul.jobs-search__results-list, regardless of jobId', async () => {
     const page = createPageMock();
-    const card = sampleCards[0]!;
+    const card = sampleCards[0]!; // card with a known jobId
 
     await clickLinkedInJobSearchResultCard(page as unknown as Page, card, 0);
 
-    // modal dismissal uses evaluate, then locator click
+    // modal dismissal uses evaluate; then a single index-scoped locator click
     expect(page.evaluate).toHaveBeenCalledTimes(1);
-    expect(page.locator).toHaveBeenCalledWith(
-      expect.stringContaining(card.jobId!),
-    );
-    expect(page.waitForResponse).toHaveBeenCalledTimes(1);
-  });
-
-  it('falls back to indexed selection when jobId is null', async () => {
-    const page = createPageMock();
-    const card = sampleCards[1]!;
-
-    await clickLinkedInJobSearchResultCard(page as unknown as Page, card, 1);
-
     expect(page.locator).toHaveBeenCalledTimes(1);
+    expect(page.locator).toHaveBeenCalledWith(
+      'ul.jobs-search__results-list > li',
+    );
     const locatorMock = page.locator.mock.results[0]?.value as LocatorMock;
-    expect(locatorMock.nth).toHaveBeenCalledWith(1);
+    expect(locatorMock.nth).toHaveBeenCalledWith(0);
+    expect(page.waitForResponse).toHaveBeenCalledTimes(1);
   });
 });
 
