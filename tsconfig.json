@@ -8,7 +8,8 @@
       "#scrapers/*": ["./src/scrapers/*"],
       "#types": ["./src/types.ts"],
       "#database/*": ["./src/database/*"],
-      "#index": ["./src/index.ts"]
+      "#index": ["./src/index.ts"],
+      "#utils/*": ["./src/utils/*"]
     },
     // Environment Settings
     // See also https://aka.ms/tsconfig/module

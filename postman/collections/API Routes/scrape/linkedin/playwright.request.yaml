@@ -1,0 +1,15 @@
+$kind: http-request
+name: playwright
+url: http://localhost:3000/scrape/linkedin/playwright
+method: POST
+body:
+  type: json
+  content: |-
+    {
+        "keywords": ["Full Stack Engineer"],
+        "location": "Hamburg",
+        "distance": 25,
+        "datePosted": "86400",
+        "maxPages": 1
+    }
+order: 3686414531131430

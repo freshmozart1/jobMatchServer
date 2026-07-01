@@ -1,5 +1,5 @@
 import { describe, expect, it } from '@jest/globals';
-import { getLinkedInJobLinkSearchParamsFromBody } from './jobLinkScraper.js';
+import { getLinkedInJobLinkSearchParamsFromBody } from './getLinkedInJobLinkSearchParamsFromBody.js';
 
 describe('getLinkedInJobLinkSearchParamsFromBody', () => {
   it('parses a valid body with a single keyword', () => {

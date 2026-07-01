@@ -13,6 +13,7 @@ import express, { type Request, type Response } from 'express';
 
 import { scrapeLinkedInJobPage } from '#scrapers/linkedin/jobPageScraper.js';
 import { scrapeLinkedInJobLinks } from '#scrapers/linkedin/jobLinkScraper.js';
+import { scrapeJob } from '#scrapers/linkedin/playwright/scrapeJobs.js';
 import createJobInDatabase from '#database/createJobInDatabase.js';
 import getTopXSimilarCoverLetters from '#database/getTopXSimilarCoverLetters.js';
 import filterJobLinks from '#database/filterJobLinks.js';
@@ -146,6 +147,8 @@ app.get('/health', (_request: Request, response: Response): void => {
 app.post('/scrape/linkedin/job-links', scrapeLinkedInJobLinks);
 
 app.post('/scrape/linkedin/job-page', scrapeLinkedInJobPage);
+
+app.post('/scrape/linkedin/playwright', scrapeJob);
 
 app.post('/jobs/create', createJobInDatabase);
 
