@@ -33,7 +33,8 @@ node --experimental-vm-modules --localstorage-file=/tmp/jest-localstorage.json .
 - `verbatimModuleSyntax: true` — use `import type` for type-only imports.
 - `noUncheckedIndexedAccess: true` — array/object index access returns `T | undefined`.
 - `exactOptionalPropertyTypes: true` — optional properties cannot be explicitly assigned `undefined` unless `undefined` is in their type.
-- Path aliases (`#scrapers/*`, `#database/*`, `#types`, `#index`) are defined in **both** `package.json` `imports` and `tsconfig.json` `paths` — update both when adding a new alias.
+- Path aliases (`#scrapers/*`, `#database/*`, `#types`, `#index`, `#utils/*`) are defined in **both** `package.json` `imports` and `tsconfig.json` `paths` — update both when adding a new alias.
+- The playwright-based LinkedIn scraper (`src/scrapers/linkedin/playwright/`) needs browser binaries installed locally: run `npx playwright install` once after `npm install`. This is a machine-local setup step (binaries aren't committed) — CI would need an equivalent step (e.g. `npx playwright install --with-deps`) before any test that launches a real browser. Jest's unit tests mock playwright entirely, so this isn't required just to run `npm run test:once`.
 
 ## Required environment variables
 

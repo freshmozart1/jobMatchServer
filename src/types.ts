@@ -9,6 +9,15 @@ export type LinkedInJobLinkSearchParams = {
 
 export type LinkedInJobLinksByKeyword = Record<string, string[]>;
 
+export type ScrapeJobRequestParams = LinkedInJobLinkSearchParams & {
+  maxPages: number;
+};
+
+export type ScrapeJobResponseBody = Record<
+  string,
+  { searchUrl: string; jobs: ScrapedJob[] }
+>;
+
 export type ScrapedAnchor = {
   href: string;
   text: string;

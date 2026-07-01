@@ -1,5 +1,5 @@
-import getLinkedInJobPathSegment from './getLinkedInJobPathSegment.js';
-import isLinkedInHost from './isLinkedInHost.js';
+import getLinkedInJobPathSegment from '#utils/getLinkedInJobPathSegment.js';
+import isLinkedInHost from '#utils/isLinkedInHost.js';
 
 export function normalizeLinkedInJobPageUrl(jobUrl: string): string | null {
   try {

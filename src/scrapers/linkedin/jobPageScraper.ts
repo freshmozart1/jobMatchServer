@@ -1,7 +1,7 @@
 import type { Request, Response } from 'express';
 import type { Browser } from 'puppeteer';
-import { getScraperErrorStatus } from './jobLinkScraper.js';
-import isSupportedLinkedInUrl from './isSupportedLinkedInUrl.js';
+import { getScraperErrorStatus } from '#utils/getScraperErrorStatus.js';
+import isSupportedLinkedInUrl from '#utils/isSupportedLinkedInUrl.js';
 import waitForLinkedInPage from './waitForLinkedInPage.js';
 import { extractLinkedInJobPage } from './extractLinkedInJobPage.js';
 import {
