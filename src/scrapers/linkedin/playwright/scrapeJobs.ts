@@ -1,33 +1,35 @@
-import type { Request, Response } from "express";
-import { MongoClient } from "mongodb";
+import type { Request, Response } from 'express';
+import { MongoClient } from 'mongodb';
 import {
   connectionStringConfigured,
+  getCollection,
   MONGODB_CONNECTION,
-} from "#database/database.js";
-import { createErrorMessage } from "../../../errors/createErrorMessage.js";
-import { getScrapeJobRequestParamsFromBody } from "#utils/getScrapeJobRequestParamsFromBody.js";
-import { buildLinkedInJobSearchUrl } from "#utils/buildLinkedInJobSearchUrl.js";
-import { getScraperErrorStatus } from "#utils/getScraperErrorStatus.js";
-import isSupportedLinkedInUrl from "#utils/isSupportedLinkedInUrl.js";
-import waitForLinkedInPage from "./waitForLinkedInPage.js";
-import { extractLinkedInJobSearchResults } from "./extractLinkedInJobSearchResults.js";
-import { extractCompanyAddress } from "./extractCompanyAddress.js";
+} from '#database/database.js';
+import { createErrorMessage } from '../../../errors/createErrorMessage.js';
+import { getScrapeJobRequestParamsFromBody } from '#utils/getScrapeJobRequestParamsFromBody.js';
+import { buildLinkedInJobSearchUrl } from '#utils/buildLinkedInJobSearchUrl.js';
+import { getScraperErrorStatus } from '#utils/getScraperErrorStatus.js';
+import isSupportedLinkedInUrl from '#utils/isSupportedLinkedInUrl.js';
+import waitForLinkedInPage from './waitForLinkedInPage.js';
+import { extractLinkedInJobSearchResults } from './extractLinkedInJobSearchResults.js';
+import { extractCompanyAddress } from './extractCompanyAddress.js';
 import {
   normalizeLinkedInJobPageUrl,
   extractLinkedInJobId,
-} from "../linkedInJobPageUrl.js";
+} from '../linkedInJobPageUrl.js';
 import {
   coalesceText,
   normalizeDescription,
   extractJobTitle,
-} from "../linkedInTextUtils.js";
-import { computeJobMatch } from "../linkedInJobSimilarity.js";
-import { createJobEmbedding } from "../../../embeddings/jobEmbedding.js";
+} from '../linkedInTextUtils.js';
+import { computeJobMatch } from '../linkedInJobSimilarity.js';
+import { createJobEmbedding } from '../../../embeddings/jobEmbedding.js';
 import type {
   ExtractedLinkedInJobPage,
   ScrapedJob,
   ScrapeJobResponseBody,
-} from "#types";
+  StoredScrapedJob,
+} from '#types';
 
 export async function scrapeJob(
   request: Request,
@@ -39,9 +41,9 @@ export async function scrapeJob(
     createErrorMessage(
       response,
       new Error(
-        "Invalid search parameters. Please ensure keywords is a non-empty string or non-empty string array, location is a non-empty string, distance is a positive integer, datePosted is one of: 86400, 604800, 2592000, and maxPages is a non-negative integer.",
+        'Invalid search parameters. Please ensure keywords is a non-empty string or non-empty string array, location is a non-empty string, distance is a positive integer, datePosted is one of: 86400, 604800, 2592000, and maxPages is a non-negative integer.',
       ),
-      "Failed to scrape LinkedIn job links.",
+      'Failed to scrape LinkedIn job links.',
       400,
     );
     return;
@@ -84,8 +86,8 @@ export async function scrapeJob(
           pageNum,
         );
 
-        if (!isSupportedLinkedInUrl(pageUrl, "jobSearchPage")) {
-          throw new Error("Only LinkedIn jobs search URLs are supported.");
+        if (!isSupportedLinkedInUrl(pageUrl, 'jobSearchPage')) {
+          throw new Error('Only LinkedIn jobs search URLs are supported.');
         }
 
         const { browser, page } = await waitForLinkedInPage(pageUrl);
@@ -235,7 +237,26 @@ export async function scrapeJob(
         }
       }
 
-      responseBody[keyword] = { searchUrl: firstPageUrl, jobs };
+      let newJobs = jobs;
+      if (jobs.length > 0) {
+        const existingKeys = new Set(
+          (
+            await getCollection<StoredScrapedJob>(client, 'jobs')
+              .find(
+                { duplicateKey: { $in: jobs.map((j) => j.duplicateKey) } },
+                { projection: { duplicateKey: 1, _id: 0 } },
+              )
+              .toArray()
+          ).map((doc) => doc.duplicateKey),
+        );
+        newJobs = jobs.filter((job) => !existingKeys.has(job.duplicateKey));
+        if (newJobs.length < jobs.length) {
+          console.log(
+            `Filtered ${jobs.length - newJobs.length} already-stored job(s) from "${keyword}" results.`,
+          );
+        }
+      }
+      responseBody[keyword] = { searchUrl: firstPageUrl, jobs: newJobs };
     }
 
     response.status(200).json(responseBody);
@@ -243,7 +264,7 @@ export async function scrapeJob(
     createErrorMessage(
       response,
       error,
-      "Failed to scrape LinkedIn jobs.",
+      'Failed to scrape LinkedIn jobs.',
       getScraperErrorStatus(error),
     );
   } finally {
