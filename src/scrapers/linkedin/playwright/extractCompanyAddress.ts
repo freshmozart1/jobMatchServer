@@ -1,22 +1,14 @@
-import { chromium } from 'playwright';
 import type { CompanyAddress } from '#types';
 import { parseCompanyAddress } from '#utils/parseCompanyAddress.js';
-import {
-  closeTrackedBrowserServer,
-  trackBrowserServer,
-} from '#utils/trackedPlaywrightBrowsers.js';
+import { launchTrackedBrowserServer } from '#utils/launchTrackedBrowserServer.js';
+import { closeTrackedBrowserServer } from '#utils/trackedPlaywrightBrowsers.js';
 import { LINKEDIN_USER_AGENT } from './waitForLinkedInPage.js';
 
 export async function extractCompanyAddress(
   companyPageUrl: string,
 ): Promise<CompanyAddress> {
-  // Launched via launchServer()+connect() (rather than chromium.launch()) so the
-  // spawned Chromium process can be force-killed through BrowserServer.kill() if
-  // browserServer.close() ever hangs.
-  const browserServer = await chromium.launchServer({ headless: true });
-  trackBrowserServer(browserServer);
+  const { browserServer, browser } = await launchTrackedBrowserServer();
   try {
-    const browser = await chromium.connect(browserServer.wsEndpoint());
     const context = await browser.newContext({
       viewport: { width: 1366, height: 900 },
       userAgent: LINKEDIN_USER_AGENT,

@@ -1,13 +1,6 @@
-import {
-  chromium,
-  type Browser,
-  type BrowserServer,
-  type Page,
-} from 'playwright';
-import {
-  closeTrackedBrowserServer,
-  trackBrowserServer,
-} from '#utils/trackedPlaywrightBrowsers.js';
+import { type Browser, type BrowserServer, type Page } from 'playwright';
+import { launchTrackedBrowserServer } from '#utils/launchTrackedBrowserServer.js';
+import { closeTrackedBrowserServer } from '#utils/trackedPlaywrightBrowsers.js';
 
 export const LINKEDIN_USER_AGENT =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) ' +
@@ -43,15 +36,9 @@ type LinkedInLazyLoadScrollOptions = {
 export default async function waitForLinkedInPage(
   url: string,
 ): Promise<{ browser: Browser; browserServer: BrowserServer; page: Page }> {
-  // Launched via launchServer()+connect() (rather than chromium.launch()) so the
-  // spawned Chromium process can be force-killed through BrowserServer.kill() if
-  // browserServer.close() ever hangs — Browser (from a plain launch()) exposes no
-  // such handle on its underlying OS process.
-  const browserServer = await chromium.launchServer({ headless: true });
-  trackBrowserServer(browserServer);
+  const { browserServer, browser } = await launchTrackedBrowserServer();
 
   try {
-    const browser = await chromium.connect(browserServer.wsEndpoint());
     // Use newContext() so that page.context().newPage() works later
     // (e.g. in extractCompanyAddress). browser.newPage() creates a page in a
     // restricted "default context" that disallows additional newPage() calls.
