@@ -77,7 +77,10 @@ const sampleAddress: CompanyAddress = {
   countryCode: 'DE',
 };
 
-function sampleResult(jobId: string): SearchResult {
+function sampleResult(
+  jobId: string,
+  companyPageUrl = 'https://www.linkedin.com/company/acme-corp/',
+): SearchResult {
   return {
     detailUrl: `https://www.linkedin.com/jobs/view/${jobId}/`,
     extracted: {
@@ -87,7 +90,7 @@ function sampleResult(jobId: string): SearchResult {
       descriptionText: 'A great job.',
       postedAt: '2024-01-15',
       tags: ['Full-time'],
-      companyPageUrl: 'https://www.linkedin.com/company/acme-corp/',
+      companyPageUrl,
     },
   };
 }
@@ -374,5 +377,122 @@ describe('scrapeJob', () => {
     await scrapeJob(createRequest(validBody), response);
 
     expect(close).toHaveBeenCalledTimes(1);
+  });
+
+  it('reuses a cached company address for a second job from the same company in one page', async () => {
+    mockExtractLinkedInJobSearchResults.mockResolvedValueOnce(
+      searchResults([sampleResult('111'), sampleResult('222')]),
+    );
+    const { response, json } = createResponse();
+
+    await scrapeJob(createRequest(validBody), response);
+
+    expect(mockExtractCompanyAddress).toHaveBeenCalledTimes(1);
+    const body = json.mock.calls[0]?.[0] as Record<
+      string,
+      { jobs: Record<string, unknown>[] }
+    >;
+    expect(body['TypeScript']?.jobs).toHaveLength(2);
+    expect(body['TypeScript']?.jobs[0]?.['companyAddress']).toEqual(
+      sampleAddress,
+    );
+    expect(body['TypeScript']?.jobs[1]?.['companyAddress']).toEqual(
+      sampleAddress,
+    );
+  });
+
+  it('dedupes a failed-then-retried company address across two jobs from the same company', async () => {
+    mockExtractLinkedInJobSearchResults.mockResolvedValueOnce(
+      searchResults([sampleResult('111'), sampleResult('222')]),
+    );
+    // First-pass fails once for the shared company; the single deduped retry succeeds.
+    mockExtractCompanyAddress.mockRejectedValueOnce(new Error('no address'));
+    mockExtractCompanyAddress.mockResolvedValueOnce(sampleAddress);
+    const { response, json } = createResponse();
+
+    await scrapeJob(createRequest(validBody), response);
+
+    expect(mockExtractCompanyAddress).toHaveBeenCalledTimes(2);
+    const body = json.mock.calls[0]?.[0] as Record<string, { jobs: unknown[] }>;
+    expect(body['TypeScript']?.jobs).toHaveLength(2);
+  });
+
+  it('gives a company a fresh extraction attempt in a later keyword after it permanently failed in an earlier keyword', async () => {
+    mockExtractLinkedInJobSearchResults
+      .mockResolvedValueOnce(searchResults([sampleResult('111')])) // keyword 1
+      .mockResolvedValueOnce(searchResults([sampleResult('222')])); // keyword 2
+    // Keyword 1: first-pass fails, retry fails too -> company marked failed for keyword 1 only.
+    mockExtractCompanyAddress.mockRejectedValueOnce(new Error('fail 1'));
+    mockExtractCompanyAddress.mockRejectedValueOnce(new Error('fail 2'));
+    // Keyword 2: fresh attempt succeeds immediately (not skipped).
+    mockExtractCompanyAddress.mockResolvedValueOnce(sampleAddress);
+    const { response, json } = createResponse();
+
+    await scrapeJob(
+      createRequest({
+        ...validBody,
+        keywords: ['TypeScript', 'JavaScript'],
+      }),
+      response,
+    );
+
+    expect(mockExtractCompanyAddress).toHaveBeenCalledTimes(3);
+    const body = json.mock.calls[0]?.[0] as Record<string, { jobs: unknown[] }>;
+    expect(body['TypeScript']?.jobs).toEqual([]);
+    expect(body['JavaScript']?.jobs).toHaveLength(1);
+  });
+
+  it('reuses a cached company address across keywords for the same company', async () => {
+    mockExtractLinkedInJobSearchResults
+      .mockResolvedValueOnce(searchResults([sampleResult('111')])) // keyword 1
+      .mockResolvedValueOnce(searchResults([sampleResult('222')])); // keyword 2
+    const { response, json } = createResponse();
+
+    await scrapeJob(
+      createRequest({
+        ...validBody,
+        keywords: ['TypeScript', 'JavaScript'],
+      }),
+      response,
+    );
+
+    expect(mockExtractCompanyAddress).toHaveBeenCalledTimes(1);
+    const body = json.mock.calls[0]?.[0] as Record<string, { jobs: unknown[] }>;
+    expect(body['TypeScript']?.jobs).toHaveLength(1);
+    expect(body['JavaScript']?.jobs).toHaveLength(1);
+  });
+
+  it('does not merge two different companies into the same cache entry', async () => {
+    mockExtractLinkedInJobSearchResults.mockResolvedValueOnce(
+      searchResults([
+        sampleResult('111', 'https://www.linkedin.com/company/acme-corp/'),
+        sampleResult('222', 'https://uk.linkedin.com/company/other-co/?trk=x'),
+      ]),
+    );
+    const { response } = createResponse();
+
+    await scrapeJob(createRequest(validBody), response);
+
+    expect(mockExtractCompanyAddress).toHaveBeenCalledTimes(2);
+  });
+
+  it('treats locale-subdomain variants of the same company as one cache entry', async () => {
+    mockExtractLinkedInJobSearchResults.mockResolvedValueOnce(
+      searchResults([
+        sampleResult(
+          '111',
+          'https://uk.linkedin.com/company/quantumblack?trk=a',
+        ),
+        sampleResult(
+          '222',
+          'https://de.linkedin.com/company/quantumblack/?trk=b',
+        ),
+      ]),
+    );
+    const { response } = createResponse();
+
+    await scrapeJob(createRequest(validBody), response);
+
+    expect(mockExtractCompanyAddress).toHaveBeenCalledTimes(1);
   });
 });
