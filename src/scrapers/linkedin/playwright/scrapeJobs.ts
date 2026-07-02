@@ -39,6 +39,24 @@ type PendingScrapedJob = {
   extracted: ExtractedLinkedInJobPage;
 };
 
+type PendingRetryEntry = { result: PendingScrapedJob; normalizedUrl: string };
+type PendingRetryGroup = {
+  companyPageUrl: string;
+  entries: PendingRetryEntry[];
+};
+
+// Recreated every keyword iteration: a company that fails (even after retry)
+// only stays "known failed" for the rest of THIS keyword, so later keywords
+// still get a fresh attempt at it. Jobs are collected per keyword so they can
+// be deduped against already-stored jobs once, after pagination completes.
+type KeywordScrapeState = {
+  jobs: ScrapedJob[];
+  companyAddressFailures: Set<string>;
+  // Keyed by company so multiple jobs from the same never-before-seen company
+  // that fail first-pass extraction share a single deduped retry attempt.
+  pendingRetry: Map<string, PendingRetryGroup>;
+};
+
 async function buildScrapedJob(
   client: MongoClient,
   result: PendingScrapedJob,
@@ -84,6 +102,150 @@ async function buildScrapedJob(
   };
 }
 
+async function processSearchResult(
+  client: MongoClient,
+  result: PendingScrapedJob,
+  pageUrl: string,
+  companyAddressCache: Map<string, CompanyAddress>,
+  state: KeywordScrapeState,
+): Promise<void> {
+  const normalizedUrl = result.detailUrl
+    ? normalizeLinkedInJobPageUrl(result.detailUrl)
+    : null;
+
+  if (!normalizedUrl) {
+    console.warn(
+      `Skipping job card with an unresolvable detail URL on ${pageUrl}`,
+    );
+    return;
+  }
+
+  if (!result.extracted.companyPageUrl) {
+    console.warn(`Skipping job ${normalizedUrl}: no company page link found.`);
+    return;
+  }
+
+  try {
+    const companyKey = normalizeLinkedInCompanyPageUrl(
+      result.extracted.companyPageUrl,
+    );
+
+    if (state.companyAddressFailures.has(companyKey)) {
+      console.warn(
+        `Skipping job ${normalizedUrl}: company address previously failed to resolve for this keyword.`,
+      );
+      return;
+    }
+
+    const cachedAddress = companyAddressCache.get(companyKey);
+    if (cachedAddress !== undefined) {
+      state.jobs.push(
+        await buildScrapedJob(client, result, normalizedUrl, cachedAddress),
+      );
+      return;
+    }
+
+    const existingPendingEntry = state.pendingRetry.get(companyKey);
+    if (existingPendingEntry !== undefined) {
+      // Another job for this company already failed first-pass
+      // extraction this keyword and is queued for one deduped retry —
+      // piggyback on it instead of attempting extraction again.
+      existingPendingEntry.entries.push({ result, normalizedUrl });
+      return;
+    }
+
+    const address = await extractCompanyAddress(
+      result.extracted.companyPageUrl,
+    ).catch((addressError: unknown) => {
+      console.log(
+        `Company address extraction failed for ${normalizedUrl}, scheduling retry: ${addressError instanceof Error ? addressError.message : String(addressError)}`,
+      );
+      state.pendingRetry.set(companyKey, {
+        companyPageUrl: result.extracted.companyPageUrl,
+        entries: [{ result, normalizedUrl }],
+      });
+      return null;
+    });
+
+    if (address !== null) {
+      companyAddressCache.set(companyKey, address);
+      state.jobs.push(
+        await buildScrapedJob(client, result, normalizedUrl, address),
+      );
+    }
+  } catch (jobError) {
+    console.warn(
+      `Skipping job ${normalizedUrl}: ${jobError instanceof Error ? jobError.message : String(jobError)}`,
+    );
+  }
+}
+
+async function resolvePendingRetries(
+  client: MongoClient,
+  companyAddressCache: Map<string, CompanyAddress>,
+  state: KeywordScrapeState,
+): Promise<void> {
+  for (const [companyKey, { companyPageUrl, entries }] of state.pendingRetry) {
+    console.log(
+      `Retrying company address extraction for company ${companyKey} (${entries.length} job(s))...`,
+    );
+    try {
+      const companyAddress = await extractCompanyAddress(companyPageUrl);
+      companyAddressCache.set(companyKey, companyAddress);
+      for (const { result, normalizedUrl } of entries) {
+        try {
+          state.jobs.push(
+            await buildScrapedJob(
+              client,
+              result,
+              normalizedUrl,
+              companyAddress,
+            ),
+          );
+          console.log(`Company address retry succeeded for ${normalizedUrl}.`);
+        } catch (jobError) {
+          console.warn(
+            `Skipping job ${normalizedUrl}: ${jobError instanceof Error ? jobError.message : String(jobError)}`,
+          );
+        }
+      }
+    } catch (retryError) {
+      state.companyAddressFailures.add(companyKey);
+      for (const { normalizedUrl } of entries) {
+        console.log(
+          `Company address retry failed for ${normalizedUrl}: ${retryError instanceof Error ? retryError.message : String(retryError)}`,
+        );
+      }
+    }
+  }
+}
+
+async function filterNewJobs(
+  client: MongoClient,
+  keyword: string,
+  jobs: ScrapedJob[],
+): Promise<ScrapedJob[]> {
+  if (jobs.length === 0) return jobs;
+
+  const existingKeys = new Set(
+    (
+      await getCollection<StoredScrapedJob>(client, 'jobs')
+        .find(
+          { duplicateKey: { $in: jobs.map((j) => j.duplicateKey) } },
+          { projection: { duplicateKey: 1, _id: 0 } },
+        )
+        .toArray()
+    ).map((doc) => doc.duplicateKey),
+  );
+  const newJobs = jobs.filter((job) => !existingKeys.has(job.duplicateKey));
+  if (newJobs.length < jobs.length) {
+    console.log(
+      `Filtered ${jobs.length - newJobs.length} already-stored job(s) from "${keyword}" results.`,
+    );
+  }
+  return newJobs;
+}
+
 export async function scrapeJob(
   request: Request,
   response: Response,
@@ -123,20 +285,11 @@ export async function scrapeJob(
         searchParams.datePosted,
         0,
       );
-      const jobs: ScrapedJob[] = [];
-      // Recreated every keyword iteration: a company that fails (even after retry)
-      // only stays "known failed" for the rest of THIS keyword, so later keywords
-      // still get a fresh attempt at it.
-      const companyAddressFailures = new Set<string>();
-      // Keyed by company so multiple jobs from the same never-before-seen company
-      // that fail first-pass extraction share a single deduped retry attempt.
-      const pendingRetry = new Map<
-        string,
-        {
-          companyPageUrl: string;
-          entries: Array<{ result: PendingScrapedJob; normalizedUrl: string }>;
-        }
-      >();
+      const state: KeywordScrapeState = {
+        jobs: [],
+        companyAddressFailures: new Set(),
+        pendingRetry: new Map(),
+      };
       let pageNum = 0;
 
       while (searchParams.maxPages === 0 || pageNum < searchParams.maxPages) {
@@ -163,82 +316,13 @@ export async function scrapeJob(
           }
 
           for (const result of results) {
-            const normalizedUrl = result.detailUrl
-              ? normalizeLinkedInJobPageUrl(result.detailUrl)
-              : null;
-
-            if (!normalizedUrl) {
-              console.warn(
-                `Skipping job card with an unresolvable detail URL on ${pageUrl}`,
-              );
-              continue;
-            }
-
-            if (!result.extracted.companyPageUrl) {
-              console.warn(
-                `Skipping job ${normalizedUrl}: no company page link found.`,
-              );
-              continue;
-            }
-
-            try {
-              const companyKey = normalizeLinkedInCompanyPageUrl(
-                result.extracted.companyPageUrl,
-              );
-
-              if (companyAddressFailures.has(companyKey)) {
-                console.warn(
-                  `Skipping job ${normalizedUrl}: company address previously failed to resolve for this keyword.`,
-                );
-                continue;
-              }
-
-              const cachedAddress = companyAddressCache.get(companyKey);
-              if (cachedAddress !== undefined) {
-                jobs.push(
-                  await buildScrapedJob(
-                    client,
-                    result,
-                    normalizedUrl,
-                    cachedAddress,
-                  ),
-                );
-                continue;
-              }
-
-              const existingPendingEntry = pendingRetry.get(companyKey);
-              if (existingPendingEntry !== undefined) {
-                // Another job for this company already failed first-pass
-                // extraction this keyword and is queued for one deduped retry —
-                // piggyback on it instead of attempting extraction again.
-                existingPendingEntry.entries.push({ result, normalizedUrl });
-                continue;
-              }
-
-              const address = await extractCompanyAddress(
-                result.extracted.companyPageUrl,
-              ).catch((addressError: unknown) => {
-                console.log(
-                  `Company address extraction failed for ${normalizedUrl}, scheduling retry: ${addressError instanceof Error ? addressError.message : String(addressError)}`,
-                );
-                pendingRetry.set(companyKey, {
-                  companyPageUrl: result.extracted.companyPageUrl,
-                  entries: [{ result, normalizedUrl }],
-                });
-                return null;
-              });
-
-              if (address !== null) {
-                companyAddressCache.set(companyKey, address);
-                jobs.push(
-                  await buildScrapedJob(client, result, normalizedUrl, address),
-                );
-              }
-            } catch (jobError) {
-              console.warn(
-                `Skipping job ${normalizedUrl}: ${jobError instanceof Error ? jobError.message : String(jobError)}`,
-              );
-            }
+            await processSearchResult(
+              client,
+              result,
+              pageUrl,
+              companyAddressCache,
+              state,
+            );
           }
 
           // The aborted page's partial results above are still processed either way.
@@ -264,61 +348,9 @@ export async function scrapeJob(
         pageNum += 1;
       }
 
-      for (const [companyKey, { companyPageUrl, entries }] of pendingRetry) {
-        console.log(
-          `Retrying company address extraction for company ${companyKey} (${entries.length} job(s))...`,
-        );
-        try {
-          const companyAddress = await extractCompanyAddress(companyPageUrl);
-          companyAddressCache.set(companyKey, companyAddress);
-          for (const { result, normalizedUrl } of entries) {
-            try {
-              jobs.push(
-                await buildScrapedJob(
-                  client,
-                  result,
-                  normalizedUrl,
-                  companyAddress,
-                ),
-              );
-              console.log(
-                `Company address retry succeeded for ${normalizedUrl}.`,
-              );
-            } catch (jobError) {
-              console.warn(
-                `Skipping job ${normalizedUrl}: ${jobError instanceof Error ? jobError.message : String(jobError)}`,
-              );
-            }
-          }
-        } catch (retryError) {
-          companyAddressFailures.add(companyKey);
-          for (const { normalizedUrl } of entries) {
-            console.log(
-              `Company address retry failed for ${normalizedUrl}: ${retryError instanceof Error ? retryError.message : String(retryError)}`,
-            );
-          }
-        }
-      }
+      await resolvePendingRetries(client, companyAddressCache, state);
 
-      let newJobs = jobs;
-      if (jobs.length > 0) {
-        const existingKeys = new Set(
-          (
-            await getCollection<StoredScrapedJob>(client, 'jobs')
-              .find(
-                { duplicateKey: { $in: jobs.map((j) => j.duplicateKey) } },
-                { projection: { duplicateKey: 1, _id: 0 } },
-              )
-              .toArray()
-          ).map((doc) => doc.duplicateKey),
-        );
-        newJobs = jobs.filter((job) => !existingKeys.has(job.duplicateKey));
-        if (newJobs.length < jobs.length) {
-          console.log(
-            `Filtered ${jobs.length - newJobs.length} already-stored job(s) from "${keyword}" results.`,
-          );
-        }
-      }
+      const newJobs = await filterNewJobs(client, keyword, state.jobs);
       responseBody[keyword] = { searchUrl: firstPageUrl, jobs: newJobs };
     }
 
