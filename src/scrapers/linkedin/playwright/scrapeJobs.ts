@@ -94,7 +94,8 @@ export async function scrapeJob(
         const { browserServer, page } = await waitForLinkedInPage(pageUrl);
 
         try {
-          const results = await extractLinkedInJobSearchResults(page);
+          const { results, aborted, abortReason } =
+            await extractLinkedInJobSearchResults(page);
 
           if (results.length === 0) {
             break;
@@ -177,6 +178,23 @@ export async function scrapeJob(
               console.warn(
                 `Skipping job ${normalizedUrl}: ${jobError instanceof Error ? jobError.message : String(jobError)}`,
               );
+            }
+          }
+
+          // The aborted page's partial results above are still processed either way.
+          if (aborted) {
+            if (abortReason === 'navigated-away') {
+              // Page-local DOM corruption from a single misclicked card — not
+              // a systemic block. The next pageNum iteration already opens a
+              // brand-new browser/page, so just continue pagination.
+              console.warn(
+                `Card extraction on this page for "${keyword}" hit an unexpected navigation; continuing to the next page.`,
+              );
+            } else {
+              console.warn(
+                `Stopping pagination for "${keyword}" — card extraction aborted after repeated failures.`,
+              );
+              break;
             }
           }
         } finally {

@@ -18,6 +18,12 @@ type SearchResult = {
   extracted: ExtractedLinkedInJobPage;
 };
 
+type SearchResultsExtraction = {
+  results: SearchResult[];
+  aborted: boolean;
+  abortReason?: 'consecutive-failures' | 'navigated-away';
+};
+
 const mockWaitForLinkedInPage = jest.fn<
   () => Promise<{
     browserServer: { close: () => Promise<void>; kill: () => Promise<void> };
@@ -25,7 +31,7 @@ const mockWaitForLinkedInPage = jest.fn<
   }>
 >();
 const mockExtractLinkedInJobSearchResults =
-  jest.fn<() => Promise<SearchResult[]>>();
+  jest.fn<() => Promise<SearchResultsExtraction>>();
 const mockExtractCompanyAddress = jest.fn<() => Promise<CompanyAddress>>();
 const mockCreateJobEmbedding = jest.fn<() => Promise<number[]>>();
 const mockComputeJobMatch = jest.fn<() => Promise<number | undefined>>();
@@ -86,6 +92,14 @@ function sampleResult(jobId: string): SearchResult {
   };
 }
 
+function searchResults(
+  results: SearchResult[],
+  aborted = false,
+  abortReason?: 'consecutive-failures' | 'navigated-away',
+): SearchResultsExtraction {
+  return { results, aborted, ...(abortReason ? { abortReason } : {}) };
+}
+
 describe('scrapeJob', () => {
   let browserServerClose: ReturnType<typeof jest.fn<() => Promise<void>>>;
 
@@ -102,7 +116,7 @@ describe('scrapeJob', () => {
       },
       page: {},
     });
-    mockExtractLinkedInJobSearchResults.mockResolvedValue([]);
+    mockExtractLinkedInJobSearchResults.mockResolvedValue(searchResults([]));
     mockExtractCompanyAddress.mockResolvedValue(sampleAddress);
     mockCreateJobEmbedding.mockResolvedValue([1, 0, 0]);
     mockComputeJobMatch.mockResolvedValue(undefined);
@@ -158,7 +172,9 @@ describe('scrapeJob', () => {
   });
 
   it('stops pagination when a page returns no results', async () => {
-    mockExtractLinkedInJobSearchResults.mockResolvedValueOnce([]);
+    mockExtractLinkedInJobSearchResults.mockResolvedValueOnce(
+      searchResults([]),
+    );
     const { response, status, json } = createResponse();
 
     await scrapeJob(createRequest({ ...validBody, maxPages: 0 }), response);
@@ -170,7 +186,9 @@ describe('scrapeJob', () => {
   });
 
   it('stops pagination at maxPages even if pages keep returning results', async () => {
-    mockExtractLinkedInJobSearchResults.mockResolvedValue([sampleResult('1')]);
+    mockExtractLinkedInJobSearchResults.mockResolvedValue(
+      searchResults([sampleResult('1')]),
+    );
     const { response } = createResponse();
 
     await scrapeJob(createRequest({ ...validBody, maxPages: 2 }), response);
@@ -180,9 +198,9 @@ describe('scrapeJob', () => {
 
   it('continues across pages when maxPages is 0, until a page is empty', async () => {
     mockExtractLinkedInJobSearchResults
-      .mockResolvedValueOnce([sampleResult('1')])
-      .mockResolvedValueOnce([sampleResult('2')])
-      .mockResolvedValueOnce([]);
+      .mockResolvedValueOnce(searchResults([sampleResult('1')]))
+      .mockResolvedValueOnce(searchResults([sampleResult('2')]))
+      .mockResolvedValueOnce(searchResults([]));
     const { response } = createResponse();
 
     await scrapeJob(createRequest({ ...validBody, maxPages: 0 }), response);
@@ -190,10 +208,43 @@ describe('scrapeJob', () => {
     expect(mockWaitForLinkedInPage).toHaveBeenCalledTimes(3);
   });
 
+  it('stops paginating a keyword when card extraction aborts due to consecutive failures, but keeps the partial results', async () => {
+    mockExtractLinkedInJobSearchResults.mockResolvedValueOnce(
+      searchResults([sampleResult('123456789')], true, 'consecutive-failures'),
+    );
+    const { response, status, json } = createResponse();
+
+    await scrapeJob(createRequest({ ...validBody, maxPages: 2 }), response);
+
+    expect(status).toHaveBeenCalledWith(200);
+    expect(mockWaitForLinkedInPage).toHaveBeenCalledTimes(1);
+    expect(browserServerClose).toHaveBeenCalledTimes(1);
+    const body = json.mock.calls[0]?.[0] as Record<string, { jobs: unknown[] }>;
+    expect(body['TypeScript']?.jobs).toHaveLength(1);
+  });
+
+  it('continues paginating a keyword to the next page when card extraction aborts due to an unexpected navigation, instead of stopping', async () => {
+    mockExtractLinkedInJobSearchResults
+      .mockResolvedValueOnce(
+        searchResults([sampleResult('1')], true, 'navigated-away'),
+      )
+      .mockResolvedValueOnce(searchResults([sampleResult('2')]));
+    const { response, status, json } = createResponse();
+
+    await scrapeJob(createRequest({ ...validBody, maxPages: 2 }), response);
+
+    expect(status).toHaveBeenCalledWith(200);
+    // Page 0 aborted mid-page (navigated-away) but pagination proceeds to
+    // page 1, which gets a brand-new browser/page regardless.
+    expect(mockWaitForLinkedInPage).toHaveBeenCalledTimes(2);
+    const body = json.mock.calls[0]?.[0] as Record<string, { jobs: unknown[] }>;
+    expect(body['TypeScript']?.jobs).toHaveLength(2);
+  });
+
   it('computes an embedding and match for every scraped job and includes them in the response', async () => {
-    mockExtractLinkedInJobSearchResults.mockResolvedValueOnce([
-      sampleResult('123456789'),
-    ]);
+    mockExtractLinkedInJobSearchResults.mockResolvedValueOnce(
+      searchResults([sampleResult('123456789')]),
+    );
     mockComputeJobMatch.mockResolvedValueOnce(0.42);
     const { response, status, json } = createResponse();
 
@@ -224,9 +275,9 @@ describe('scrapeJob', () => {
       ...noCompanyResult.extracted,
       companyPageUrl: '',
     };
-    mockExtractLinkedInJobSearchResults.mockResolvedValueOnce([
-      noCompanyResult,
-    ]);
+    mockExtractLinkedInJobSearchResults.mockResolvedValueOnce(
+      searchResults([noCompanyResult]),
+    );
     const { response, json } = createResponse();
 
     await scrapeJob(createRequest(validBody), response);
@@ -237,9 +288,9 @@ describe('scrapeJob', () => {
   });
 
   it('retries company address extraction after first failure and skips if retry also fails', async () => {
-    mockExtractLinkedInJobSearchResults.mockResolvedValueOnce([
-      sampleResult('1'),
-    ]);
+    mockExtractLinkedInJobSearchResults.mockResolvedValueOnce(
+      searchResults([sampleResult('1')]),
+    );
     // First attempt fails, retry also fails.
     mockExtractCompanyAddress.mockRejectedValueOnce(new Error('no address'));
     mockExtractCompanyAddress.mockRejectedValueOnce(
@@ -257,9 +308,9 @@ describe('scrapeJob', () => {
   });
 
   it('retries company address extraction and pushes job when retry succeeds', async () => {
-    mockExtractLinkedInJobSearchResults.mockResolvedValueOnce([
-      sampleResult('123456789'),
-    ]);
+    mockExtractLinkedInJobSearchResults.mockResolvedValueOnce(
+      searchResults([sampleResult('123456789')]),
+    );
     // First attempt fails, retry succeeds.
     mockExtractCompanyAddress.mockRejectedValueOnce(new Error('no address'));
     mockExtractCompanyAddress.mockResolvedValueOnce(sampleAddress);
@@ -287,9 +338,9 @@ describe('scrapeJob', () => {
       .spyOn(console, 'log')
       .mockImplementation(() => undefined);
 
-    mockExtractLinkedInJobSearchResults.mockResolvedValueOnce([
-      sampleResult('1'),
-    ]);
+    mockExtractLinkedInJobSearchResults.mockResolvedValueOnce(
+      searchResults([sampleResult('1')]),
+    );
     mockExtractCompanyAddress.mockRejectedValueOnce(new Error('no address'));
     mockExtractCompanyAddress.mockRejectedValueOnce(
       new Error('still no address'),
