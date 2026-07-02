@@ -35,6 +35,7 @@ export function connectionStringConfigured(response: Response) {
 }
 
 export const jobNotFoundError = new Error('Job not found');
+export const cvNotFoundError = new Error('CV not found');
 
 export async function findJobByDuplicateKey(
   client: MongoClient,
@@ -43,6 +44,32 @@ export async function findJobByDuplicateKey(
   const job = await getCollection<StoredScrapedJob>(client, 'jobs').findOne({
     duplicateKey,
   });
+  if (!job) throw jobNotFoundError;
+  return job;
+}
+
+export async function findJobAndCvByDuplicateKey(
+  client: MongoClient,
+  duplicateKey: string,
+): Promise<{ job: WithId<StoredScrapedJob>; cv: StoredCv }> {
+  const job = await findJobByDuplicateKey(client, duplicateKey);
+
+  const cv = await getCollection<StoredCv>(client, 'cv').findOne({
+    jobId: job._id.toHexString(),
+  });
+  if (!cv) throw cvNotFoundError;
+
+  return { job, cv };
+}
+
+export async function findJobIdByDuplicateKey(
+  client: MongoClient,
+  duplicateKey: string,
+): Promise<WithId<StoredScrapedJob>> {
+  const job = await getCollection<StoredScrapedJob>(client, 'jobs').findOne(
+    { duplicateKey },
+    { projection: { _id: 1 } },
+  );
   if (!job) throw jobNotFoundError;
   return job;
 }

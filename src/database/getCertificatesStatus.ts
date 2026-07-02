@@ -2,10 +2,12 @@ import type { Request, Response } from 'express';
 import { MongoClient } from 'mongodb';
 import {
   connectionStringConfigured,
+  findJobIdByDuplicateKey,
   getCollection,
+  jobNotFoundError,
   MONGODB_CONNECTION,
 } from './database.js';
-import type { StoredCertificate, StoredScrapedJob } from '#types';
+import type { StoredCertificate } from '#types';
 import { createErrorMessage } from '../errors/createErrorMessage.js';
 
 export default async function getCertificatesStatus(
@@ -15,7 +17,6 @@ export default async function getCertificatesStatus(
   if (!connectionStringConfigured(response)) return;
 
   const { jobDuplicateKey } = request.params;
-  const jobNotFoundError = new Error('Job not found');
   const certificatesNotFoundError = new Error('Certificates not found');
 
   let client: MongoClient | undefined;
@@ -23,11 +24,7 @@ export default async function getCertificatesStatus(
     client = new MongoClient(MONGODB_CONNECTION!);
     await client.connect();
 
-    const job = await getCollection<StoredScrapedJob>(client, 'jobs').findOne(
-      { duplicateKey: jobDuplicateKey },
-      { projection: { _id: 1 } },
-    );
-    if (!job) throw jobNotFoundError;
+    const job = await findJobIdByDuplicateKey(client, jobDuplicateKey);
 
     const certificate = await getCollection<StoredCertificate>(
       client,

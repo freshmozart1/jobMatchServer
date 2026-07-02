@@ -23,15 +23,16 @@ import type {
 } from '#types';
 import {
   connectionStringConfigured,
+  cvNotFoundError,
+  findJobAndCvByDuplicateKey,
   getCollection,
+  jobNotFoundError,
   MONGODB_CONNECTION,
 } from './database.js';
 
 const USER_ID = new ObjectId('6a3d03b1dba1b11cee01161c');
 
 const coverLetterNotFoundError = new Error('Cover letter not found');
-const jobNotFoundError = new Error('Job not found');
-const cvNotFoundError = new Error('CV not found');
 
 const BODY_SEGMENT_ORDER: CoverLetterSegmentName[] = [
   'salutation',
@@ -112,15 +113,7 @@ async function loadApplicationRecords(
   ).findOne({ jobDuplicateKey });
   if (!coverLetter) throw coverLetterNotFoundError;
 
-  const job = await getCollection<StoredScrapedJob>(client, 'jobs').findOne({
-    duplicateKey: jobDuplicateKey,
-  });
-  if (!job) throw jobNotFoundError;
-
-  const cv = await getCollection<StoredCv>(client, 'cv').findOne({
-    jobId: job._id.toHexString(),
-  });
-  if (!cv) throw cvNotFoundError;
+  const { job, cv } = await findJobAndCvByDuplicateKey(client, jobDuplicateKey);
 
   const user = await getCollection<StoredUser>(client, 'users').findOne({
     _id: USER_ID,
