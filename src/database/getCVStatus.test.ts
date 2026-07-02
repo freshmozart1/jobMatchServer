@@ -10,7 +10,7 @@ import {
   close,
 } from '../testMockModules/mongodb.test.js';
 import createResponse from '../testHelpers/createResponse.test.js';
-import createRequest from '../testHelpers/createRequest.test.js';
+import createJobDuplicateKeyRequest from '../testHelpers/createJobDuplicateKeyRequest.test.js';
 import { createJob, duplicateKey } from '../testHelpers/createJob.test.js';
 
 const findOneJob =
@@ -57,9 +57,7 @@ describe('getCVStatus', () => {
   });
 
   it('returns 200 when the job and CV exist', async () => {
-    const request = createRequest<object, never, { jobDuplicateKey: string }>({
-      params: { jobDuplicateKey: duplicateKey },
-    });
+    const request = createJobDuplicateKeyRequest(duplicateKey);
     const { response, status, json } = createResponse();
 
     await getCVStatus(request, response);
@@ -80,9 +78,7 @@ describe('getCVStatus', () => {
 
   it('returns 404 when the job is not found', async () => {
     findOneJob.mockResolvedValue(null);
-    const request = createRequest<object, never, { jobDuplicateKey: string }>({
-      params: { jobDuplicateKey: duplicateKey },
-    });
+    const request = createJobDuplicateKeyRequest(duplicateKey);
     const { response, status, json } = createResponse();
 
     await getCVStatus(request, response);
@@ -98,9 +94,7 @@ describe('getCVStatus', () => {
 
   it('returns 404 when the CV is not found', async () => {
     findOneCv.mockResolvedValue(null);
-    const request = createRequest<object, never, { jobDuplicateKey: string }>({
-      params: { jobDuplicateKey: duplicateKey },
-    });
+    const request = createJobDuplicateKeyRequest(duplicateKey);
     const { response, status, json } = createResponse();
 
     await getCVStatus(request, response);
@@ -115,9 +109,7 @@ describe('getCVStatus', () => {
 
   it('returns 500 on a database error', async () => {
     connect.mockRejectedValue(new Error('DB connection failed'));
-    const request = createRequest<object, never, { jobDuplicateKey: string }>({
-      params: { jobDuplicateKey: duplicateKey },
-    });
+    const request = createJobDuplicateKeyRequest(duplicateKey);
     const { response, status, json } = createResponse();
 
     await getCVStatus(request, response);

@@ -19,8 +19,9 @@ import {
   mockMongoDbModule,
 } from '../testMockModules/mongodb.test.js';
 import { createJob, duplicateKey } from '../testHelpers/createJob.test.js';
-import createRequest from '../testHelpers/createRequest.test.js';
+import createJobDuplicateKeyRequest from '../testHelpers/createJobDuplicateKeyRequest.test.js';
 import createResponse from '../testHelpers/createResponse.test.js';
+import mockResponseWithHeaders from '../testHelpers/mockResponseWithHeaders.test.js';
 
 const findOneCoverLetter =
   jest.fn<
@@ -205,18 +206,9 @@ describe('getApplication', () => {
   });
 
   it('sends merged application PDF when all documents are found', async () => {
-    const request = createRequest<object, never, { jobDuplicateKey: string }>({
-      params: { jobDuplicateKey: duplicateKey },
-    });
+    const request = createJobDuplicateKeyRequest(duplicateKey);
     const { response, status, json } = createResponse();
-    const setHeader = jest.fn<(name: string, value: string) => void>();
-    const end = jest.fn<(data: Buffer) => void>();
-    (
-      response as unknown as { setHeader: typeof setHeader; end: typeof end }
-    ).setHeader = setHeader;
-    (
-      response as unknown as { setHeader: typeof setHeader; end: typeof end }
-    ).end = end;
+    const { setHeader, end } = mockResponseWithHeaders(response);
 
     await getApplication(request, response);
 
@@ -260,18 +252,9 @@ describe('getApplication', () => {
     };
     certToArray.mockResolvedValue([certificate]);
 
-    const request = createRequest<object, never, { jobDuplicateKey: string }>({
-      params: { jobDuplicateKey: duplicateKey },
-    });
+    const request = createJobDuplicateKeyRequest(duplicateKey);
     const { response, status, json } = createResponse();
-    const setHeader = jest.fn<(name: string, value: string) => void>();
-    const end = jest.fn<(data: Buffer) => void>();
-    (
-      response as unknown as { setHeader: typeof setHeader; end: typeof end }
-    ).setHeader = setHeader;
-    (
-      response as unknown as { setHeader: typeof setHeader; end: typeof end }
-    ).end = end;
+    const { end } = mockResponseWithHeaders(response);
 
     await getApplication(request, response);
 
@@ -301,18 +284,9 @@ describe('getApplication', () => {
       },
     ]);
 
-    const request = createRequest<object, never, { jobDuplicateKey: string }>({
-      params: { jobDuplicateKey: duplicateKey },
-    });
+    const request = createJobDuplicateKeyRequest(duplicateKey);
     const { response, status, json } = createResponse();
-    const setHeader = jest.fn<(name: string, value: string) => void>();
-    const end = jest.fn<(data: Buffer) => void>();
-    (
-      response as unknown as { setHeader: typeof setHeader; end: typeof end }
-    ).setHeader = setHeader;
-    (
-      response as unknown as { setHeader: typeof setHeader; end: typeof end }
-    ).end = end;
+    const { end } = mockResponseWithHeaders(response);
 
     await getApplication(request, response);
 
@@ -341,18 +315,9 @@ describe('getApplication', () => {
       },
     ]);
 
-    const request = createRequest<object, never, { jobDuplicateKey: string }>({
-      params: { jobDuplicateKey: duplicateKey },
-    });
+    const request = createJobDuplicateKeyRequest(duplicateKey);
     const { response, status, json } = createResponse();
-    const setHeader = jest.fn<(name: string, value: string) => void>();
-    const end = jest.fn<(data: Buffer) => void>();
-    (
-      response as unknown as { setHeader: typeof setHeader; end: typeof end }
-    ).setHeader = setHeader;
-    (
-      response as unknown as { setHeader: typeof setHeader; end: typeof end }
-    ).end = end;
+    const { end } = mockResponseWithHeaders(response);
 
     await getApplication(request, response);
 
@@ -376,18 +341,9 @@ describe('getApplication', () => {
       },
     ]);
 
-    const request = createRequest<object, never, { jobDuplicateKey: string }>({
-      params: { jobDuplicateKey: duplicateKey },
-    });
+    const request = createJobDuplicateKeyRequest(duplicateKey);
     const { response, status, json } = createResponse();
-    const setHeader = jest.fn<(name: string, value: string) => void>();
-    const end = jest.fn<(data: Buffer) => void>();
-    (
-      response as unknown as { setHeader: typeof setHeader; end: typeof end }
-    ).setHeader = setHeader;
-    (
-      response as unknown as { setHeader: typeof setHeader; end: typeof end }
-    ).end = end;
+    const { end } = mockResponseWithHeaders(response);
 
     await getApplication(request, response);
 
@@ -413,18 +369,9 @@ describe('getApplication', () => {
       },
     ]);
 
-    const request = createRequest<object, never, { jobDuplicateKey: string }>({
-      params: { jobDuplicateKey: duplicateKey },
-    });
+    const request = createJobDuplicateKeyRequest(duplicateKey);
     const { response, status, json } = createResponse();
-    const setHeader = jest.fn<(name: string, value: string) => void>();
-    const end = jest.fn<(data: Buffer) => void>();
-    (
-      response as unknown as { setHeader: typeof setHeader; end: typeof end }
-    ).setHeader = setHeader;
-    (
-      response as unknown as { setHeader: typeof setHeader; end: typeof end }
-    ).end = end;
+    const { end } = mockResponseWithHeaders(response);
 
     await getApplication(request, response);
 
@@ -440,9 +387,7 @@ describe('getApplication', () => {
 
   it('returns 404 when the cover letter is not found', async () => {
     findOneCoverLetter.mockResolvedValue(null);
-    const request = createRequest<object, never, { jobDuplicateKey: string }>({
-      params: { jobDuplicateKey: duplicateKey },
-    });
+    const request = createJobDuplicateKeyRequest(duplicateKey);
     const { response, status, json } = createResponse();
 
     await getApplication(request, response);
@@ -459,9 +404,7 @@ describe('getApplication', () => {
 
   it('returns 404 when the job is not found', async () => {
     findOneJob.mockResolvedValue(null);
-    const request = createRequest<object, never, { jobDuplicateKey: string }>({
-      params: { jobDuplicateKey: duplicateKey },
-    });
+    const request = createJobDuplicateKeyRequest(duplicateKey);
     const { response, status, json } = createResponse();
 
     await getApplication(request, response);
@@ -477,9 +420,7 @@ describe('getApplication', () => {
 
   it('returns 404 when the CV is not found', async () => {
     findOneCv.mockResolvedValue(null);
-    const request = createRequest<object, never, { jobDuplicateKey: string }>({
-      params: { jobDuplicateKey: duplicateKey },
-    });
+    const request = createJobDuplicateKeyRequest(duplicateKey);
     const { response, status, json } = createResponse();
 
     await getApplication(request, response);
@@ -494,9 +435,7 @@ describe('getApplication', () => {
 
   it('returns 500 when the CV file path is a directory traversal attack', async () => {
     findOneCv.mockResolvedValue({ ...storedCv, filePath: '../../etc/passwd' });
-    const request = createRequest<object, never, { jobDuplicateKey: string }>({
-      params: { jobDuplicateKey: duplicateKey },
-    });
+    const request = createJobDuplicateKeyRequest(duplicateKey);
     const { response, status, json } = createResponse();
 
     await getApplication(request, response);
@@ -512,9 +451,7 @@ describe('getApplication', () => {
 
   it('returns 500 when the user is not found', async () => {
     findOneUser.mockResolvedValue(null);
-    const request = createRequest<object, never, { jobDuplicateKey: string }>({
-      params: { jobDuplicateKey: duplicateKey },
-    });
+    const request = createJobDuplicateKeyRequest(duplicateKey);
     const { response, status, json } = createResponse();
 
     await getApplication(request, response);
@@ -530,9 +467,7 @@ describe('getApplication', () => {
 
   it('returns 500 when connect rejects', async () => {
     connect.mockRejectedValue(new Error('Connection failed'));
-    const request = createRequest<object, never, { jobDuplicateKey: string }>({
-      params: { jobDuplicateKey: duplicateKey },
-    });
+    const request = createJobDuplicateKeyRequest(duplicateKey);
     const { response, status, json } = createResponse();
 
     await getApplication(request, response);
