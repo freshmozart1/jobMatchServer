@@ -2,10 +2,13 @@ import type { Request, Response } from 'express';
 import { MongoClient } from 'mongodb';
 import {
   connectionStringConfigured,
+  cvNotFoundError,
+  findJobIdByDuplicateKey,
   getCollection,
+  jobNotFoundError,
   MONGODB_CONNECTION,
 } from './database.js';
-import type { StoredCv, StoredScrapedJob } from '#types';
+import type { StoredCv } from '#types';
 import { createErrorMessage } from '../errors/createErrorMessage.js';
 
 export default async function getCVStatus(
@@ -15,18 +18,12 @@ export default async function getCVStatus(
   if (!connectionStringConfigured(response)) return;
 
   const { jobDuplicateKey } = request.params;
-  const jobNotFoundError = new Error('Job not found');
-  const cvNotFoundError = new Error('CV not found');
 
   let client: MongoClient | undefined;
   try {
     client = new MongoClient(MONGODB_CONNECTION!);
     await client.connect();
-    const job = await getCollection<StoredScrapedJob>(client, 'jobs').findOne(
-      { duplicateKey: jobDuplicateKey },
-      { projection: { _id: 1 } },
-    );
-    if (!job) throw jobNotFoundError;
+    const job = await findJobIdByDuplicateKey(client, jobDuplicateKey);
 
     const cv = await getCollection<StoredCv>(client, 'cv').findOne(
       { jobId: job._id.toHexString() },

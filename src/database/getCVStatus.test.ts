@@ -11,7 +11,8 @@ import {
 } from '../testMockModules/mongodb.test.js';
 import createResponse from '../testHelpers/createResponse.test.js';
 import createJobDuplicateKeyRequest from '../testHelpers/createJobDuplicateKeyRequest.test.js';
-import { createJob, duplicateKey } from '../testHelpers/createJob.test.js';
+import { duplicateKey } from '../testHelpers/createJob.test.js';
+import { mockJobAndCv } from '../testHelpers/mockJobAndCv.test.js';
 
 const findOneJob =
   jest.fn<
@@ -39,21 +40,15 @@ const { default: getCVStatus } = await import('./getCVStatus.js');
 
 describe('getCVStatus', () => {
   beforeEach(() => {
-    jest.clearAllMocks();
-
-    connect.mockResolvedValue();
-    close.mockResolvedValue();
-    findOneJob.mockResolvedValue({
-      ...createJob<StoredScrapedJob>(true),
-      _id: { toHexString: () => mockJobId },
+    mockJobAndCv({
+      connect,
+      close,
+      findOneJob,
+      findOneCv,
+      getCollection,
+      mockJobId,
+      storedCv,
     });
-    findOneCv.mockResolvedValue(storedCv);
-    getCollection.mockImplementation(
-      (_client: unknown, collectionName: unknown) => {
-        if (collectionName === 'jobs') return { findOne: findOneJob };
-        return { findOne: findOneCv };
-      },
-    );
   });
 
   it('returns 200 when the job and CV exist', async () => {

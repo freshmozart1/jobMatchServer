@@ -8,10 +8,11 @@ import { MongoClient } from 'mongodb';
 import path from 'path';
 import {
   connectionStringConfigured,
-  getCollection,
+  cvNotFoundError,
+  findJobAndCvByDuplicateKey,
+  jobNotFoundError,
   MONGODB_CONNECTION,
 } from './database.js';
-import type { StoredCv, StoredScrapedJob } from '#types';
 import { createErrorMessage } from '../errors/createErrorMessage.js';
 import { isPathInside } from '../utils/isPathInside.js';
 
@@ -22,21 +23,11 @@ export default async function getCV(
   if (!connectionStringConfigured(response)) return;
 
   const { jobDuplicateKey } = request.params;
-  const jobNotFoundError = new Error('Job not found');
-  const cvNotFoundError = new Error('CV not found');
 
   const client = new MongoClient(MONGODB_CONNECTION!);
   try {
     await client.connect();
-    const job = await getCollection<StoredScrapedJob>(client, 'jobs').findOne({
-      duplicateKey: jobDuplicateKey,
-    });
-    if (!job) throw jobNotFoundError;
-
-    const cv = await getCollection<StoredCv>(client, 'cv').findOne({
-      jobId: job._id.toHexString(),
-    });
-    if (!cv) throw cvNotFoundError;
+    const { cv } = await findJobAndCvByDuplicateKey(client, jobDuplicateKey);
 
     if (!isPathInside('uploads/cv', cv.filePath)) {
       createErrorMessage(
