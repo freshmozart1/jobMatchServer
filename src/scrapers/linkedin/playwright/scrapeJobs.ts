@@ -1,36 +1,36 @@
-import type { Request, Response } from "express";
-import { MongoClient } from "mongodb";
+import type { Request, Response } from 'express';
+import { MongoClient } from 'mongodb';
 import {
   connectionStringConfigured,
   getCollection,
   MONGODB_CONNECTION,
-} from "#database/database.js";
-import { createErrorMessage } from "../../../errors/createErrorMessage.js";
-import { getScrapeJobRequestParamsFromBody } from "#utils/getScrapeJobRequestParamsFromBody.js";
-import { buildLinkedInJobSearchUrl } from "#utils/buildLinkedInJobSearchUrl.js";
-import { getScraperErrorStatus } from "#utils/getScraperErrorStatus.js";
-import isSupportedLinkedInUrl from "#utils/isSupportedLinkedInUrl.js";
-import { closeTrackedBrowserServer } from "#utils/trackedPlaywrightBrowsers.js";
-import waitForLinkedInPage from "./waitForLinkedInPage.js";
-import { extractLinkedInJobSearchResults } from "./extractLinkedInJobSearchResults.js";
-import { extractCompanyAddress } from "./extractCompanyAddress.js";
+} from '#database/database.js';
+import { createErrorMessage } from '../../../errors/createErrorMessage.js';
+import { getScrapeJobRequestParamsFromBody } from '#utils/getScrapeJobRequestParamsFromBody.js';
+import { buildLinkedInJobSearchUrl } from '#utils/buildLinkedInJobSearchUrl.js';
+import { getScraperErrorStatus } from '#utils/getScraperErrorStatus.js';
+import isSupportedLinkedInUrl from '#utils/isSupportedLinkedInUrl.js';
+import { closeTrackedBrowserServer } from '#utils/trackedPlaywrightBrowsers.js';
+import waitForLinkedInPage from './waitForLinkedInPage.js';
+import { extractLinkedInJobSearchResults } from './extractLinkedInJobSearchResults.js';
+import { extractCompanyAddress } from './extractCompanyAddress.js';
 import {
   normalizeLinkedInJobPageUrl,
   extractLinkedInJobId,
-} from "../linkedInJobPageUrl.js";
+} from '../linkedInJobPageUrl.js';
 import {
   coalesceText,
   normalizeDescription,
   extractJobTitle,
-} from "../linkedInTextUtils.js";
-import { computeJobMatch } from "../linkedInJobSimilarity.js";
-import { createJobEmbedding } from "../../../embeddings/jobEmbedding.js";
+} from '../linkedInTextUtils.js';
+import { computeJobMatch } from '../linkedInJobSimilarity.js';
+import { createJobEmbedding } from '../../../embeddings/jobEmbedding.js';
 import type {
   ExtractedLinkedInJobPage,
   ScrapedJob,
   ScrapeJobResponseBody,
   StoredScrapedJob,
-} from "#types";
+} from '#types';
 
 export async function scrapeJob(
   request: Request,
@@ -42,9 +42,9 @@ export async function scrapeJob(
     createErrorMessage(
       response,
       new Error(
-        "Invalid search parameters. Please ensure keywords is a non-empty string or non-empty string array, location is a non-empty string, distance is a positive integer, datePosted is one of: 86400, 604800, 2592000, and maxPages is a non-negative integer.",
+        'Invalid search parameters. Please ensure keywords is a non-empty string or non-empty string array, location is a non-empty string, distance is a positive integer, datePosted is one of: 86400, 604800, 2592000, and maxPages is a non-negative integer.',
       ),
-      "Failed to scrape LinkedIn job links.",
+      'Failed to scrape LinkedIn job links.',
       400,
     );
     return;
@@ -87,14 +87,14 @@ export async function scrapeJob(
           pageNum,
         );
 
-        if (!isSupportedLinkedInUrl(pageUrl, "jobSearchPage")) {
-          throw new Error("Only LinkedIn jobs search URLs are supported.");
+        if (!isSupportedLinkedInUrl(pageUrl, 'jobSearchPage')) {
+          throw new Error('Only LinkedIn jobs search URLs are supported.');
         }
 
         const { browserServer, page } = await waitForLinkedInPage(pageUrl);
 
         try {
-          const { results, aborted } =
+          const { results, aborted, abortReason } =
             await extractLinkedInJobSearchResults(page);
 
           if (results.length === 0) {
@@ -181,13 +181,21 @@ export async function scrapeJob(
             }
           }
 
-          // The aborted page's partial results above are still processed; only
-          // pagination stops, so the next keyword starts with a fresh browser.
+          // The aborted page's partial results above are still processed either way.
           if (aborted) {
-            console.warn(
-              `Stopping pagination for "${keyword}" — card extraction aborted after repeated failures.`,
-            );
-            break;
+            if (abortReason === 'navigated-away') {
+              // Page-local DOM corruption from a single misclicked card — not
+              // a systemic block. The next pageNum iteration already opens a
+              // brand-new browser/page, so just continue pagination.
+              console.warn(
+                `Card extraction on this page for "${keyword}" hit an unexpected navigation; continuing to the next page.`,
+              );
+            } else {
+              console.warn(
+                `Stopping pagination for "${keyword}" — card extraction aborted after repeated failures.`,
+              );
+              break;
+            }
           }
         } finally {
           await closeTrackedBrowserServer(browserServer);
@@ -252,7 +260,7 @@ export async function scrapeJob(
       if (jobs.length > 0) {
         const existingKeys = new Set(
           (
-            await getCollection<StoredScrapedJob>(client, "jobs")
+            await getCollection<StoredScrapedJob>(client, 'jobs')
               .find(
                 { duplicateKey: { $in: jobs.map((j) => j.duplicateKey) } },
                 { projection: { duplicateKey: 1, _id: 0 } },
@@ -275,7 +283,7 @@ export async function scrapeJob(
     createErrorMessage(
       response,
       error,
-      "Failed to scrape LinkedIn jobs.",
+      'Failed to scrape LinkedIn jobs.',
       getScraperErrorStatus(error),
     );
   } finally {

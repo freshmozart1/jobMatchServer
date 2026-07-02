@@ -1,15 +1,15 @@
-import type { Page, Response } from "playwright";
-import type { ExtractedLinkedInJobPage } from "#types";
+import type { Page, Response } from 'playwright';
+import type { ExtractedLinkedInJobPage } from '#types';
 
 // Selectors verified against the live LinkedIn guest job-search page (public, unauthenticated).
 // The guest page renders a two-pane layout at viewport widths ≥1128 px: a left list of job cards
 // and a right detail section (.two-pane-serp-page__detail-view) that updates in place via AJAX
 // when a card is clicked.
-const JOB_CARDS_SELECTOR = "ul.jobs-search__results-list > li";
-const JOB_CARD_URN_ATTR = "data-entity-urn";
-const JOB_CARD_LINK_SELECTOR = "a.base-card__full-link";
-const DETAIL_PANE_SELECTOR = ".two-pane-serp-page__detail-view";
-const DETAIL_PANE_API_PATH = "/jobs-guest/jobs/api/jobPosting/";
+const JOB_CARDS_SELECTOR = 'ul.jobs-search__results-list > li';
+const JOB_CARD_URN_ATTR = 'data-entity-urn';
+const JOB_CARD_LINK_SELECTOR = 'a.base-card__full-link';
+const DETAIL_PANE_SELECTOR = '.two-pane-serp-page__detail-view';
+const DETAIL_PANE_API_PATH = '/jobs-guest/jobs/api/jobPosting/';
 const DETAIL_PANE_UPDATE_TIMEOUT_MS = 5_000;
 const MAX_CONSECUTIVE_CARD_FAILURES = 3;
 
@@ -24,7 +24,24 @@ function detailPaneJobLinkSelector(jobId: string): string {
 function isTimeoutError(error: unknown): boolean {
   return (
     error instanceof Error &&
-    (error.name === "TimeoutError" || error.message.includes("Timeout"))
+    (error.name === 'TimeoutError' || error.message.includes('Timeout'))
+  );
+}
+
+// LinkedIn guest cards commonly layer a secondary company-name/logo anchor
+// (a normal, non-intercepted link to /company/...) on top of the full-link
+// overlay in part of the card. A coordinate-based Playwright click can land on
+// it and trigger a real navigation away from the results page. This substring
+// check deliberately only looks for the /jobs/search path segment (not "did
+// the URL change at all") because LinkedIn's own AJAX pane-swap legitimately
+// rewrites the URL via history.pushState (adding currentJobId=...) while
+// staying on /jobs/search — checking for any change would false-positive on
+// that, which is why an earlier, stricter URL guard was removed.
+const NAVIGATED_AWAY_PREFIX = 'Navigated away from LinkedIn job search results';
+
+function isNavigatedAwayError(error: unknown): boolean {
+  return (
+    error instanceof Error && error.message.startsWith(NAVIGATED_AWAY_PREFIX)
   );
 }
 
@@ -40,7 +57,7 @@ export async function listLinkedInJobSearchResultCards(
     ({ listSel, urnAttr, linkSel }) => {
       return Array.from(document.querySelectorAll<HTMLElement>(listSel)).map(
         (li) => {
-          const urn = li.querySelector<HTMLElement>("[" + urnAttr + "]");
+          const urn = li.querySelector<HTMLElement>('[' + urnAttr + ']');
           const rawUrn = urn?.getAttribute(urnAttr) ?? null;
           const jobIdMatch = rawUrn?.match(/jobPosting:(\d+)/);
           const jobId = jobIdMatch?.[1] ?? null;
@@ -63,21 +80,6 @@ export async function clickLinkedInJobSearchResultCard(
   card: LinkedInJobSearchResultCard,
   index: number,
 ): Promise<void> {
-  // Dismiss any sign-in overlay modals that would intercept the click.
-  // These modals appear repeatedly as contextual nags; removing them directly
-  // is more reliable than waiting for multiple .modal__dismiss buttons.
-  await page.evaluate(() => {
-    document.querySelectorAll(".modal__overlay").forEach((el) => el.remove());
-  });
-
-  // Click the list item by its position within ul.jobs-search__results-list.
-  // LinkedIn's JS intercepts the click, loads the job detail into the right pane
-  // via AJAX, and updates the URL's currentJobId param — no full page navigation
-  // occurs. Always use an index-scoped locator: a page-wide [data-entity-urn]
-  // query can resolve to "Similar jobs" section cards that carry the same URN
-  // but are not interactable in the two-pane layout.
-  const target = page.locator(JOB_CARDS_SELECTOR).nth(index);
-
   // Wire up the response watcher BEFORE clicking so the response is never missed
   // if LinkedIn's AJAX call fires faster than a post-click waitForResponse setup.
   // The response is diagnostics only — the DOM check below is authoritative
@@ -102,7 +104,44 @@ export async function clickLinkedInJobSearchResultCard(
       return null;
     });
 
-  await target.click({ timeout: 15_000 });
+  // Dismiss any sign-in overlay modals that would intercept the click, then
+  // dispatch a native DOM click directly on the card's own detail-link anchor.
+  // A native HTMLElement.click() call targets that exact anchor unambiguously —
+  // unlike a Playwright coordinate click on the parent <li>, which is satisfied
+  // by ANY descendant receiving the hit-tested pixel, including a secondary
+  // company-name/logo link LinkedIn layers on top of the full-link overlay in
+  // part of the card. Clicking that link is a normal, non-intercepted
+  // navigation that leaves the search-results page entirely.
+  const clicked = await page.evaluate(
+    ({ listSel, linkSel, cardIndex }) => {
+      const li = document.querySelectorAll<HTMLElement>(listSel)[cardIndex];
+      if (!li) return false;
+      document.querySelectorAll('.modal__overlay').forEach((el) => el.remove());
+      const link = li.querySelector<HTMLAnchorElement>(linkSel);
+      if (!link) return false;
+      link.click();
+      return true;
+    },
+    {
+      listSel: JOB_CARDS_SELECTOR,
+      linkSel: JOB_CARD_LINK_SELECTOR,
+      cardIndex: index,
+    },
+  );
+
+  if (!clicked) {
+    throw new Error(
+      `Job card at index ${index} — could not find ${JOB_CARD_LINK_SELECTOR} to click (card missing or markup drift).`,
+    );
+  }
+
+  // Fast, distinct detection of a genuine full navigation. Checked before any
+  // further waiting since we already know deterministically the page is gone.
+  if (!page.url().includes('/jobs/search')) {
+    throw new Error(
+      `${NAVIGATED_AWAY_PREFIX} while clicking card at index ${index} (now at ${page.url()}).`,
+    );
+  }
 
   if (card.jobId === null) {
     // Without a job id there is nothing to verify the pane against; give the
@@ -121,7 +160,7 @@ export async function clickLinkedInJobSearchResultCard(
   // polls through the response-arrived-but-DOM-not-yet-patched race.
   try {
     await page.waitForSelector(detailPaneJobLinkSelector(card.jobId), {
-      state: "visible",
+      state: 'visible',
       timeout: DETAIL_PANE_UPDATE_TIMEOUT_MS,
     });
   } catch (error) {
@@ -149,13 +188,13 @@ export async function extractLinkedInJobDetailPane(
 ): Promise<ExtractedLinkedInJobPage> {
   return page.evaluate((detailPaneSel) => {
     const paneMaybe = document.querySelector<HTMLElement>(detailPaneSel);
-    if (!paneMaybe) throw new Error("LinkedIn detail pane not found.");
+    if (!paneMaybe) throw new Error('LinkedIn detail pane not found.');
     // Shadow with an explicitly non-nullable typed binding so closures can
     // reference it without TypeScript widening back to HTMLElement | null.
     const pane: HTMLElement = paneMaybe;
 
     function normalizeText(value: string | null | undefined): string | null {
-      const v = value?.replace(/\s+/g, " ").trim() ?? "";
+      const v = value?.replace(/\s+/g, ' ').trim() ?? '';
       return v.length > 0 ? v : null;
     }
 
@@ -180,47 +219,47 @@ export async function extractLinkedInJobDetailPane(
 
     // Description: render rich HTML (lists, bold) into plain markdown-style text.
     function renderNode(node: Node): string {
-      if (node.nodeType === Node.TEXT_NODE) return node.textContent ?? "";
-      if (!(node instanceof HTMLElement)) return "";
+      if (node.nodeType === Node.TEXT_NODE) return node.textContent ?? '';
+      if (!(node instanceof HTMLElement)) return '';
       const tag = node.tagName.toLowerCase();
-      if (tag === "br") return "\n";
-      const children = Array.from(node.childNodes).map(renderNode).join("");
-      if (tag === "strong" || tag === "b") return `**${children}**`;
-      if (tag === "em" || tag === "i") return `*${children}*`;
-      if (tag === "li")
-        return `\n- ${children.replace(/ /g, " ").replace(/\s+/g, " ").trim()}`;
-      if (tag === "ul" || tag === "ol") return `\n${children}\n\n`;
+      if (tag === 'br') return '\n';
+      const children = Array.from(node.childNodes).map(renderNode).join('');
+      if (tag === 'strong' || tag === 'b') return `**${children}**`;
+      if (tag === 'em' || tag === 'i') return `*${children}*`;
+      if (tag === 'li')
+        return `\n- ${children.replace(/ /g, ' ').replace(/\s+/g, ' ').trim()}`;
+      if (tag === 'ul' || tag === 'ol') return `\n${children}\n\n`;
       return children;
     }
 
     function getDescription(): string | null {
-      const selectors = [".show-more-less-html__markup", ".description__text"];
+      const selectors = ['.show-more-less-html__markup', '.description__text'];
       for (const sel of selectors) {
         const el = pane.querySelector(sel);
         if (!el) continue;
         const rendered = Array.from(el.childNodes)
           .map(renderNode)
-          .join("")
-          .replace(/ /g, " ")
-          .replace(/\r\n?/g, "\n")
-          .replace(/[\t ]+\n/g, "\n")
-          .replace(/\n[\t ]+/g, "\n")
-          .replace(/[\t ]{2,}/g, " ")
-          .replace(/\n{3,}/g, "\n\n")
+          .join('')
+          .replace(/ /g, ' ')
+          .replace(/\r\n?/g, '\n')
+          .replace(/[\t ]+\n/g, '\n')
+          .replace(/\n[\t ]+/g, '\n')
+          .replace(/[\t ]{2,}/g, ' ')
+          .replace(/\n{3,}/g, '\n\n')
           .trim();
         if (rendered.length > 0) return rendered;
       }
       return null;
     }
 
-    const titleSelectors = [".top-card-layout__title", "h2", "h1"];
-    const locationSelectors = [".topcard__flavor--bullet"];
-    const postedAtSelectors = [".posted-time-ago__text", "time"];
-    const tagSelectors = [".description__job-criteria-text"];
+    const titleSelectors = ['.top-card-layout__title', 'h2', 'h1'];
+    const locationSelectors = ['.topcard__flavor--bullet'];
+    const postedAtSelectors = ['.posted-time-ago__text', 'time'];
+    const tagSelectors = ['.description__job-criteria-text'];
 
     const title = getFirstText(titleSelectors);
     const company = normalizeText(
-      pane.querySelector<HTMLElement>("a.topcard__org-name-link")?.textContent,
+      pane.querySelector<HTMLElement>('a.topcard__org-name-link')?.textContent,
     );
     const location = getFirstText(locationSelectors);
     const descriptionText = getDescription();
@@ -228,7 +267,7 @@ export async function extractLinkedInJobDetailPane(
     const tags = getAllTexts(tagSelectors).slice(0, 12);
 
     const companyAnchor = pane.querySelector<HTMLAnchorElement>(
-      "a.topcard__org-name-link",
+      'a.topcard__org-name-link',
     );
 
     return {
@@ -238,7 +277,7 @@ export async function extractLinkedInJobDetailPane(
       descriptionText,
       postedAt,
       tags,
-      companyPageUrl: companyAnchor?.href ?? "",
+      companyPageUrl: companyAnchor?.href ?? '',
     };
   }, DETAIL_PANE_SELECTOR);
 }
@@ -249,6 +288,7 @@ export type LinkedInJobSearchResultsExtraction = {
     extracted: ExtractedLinkedInJobPage;
   }>;
   aborted: boolean;
+  abortReason?: 'consecutive-failures' | 'navigated-away';
 };
 
 export async function extractLinkedInJobSearchResults(
@@ -256,9 +296,10 @@ export async function extractLinkedInJobSearchResults(
 ): Promise<LinkedInJobSearchResultsExtraction> {
   const cards: LinkedInJobSearchResultCard[] =
     await listLinkedInJobSearchResultCards(page);
-  const results: LinkedInJobSearchResultsExtraction["results"] = [];
+  const results: LinkedInJobSearchResultsExtraction['results'] = [];
   let consecutiveFailures = 0;
   let aborted = false;
+  let abortReason: LinkedInJobSearchResultsExtraction['abortReason'];
 
   for (let index = 0; index < cards.length; index += 1) {
     const card = cards[index];
@@ -271,8 +312,21 @@ export async function extractLinkedInJobSearchResults(
       consecutiveFailures = 0;
     } catch (err) {
       console.warn(
-        `Skipping job card at index ${index} (${card.detailUrl ?? "unknown URL"}): ${err instanceof Error ? err.message : String(err)}`,
+        `Skipping job card at index ${index} (${card.detailUrl ?? 'unknown URL'}): ${err instanceof Error ? err.message : String(err)}`,
       );
+
+      if (isNavigatedAwayError(err)) {
+        // The results-list DOM is gone; no point retrying or waiting for a
+        // 3-strike streak. This is a page-local click mishap, not systemic
+        // rate-limiting — the caller should still try subsequent pages.
+        console.warn(
+          `Aborting remaining ${cards.length - index - 1} card(s) on this page — navigated away from the search results unexpectedly.`,
+        );
+        aborted = true;
+        abortReason = 'navigated-away';
+        break;
+      }
+
       consecutiveFailures += 1;
       if (consecutiveFailures >= MAX_CONSECUTIVE_CARD_FAILURES) {
         // When the detail pane stops updating (e.g. guest rate limit), every
@@ -281,10 +335,11 @@ export async function extractLinkedInJobSearchResults(
           `Aborting remaining ${cards.length - index - 1} card(s) on this page after ${consecutiveFailures} consecutive failures — LinkedIn is likely rate-limiting guest job detail requests.`,
         );
         aborted = true;
+        abortReason = 'consecutive-failures';
         break;
       }
     }
   }
 
-  return { results, aborted };
+  return { results, aborted, ...(abortReason ? { abortReason } : {}) };
 }
