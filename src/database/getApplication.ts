@@ -7,7 +7,7 @@
 import type { Request, Response } from 'express';
 import { readFileSync } from 'fs';
 import { readFile } from 'fs/promises';
-import { MongoClient, ObjectId } from 'mongodb';
+import { MongoClient, ObjectId, type WithId } from 'mongodb';
 import path from 'path';
 import { PDFDocument } from 'pdf-lib';
 import puppeteer from 'puppeteer';
@@ -28,6 +28,10 @@ import {
 } from './database.js';
 
 const USER_ID = new ObjectId('6a3d03b1dba1b11cee01161c');
+
+const coverLetterNotFoundError = new Error('Cover letter not found');
+const jobNotFoundError = new Error('Job not found');
+const cvNotFoundError = new Error('CV not found');
 
 const BODY_SEGMENT_ORDER: CoverLetterSegmentName[] = [
   'salutation',
@@ -91,6 +95,100 @@ function coverLetterToHtml(
     .replace(/\{\{bodyParas\}\}/g, () => bodyParas);
 }
 
+type ApplicationRecords = {
+  coverLetter: WithId<StoredCoverLetter>;
+  job: WithId<StoredScrapedJob>;
+  cv: StoredCv;
+  user: StoredUser;
+};
+
+async function loadApplicationRecords(
+  client: MongoClient,
+  jobDuplicateKey: string,
+): Promise<ApplicationRecords> {
+  const coverLetter = await getCollection<StoredCoverLetter>(
+    client,
+    'coverLetters',
+  ).findOne({ jobDuplicateKey });
+  if (!coverLetter) throw coverLetterNotFoundError;
+
+  const job = await getCollection<StoredScrapedJob>(client, 'jobs').findOne({
+    duplicateKey: jobDuplicateKey,
+  });
+  if (!job) throw jobNotFoundError;
+
+  const cv = await getCollection<StoredCv>(client, 'cv').findOne({
+    jobId: job._id.toHexString(),
+  });
+  if (!cv) throw cvNotFoundError;
+
+  const user = await getCollection<StoredUser>(client, 'users').findOne({
+    _id: USER_ID,
+  });
+  if (!user) throw new Error('User not found');
+
+  return { coverLetter, job, cv, user };
+}
+
+async function renderCoverLetterPdf(html: string): Promise<Uint8Array> {
+  const browser = await puppeteer.launch({ headless: true });
+  try {
+    const page = await browser.newPage();
+    try {
+      await page.setContent(html, { waitUntil: 'load' });
+      return await page.pdf({ format: 'A4' });
+    } finally {
+      await page.close();
+    }
+  } finally {
+    await browser.close();
+  }
+}
+
+async function mergeCertificatesIntoPdf(
+  merged: PDFDocument,
+  safeCertificates: StoredCertificate[],
+): Promise<void> {
+  for (const certificate of safeCertificates) {
+    try {
+      const certificateBytes = await readFile(
+        path.resolve(certificate.filePath),
+      );
+      if (certificate.mimeType === 'application/pdf') {
+        const certDoc = await PDFDocument.load(certificateBytes);
+        for (const p of await merged.copyPages(
+          certDoc,
+          certDoc.getPageIndices(),
+        ))
+          merged.addPage(p);
+      } else if (
+        certificate.mimeType === 'image/jpeg' ||
+        certificate.mimeType === 'image/jpg'
+      ) {
+        const img = await merged.embedJpg(certificateBytes);
+        const certPage = merged.addPage([595.28, 841.89]);
+        certPage.drawImage(img, {
+          x: 0,
+          y: 0,
+          width: 595.28,
+          height: 841.89,
+        });
+      } else if (certificate.mimeType === 'image/png') {
+        const img = await merged.embedPng(certificateBytes);
+        const certPage = merged.addPage([595.28, 841.89]);
+        certPage.drawImage(img, {
+          x: 0,
+          y: 0,
+          width: 595.28,
+          height: 841.89,
+        });
+      }
+    } catch {
+      continue;
+    }
+  }
+}
+
 export default async function getApplication(
   request: Request<{ jobDuplicateKey: string }>,
   response: Response,
@@ -98,36 +196,16 @@ export default async function getApplication(
   if (!connectionStringConfigured(response)) return;
 
   const { jobDuplicateKey } = request.params;
-  const coverLetterNotFoundError = new Error('Cover letter not found');
-  const jobNotFoundError = new Error('Job not found');
-  const cvNotFoundError = new Error('CV not found');
 
   const client = new MongoClient(MONGODB_CONNECTION!);
   try {
     await client.connect();
 
-    const coverLetter = await getCollection<StoredCoverLetter>(
+    const { coverLetter, job, cv, user } = await loadApplicationRecords(
       client,
-      'coverLetters',
-    ).findOne({ jobDuplicateKey });
-    if (!coverLetter) throw coverLetterNotFoundError;
+      jobDuplicateKey,
+    );
 
-    const job = await getCollection<StoredScrapedJob>(client, 'jobs').findOne({
-      duplicateKey: jobDuplicateKey,
-    });
-    if (!job) throw jobNotFoundError;
-
-    const cv = await getCollection<StoredCv>(client, 'cv').findOne({
-      jobId: job._id.toHexString(),
-    });
-    if (!cv) throw cvNotFoundError;
-
-    const user = await getCollection<StoredUser>(client, 'users').findOne({
-      _id: USER_ID,
-    });
-    if (!user) throw new Error('User not found');
-
-    const resolvedPath = path.resolve(cv.filePath);
     if (!isPathInside('uploads/cv', cv.filePath)) {
       createErrorMessage(
         response,
@@ -137,6 +215,7 @@ export default async function getApplication(
       );
       return;
     }
+    const resolvedPath = path.resolve(cv.filePath);
 
     // Certificates are optional: a job without certificates still produces a
     // valid application PDF. Any certificate that cannot be embedded (unsafe
@@ -152,20 +231,7 @@ export default async function getApplication(
     );
 
     const html = coverLetterToHtml(coverLetter, job, user);
-
-    const browser = await puppeteer.launch({ headless: true });
-    let coverLetterPdfBytes: Uint8Array;
-    try {
-      const page = await browser.newPage();
-      try {
-        await page.setContent(html, { waitUntil: 'load' });
-        coverLetterPdfBytes = await page.pdf({ format: 'A4' });
-      } finally {
-        await page.close();
-      }
-    } finally {
-      await browser.close();
-    }
+    const coverLetterPdfBytes = await renderCoverLetterPdf(html);
 
     const cvBytes = await readFile(resolvedPath);
 
@@ -179,44 +245,7 @@ export default async function getApplication(
     for (const p of await merged.copyPages(cvDoc, cvDoc.getPageIndices()))
       merged.addPage(p);
 
-    for (const certificate of safeCertificates) {
-      try {
-        const certificateBytes = await readFile(
-          path.resolve(certificate.filePath),
-        );
-        if (certificate.mimeType === 'application/pdf') {
-          const certDoc = await PDFDocument.load(certificateBytes);
-          for (const p of await merged.copyPages(
-            certDoc,
-            certDoc.getPageIndices(),
-          ))
-            merged.addPage(p);
-        } else if (
-          certificate.mimeType === 'image/jpeg' ||
-          certificate.mimeType === 'image/jpg'
-        ) {
-          const img = await merged.embedJpg(certificateBytes);
-          const certPage = merged.addPage([595.28, 841.89]);
-          certPage.drawImage(img, {
-            x: 0,
-            y: 0,
-            width: 595.28,
-            height: 841.89,
-          });
-        } else if (certificate.mimeType === 'image/png') {
-          const img = await merged.embedPng(certificateBytes);
-          const certPage = merged.addPage([595.28, 841.89]);
-          certPage.drawImage(img, {
-            x: 0,
-            y: 0,
-            width: 595.28,
-            height: 841.89,
-          });
-        }
-      } catch {
-        continue;
-      }
-    }
+    await mergeCertificatesIntoPdf(merged, safeCertificates);
 
     const mergedBytes = await merged.save();
 
