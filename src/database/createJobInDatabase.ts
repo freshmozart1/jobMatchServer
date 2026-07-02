@@ -7,6 +7,10 @@ import {
   MONGODB_CONNECTION,
 } from './database.js';
 import { createErrorMessage } from '../errors/createErrorMessage.js';
+import {
+  hasBooleanProp,
+  hasObjectProp,
+} from '../utils/requestBodyValidators.js';
 
 function isValidCreateJobRequestBody(
   body: unknown,
@@ -14,11 +18,8 @@ function isValidCreateJobRequestBody(
   return (
     typeof body === 'object' &&
     body !== null &&
-    'job' in body &&
-    typeof body.job === 'object' &&
-    body.job !== null &&
-    'like' in body &&
-    typeof body.like === 'boolean'
+    hasObjectProp(body, 'job') &&
+    hasBooleanProp(body, 'like')
   );
 }
 
@@ -32,12 +33,10 @@ export default async function createJobInDatabase(
   if (!connectionStringConfigured(response)) return;
 
   if (!isValidCreateJobRequestBody(request.body)) {
-    response
-      .status(400)
-      .json({
-        message: invalidBodyErrorMessage,
-        error: invalidBodyErrorMessage,
-      });
+    response.status(400).json({
+      message: invalidBodyErrorMessage,
+      error: invalidBodyErrorMessage,
+    });
     return;
   }
 
