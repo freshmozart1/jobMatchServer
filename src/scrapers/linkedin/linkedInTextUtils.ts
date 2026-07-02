@@ -1,9 +1,9 @@
-export function normalizeText(value: string | null | undefined): string | null {
+function normalizeText(value: string | null | undefined): string | null {
   const normalizedValue = value?.replace(/\s+/g, ' ').trim() ?? '';
   return normalizedValue.length > 0 ? normalizedValue : null;
 }
 
-export function normalizeMultilineText(
+function normalizeMultilineText(
   value: string | null | undefined,
 ): string | null {
   const normalizedValue =
@@ -37,9 +37,7 @@ export function coalesceText(
   return '';
 }
 
-export function stripLinkedInSuffix(
-  value: string | null | undefined,
-): string | null {
+function stripLinkedInSuffix(value: string | null | undefined): string | null {
   return normalizeText(value?.replace(/\s*\|\s*LinkedIn$/i, ''));
 }
 
@@ -57,35 +55,7 @@ export function extractJobTitle(
   return withoutSuffix;
 }
 
-export function getTitleFromPageTitle(pageTitle: string): string | null {
-  const normalizedPageTitle = normalizeText(pageTitle);
-  if (!normalizedPageTitle) {
-    return null;
-  }
-
-  const titleWithoutLinkedIn =
-    stripLinkedInSuffix(normalizedPageTitle) ?? normalizedPageTitle;
-
-  const atBeiMatch = titleWithoutLinkedIn.match(/^(.+?)\s+(?:at|bei)\s+.+$/i);
-  if (atBeiMatch) return normalizeText(atBeiMatch[1]);
-
-  const suchtMatch = titleWithoutLinkedIn.match(
-    /^.+?\s+sucht\s+(.+?)(?:\s+in\s+\S.*)?$/i,
-  );
-  if (suchtMatch) return normalizeText(suchtMatch[1]);
-
-  return normalizeText(titleWithoutLinkedIn);
-}
-
-export function getCompanyFromPageTitle(pageTitle: string): string | null {
-  const normalizedPageTitle = normalizeText(pageTitle);
-  const companyMatch = normalizedPageTitle?.match(
-    /\s+(?:at|bei)\s+(.+?)(?:\s+\|\s+LinkedIn)?$/i,
-  );
-  return normalizeText(companyMatch?.[1]);
-}
-
-export function isModalOrLegalText(value: string): boolean {
+function isModalOrLegalText(value: string): boolean {
   const normalizedValue = value.toLowerCase();
   return (
     (normalizedValue.includes('einloggen') &&
