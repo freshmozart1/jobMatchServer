@@ -13,6 +13,11 @@ import {
   MONGODB_CONNECTION,
 } from '#database/database.js';
 import { createErrorMessage } from '../errors/createErrorMessage.js';
+import {
+  hasOptionalStringArrayProp,
+  hasOptionalStringProp,
+  hasStringProp,
+} from '../utils/requestBodyValidators.js';
 
 type GenerateCoverLetterAsTextRequestBody = ScrapedJob & {
   coverLetterIds: string[];
@@ -22,29 +27,16 @@ function isValidScrapedJobBody(body: unknown): boolean {
   return (
     typeof body === 'object' &&
     body !== null &&
-    'sourceHostname' in body &&
-    typeof body.sourceHostname === 'string' &&
-    'sourceUrl' in body &&
-    typeof body.sourceUrl === 'string' &&
-    'title' in body &&
-    typeof body.title === 'string' &&
-    'company' in body &&
-    typeof body.company === 'string' &&
-    'location' in body &&
-    (typeof body.location === 'string' || body.location === undefined) &&
-    'descriptionText' in body &&
-    (typeof body.descriptionText === 'string' ||
-      body.descriptionText === undefined) &&
-    'postedAt' in body &&
-    (typeof body.postedAt === 'string' || body.postedAt === undefined) &&
-    'scrapedAt' in body &&
-    typeof body.scrapedAt === 'string' &&
-    'tags' in body &&
-    (body.tags === undefined ||
-      (Array.isArray(body.tags) &&
-        body.tags.every((tag) => typeof tag === 'string'))) &&
-    'duplicateKey' in body &&
-    typeof body.duplicateKey === 'string'
+    hasStringProp(body, 'sourceHostname') &&
+    hasStringProp(body, 'sourceUrl') &&
+    hasStringProp(body, 'title') &&
+    hasStringProp(body, 'company') &&
+    hasOptionalStringProp(body, 'location') &&
+    hasOptionalStringProp(body, 'descriptionText') &&
+    hasOptionalStringProp(body, 'postedAt') &&
+    hasStringProp(body, 'scrapedAt') &&
+    hasOptionalStringArrayProp(body, 'tags') &&
+    hasStringProp(body, 'duplicateKey')
   );
 }
 
@@ -129,12 +121,10 @@ export default async function generateCoverLetterAsText(
       input,
     });
 
-    res
-      .status(200)
-      .json({
-        coverLetter: aiResponse.output_text,
-        inputTokenCount: tokenCount,
-      });
+    res.status(200).json({
+      coverLetter: aiResponse.output_text,
+      inputTokenCount: tokenCount,
+    });
   } catch (error) {
     const isCoverLettersNotFoundForIdError =
       error instanceof Error &&
