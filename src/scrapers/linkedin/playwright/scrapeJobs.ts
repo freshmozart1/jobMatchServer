@@ -39,10 +39,18 @@ type PendingScrapedJob = {
   extracted: ExtractedLinkedInJobPage;
 };
 
-type PendingRetryEntry = { result: PendingScrapedJob; normalizedUrl: string };
-type PendingRetryGroup = {
+// A job whose company-address extraction failed on the first pass and is
+// queued for the single deduped retry attempt made for its company.
+type JobPendingCompanyAddressRetry = {
+  result: PendingScrapedJob;
+  normalizedUrl: string;
+};
+
+// One company's retry queue: the page URL to retry extraction against, plus
+// every job from that company waiting on the result.
+type CompanyAddressRetryQueue = {
   companyPageUrl: string;
-  entries: PendingRetryEntry[];
+  entries: JobPendingCompanyAddressRetry[];
 };
 
 // Recreated every keyword iteration: a company that fails (even after retry)
@@ -54,7 +62,7 @@ type KeywordScrapeState = {
   companyAddressFailures: Set<string>;
   // Keyed by company so multiple jobs from the same never-before-seen company
   // that fail first-pass extraction share a single deduped retry attempt.
-  pendingRetry: Map<string, PendingRetryGroup>;
+  pendingRetry: Map<string, CompanyAddressRetryQueue>;
 };
 
 async function buildScrapedJob(
