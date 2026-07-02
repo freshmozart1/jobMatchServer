@@ -2,10 +2,12 @@ import type { Request, Response } from 'express';
 import { MongoClient } from 'mongodb';
 import {
   connectionStringConfigured,
+  findJobByDuplicateKey,
   getCollection,
+  jobNotFoundError,
   MONGODB_CONNECTION,
 } from './database.js';
-import type { StoredCv, StoredScrapedJob } from '#types';
+import type { StoredCv } from '#types';
 import { createErrorMessage } from '../errors/createErrorMessage.js';
 
 export default async function uploadCV(
@@ -18,7 +20,6 @@ export default async function uploadCV(
   );
   const fileRequiredError = new Error('file is required');
   const fileMustBePdfError = new Error('file must be a PDF');
-  const jobNotFoundError = new Error('Job not found');
 
   if (!connectionStringConfigured(response)) return;
 
@@ -48,12 +49,7 @@ export default async function uploadCV(
   const client = new MongoClient(MONGODB_CONNECTION!);
   try {
     await client.connect();
-    const job = await client
-      .db('jobMatch')
-      .collection<StoredScrapedJob>('jobs')
-      .findOne({ duplicateKey: jobDuplicateKey });
-
-    if (!job) throw jobNotFoundError;
+    const job = await findJobByDuplicateKey(client, jobDuplicateKey);
 
     const upserted = await getCollection<StoredCv>(
       client,

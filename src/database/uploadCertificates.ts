@@ -2,10 +2,12 @@ import type { Request, Response } from 'express';
 import { MongoClient } from 'mongodb';
 import {
   connectionStringConfigured,
+  findJobByDuplicateKey,
   getCollection,
+  jobNotFoundError,
   MONGODB_CONNECTION,
 } from './database.js';
-import type { StoredCertificate, StoredScrapedJob } from '#types';
+import type { StoredCertificate } from '#types';
 import { createErrorMessage } from '../errors/createErrorMessage.js';
 
 const ALLOWED_MIMETYPES = /^(application\/pdf|image\/(jpeg|jpg|png))$/;
@@ -27,7 +29,6 @@ export default async function uploadCertificates(
   const jobDuplicateKeyMustBeStringError = new Error(
     'jobDuplicateKey must be a string',
   );
-  const jobNotFoundError = new Error('Job not found');
 
   if (!connectionStringConfigured(response)) return;
 
@@ -66,12 +67,7 @@ export default async function uploadCertificates(
   const client = new MongoClient(MONGODB_CONNECTION!);
   try {
     await client.connect();
-    const job = await client
-      .db('jobMatch')
-      .collection<StoredScrapedJob>('jobs')
-      .findOne({ duplicateKey: jobDuplicateKey });
-
-    if (!job) throw jobNotFoundError;
+    const job = await findJobByDuplicateKey(client, jobDuplicateKey);
 
     const docs: StoredCertificate[] = files.map((f) => ({
       jobId: job._id.toHexString(),

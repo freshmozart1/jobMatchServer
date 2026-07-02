@@ -6,7 +6,7 @@ import type {
   StoredUser,
 } from '#types';
 import type { Response } from 'express';
-import type { MongoClient } from 'mongodb';
+import type { MongoClient, WithId } from 'mongodb';
 
 export const MONGODB_CONNECTION = process.env['MONGODB_CONNECTION_STRING'];
 
@@ -32,4 +32,17 @@ export function connectionStringConfigured(response: Response) {
     return false;
   }
   return true;
+}
+
+export const jobNotFoundError = new Error('Job not found');
+
+export async function findJobByDuplicateKey(
+  client: MongoClient,
+  duplicateKey: string,
+): Promise<WithId<StoredScrapedJob>> {
+  const job = await getCollection<StoredScrapedJob>(client, 'jobs').findOne({
+    duplicateKey,
+  });
+  if (!job) throw jobNotFoundError;
+  return job;
 }
