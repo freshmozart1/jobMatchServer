@@ -10,7 +10,7 @@ import {
   close,
 } from '../testMockModules/mongodb.test.js';
 import createResponse from '../testHelpers/createResponse.test.js';
-import createRequest from '../testHelpers/createRequest.test.js';
+import createJobDuplicateKeyRequest from '../testHelpers/createJobDuplicateKeyRequest.test.js';
 import { createJob, duplicateKey } from '../testHelpers/createJob.test.js';
 import path from 'path';
 
@@ -60,9 +60,7 @@ describe('getCV', () => {
   });
 
   it('sends the CV file when the job and CV are found', async () => {
-    const request = createRequest<object, never, { jobDuplicateKey: string }>({
-      params: { jobDuplicateKey: duplicateKey },
-    });
+    const request = createJobDuplicateKeyRequest(duplicateKey);
     const { response, status, json } = createResponse();
     (response as unknown as { sendFile: typeof sendFile }).sendFile = sendFile;
     (response as unknown as { setHeader: typeof setHeader }).setHeader =
@@ -84,9 +82,7 @@ describe('getCV', () => {
 
   it('returns 404 when the job is not found', async () => {
     findOneJob.mockResolvedValue(null);
-    const request = createRequest<object, never, { jobDuplicateKey: string }>({
-      params: { jobDuplicateKey: duplicateKey },
-    });
+    const request = createJobDuplicateKeyRequest(duplicateKey);
     const { response, status, json } = createResponse();
 
     await getCV(request, response);
@@ -102,9 +98,7 @@ describe('getCV', () => {
 
   it('returns 404 when the CV is not found', async () => {
     findOneCv.mockResolvedValue(null);
-    const request = createRequest<object, never, { jobDuplicateKey: string }>({
-      params: { jobDuplicateKey: duplicateKey },
-    });
+    const request = createJobDuplicateKeyRequest(duplicateKey);
     const { response, status, json } = createResponse();
 
     await getCV(request, response);
