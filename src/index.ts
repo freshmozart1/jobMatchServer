@@ -1,3 +1,13 @@
+// fallow-ignore-file security-sink
+// Two flagged sinks, both verified 2026-07:
+// - response.setHeader('Access-Control-Allow-Origin', origin): origin is
+//   checked against ALLOWED_ORIGINS/LAN_ORIGIN_PATTERN before use (see the
+//   CORS middleware below) — only a fixed allowlist of values ever reaches
+//   the header.
+// - spawn(PYTHON_BINARY, [TOKEN_SERVICE_SCRIPT], ...) in startTokenService():
+//   both args are resolved from local environment/filesystem at startup
+//   (env var, venv path, or `pip` shebang parsing), never from an HTTP
+//   request.
 import { spawn, type ChildProcessByStdio } from 'node:child_process';
 import {
   accessSync,

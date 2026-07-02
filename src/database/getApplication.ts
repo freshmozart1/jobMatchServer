@@ -1,3 +1,9 @@
+// fallow-ignore-file security-sink
+// The two path.resolve() calls below (cv.filePath, certificate.filePath) are
+// gated by isPathInside() before use — see src/utils/isPathInside.ts for the
+// mitigation. Both filePath values originate from multer-generated
+// filenames (uploadCV.ts, uploadCertificates.ts), not raw user input.
+// Verified 2026-07.
 import type { Request, Response } from 'express';
 import { readFileSync } from 'fs';
 import { readFile } from 'fs/promises';
