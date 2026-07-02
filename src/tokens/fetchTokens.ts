@@ -1,3 +1,8 @@
+// fallow-ignore-file security-sink
+// fetch() target is not attacker-controlled: tokenServiceUrl defaults to
+// process.env['TOKEN_SERVICE_URL'], set once at server startup from the
+// local Python token-service subprocess's own stdout (see src/index.ts).
+// The only caller (calculateTokens.ts) never overrides it. Verified 2026-07.
 import type { CalculateTokensRequestBody } from '#types';
 
 export default async function fetchTokens(

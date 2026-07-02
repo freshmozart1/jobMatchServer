@@ -1,3 +1,8 @@
+// fallow-ignore-file security-sink
+// path.resolve() and response.sendFile() below both operate on cv.filePath
+// only after isPathInside() has validated it (see src/utils/isPathInside.ts).
+// filePath is a multer-generated filename (uploadCV.ts), not raw user input.
+// Verified 2026-07.
 import type { Request, Response } from 'express';
 import { MongoClient } from 'mongodb';
 import path from 'path';
