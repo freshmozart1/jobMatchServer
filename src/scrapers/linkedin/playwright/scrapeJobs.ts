@@ -18,6 +18,7 @@ import {
   normalizeLinkedInJobPageUrl,
   extractLinkedInJobId,
 } from '../linkedInJobPageUrl.js';
+import { normalizeLinkedInCompanyPageUrl } from '../linkedInCompanyPageUrl.js';
 import {
   coalesceText,
   normalizeDescription,
@@ -26,11 +27,62 @@ import {
 import { computeJobMatch } from '../linkedInJobSimilarity.js';
 import { createJobEmbedding } from '../../../embeddings/jobEmbedding.js';
 import type {
+  CompanyAddress,
   ExtractedLinkedInJobPage,
   ScrapedJob,
   ScrapeJobResponseBody,
   StoredScrapedJob,
 } from '#types';
+
+type PendingScrapedJob = {
+  detailUrl: string | null;
+  extracted: ExtractedLinkedInJobPage;
+};
+
+async function buildScrapedJob(
+  client: MongoClient,
+  result: PendingScrapedJob,
+  normalizedUrl: string,
+  companyAddress: CompanyAddress,
+): Promise<ScrapedJob> {
+  const sourceJobId = extractLinkedInJobId(normalizedUrl);
+  const normalizedUrlObject = new URL(normalizedUrl);
+  const title = coalesceText(extractJobTitle(result.extracted.title));
+  const company = coalesceText(result.extracted.company);
+  const descriptionText = normalizeDescription(
+    result.extracted.descriptionText,
+  );
+
+  const jobFields = {
+    sourceHostname: normalizedUrlObject.hostname,
+    ...(sourceJobId ? { sourceJobId } : {}),
+    sourceUrl: normalizedUrl,
+    title,
+    company,
+    ...(result.extracted.location
+      ? { location: result.extracted.location }
+      : {}),
+    ...(descriptionText ? { descriptionText } : {}),
+    ...(result.extracted.postedAt
+      ? { postedAt: result.extracted.postedAt }
+      : {}),
+    scrapedAt: new Date().toISOString(),
+    ...(result.extracted.tags.length > 0
+      ? { tags: result.extracted.tags }
+      : {}),
+    duplicateKey: sourceJobId ? `linkedin:${sourceJobId}` : normalizedUrl,
+    companyAddress,
+  };
+
+  const embedding = await createJobEmbedding(jobFields);
+  const match = await computeJobMatch(client, embedding);
+
+  return {
+    ...jobFields,
+    embedding,
+    ...(match !== undefined ? { match } : {}),
+  };
+}
 
 export async function scrapeJob(
   request: Request,
@@ -56,6 +108,9 @@ export async function scrapeJob(
   const responseBody: ScrapeJobResponseBody = Object.create(
     null,
   ) as ScrapeJobResponseBody;
+  // Resolved company addresses are reused for the whole request — a company's real
+  // address doesn't change mid-scrape, so caching across keywords is a pure win.
+  const companyAddressCache = new Map<string, CompanyAddress>();
 
   try {
     await client.connect();
@@ -69,13 +124,19 @@ export async function scrapeJob(
         0,
       );
       const jobs: ScrapedJob[] = [];
-      const pendingRetry: Array<{
-        result: {
-          detailUrl: string | null;
-          extracted: ExtractedLinkedInJobPage;
-        };
-        normalizedUrl: string;
-      }> = [];
+      // Recreated every keyword iteration: a company that fails (even after retry)
+      // only stays "known failed" for the rest of THIS keyword, so later keywords
+      // still get a fresh attempt at it.
+      const companyAddressFailures = new Set<string>();
+      // Keyed by company so multiple jobs from the same never-before-seen company
+      // that fail first-pass extraction share a single deduped retry attempt.
+      const pendingRetry = new Map<
+        string,
+        {
+          companyPageUrl: string;
+          entries: Array<{ result: PendingScrapedJob; normalizedUrl: string }>;
+        }
+      >();
       let pageNum = 0;
 
       while (searchParams.maxPages === 0 || pageNum < searchParams.maxPages) {
@@ -121,58 +182,57 @@ export async function scrapeJob(
             }
 
             try {
-              const sourceJobId = extractLinkedInJobId(normalizedUrl);
-              const normalizedUrlObject = new URL(normalizedUrl);
-              const title = coalesceText(
-                extractJobTitle(result.extracted.title),
-              );
-              const company = coalesceText(result.extracted.company);
-              const descriptionText = normalizeDescription(
-                result.extracted.descriptionText,
+              const companyKey = normalizeLinkedInCompanyPageUrl(
+                result.extracted.companyPageUrl,
               );
 
-              const maybeAddress = await extractCompanyAddress(
+              if (companyAddressFailures.has(companyKey)) {
+                console.warn(
+                  `Skipping job ${normalizedUrl}: company address previously failed to resolve for this keyword.`,
+                );
+                continue;
+              }
+
+              const cachedAddress = companyAddressCache.get(companyKey);
+              if (cachedAddress !== undefined) {
+                jobs.push(
+                  await buildScrapedJob(
+                    client,
+                    result,
+                    normalizedUrl,
+                    cachedAddress,
+                  ),
+                );
+                continue;
+              }
+
+              const existingPendingEntry = pendingRetry.get(companyKey);
+              if (existingPendingEntry !== undefined) {
+                // Another job for this company already failed first-pass
+                // extraction this keyword and is queued for one deduped retry —
+                // piggyback on it instead of attempting extraction again.
+                existingPendingEntry.entries.push({ result, normalizedUrl });
+                continue;
+              }
+
+              const address = await extractCompanyAddress(
                 result.extracted.companyPageUrl,
               ).catch((addressError: unknown) => {
                 console.log(
                   `Company address extraction failed for ${normalizedUrl}, scheduling retry: ${addressError instanceof Error ? addressError.message : String(addressError)}`,
                 );
-                pendingRetry.push({ result, normalizedUrl });
+                pendingRetry.set(companyKey, {
+                  companyPageUrl: result.extracted.companyPageUrl,
+                  entries: [{ result, normalizedUrl }],
+                });
                 return null;
               });
 
-              if (maybeAddress !== null) {
-                const jobFields = {
-                  sourceHostname: normalizedUrlObject.hostname,
-                  ...(sourceJobId ? { sourceJobId } : {}),
-                  sourceUrl: normalizedUrl,
-                  title,
-                  company,
-                  ...(result.extracted.location
-                    ? { location: result.extracted.location }
-                    : {}),
-                  ...(descriptionText ? { descriptionText } : {}),
-                  ...(result.extracted.postedAt
-                    ? { postedAt: result.extracted.postedAt }
-                    : {}),
-                  scrapedAt: new Date().toISOString(),
-                  ...(result.extracted.tags.length > 0
-                    ? { tags: result.extracted.tags }
-                    : {}),
-                  duplicateKey: sourceJobId
-                    ? `linkedin:${sourceJobId}`
-                    : normalizedUrl,
-                  companyAddress: maybeAddress,
-                };
-
-                const embedding = await createJobEmbedding(jobFields);
-                const match = await computeJobMatch(client, embedding);
-
-                jobs.push({
-                  ...jobFields,
-                  embedding,
-                  ...(match !== undefined ? { match } : {}),
-                });
+              if (address !== null) {
+                companyAddressCache.set(companyKey, address);
+                jobs.push(
+                  await buildScrapedJob(client, result, normalizedUrl, address),
+                );
               }
             } catch (jobError) {
               console.warn(
@@ -204,55 +264,39 @@ export async function scrapeJob(
         pageNum += 1;
       }
 
-      for (const { result, normalizedUrl } of pendingRetry) {
+      for (const [companyKey, { companyPageUrl, entries }] of pendingRetry) {
         console.log(
-          `Retrying company address extraction for ${normalizedUrl}...`,
+          `Retrying company address extraction for company ${companyKey} (${entries.length} job(s))...`,
         );
         try {
-          const companyAddress = await extractCompanyAddress(
-            result.extracted.companyPageUrl,
-          );
-          const sourceJobId = extractLinkedInJobId(normalizedUrl);
-          const normalizedUrlObject = new URL(normalizedUrl);
-          const title = coalesceText(extractJobTitle(result.extracted.title));
-          const company = coalesceText(result.extracted.company);
-          const descriptionText = normalizeDescription(
-            result.extracted.descriptionText,
-          );
-          const jobFields = {
-            sourceHostname: normalizedUrlObject.hostname,
-            ...(sourceJobId ? { sourceJobId } : {}),
-            sourceUrl: normalizedUrl,
-            title,
-            company,
-            ...(result.extracted.location
-              ? { location: result.extracted.location }
-              : {}),
-            ...(descriptionText ? { descriptionText } : {}),
-            ...(result.extracted.postedAt
-              ? { postedAt: result.extracted.postedAt }
-              : {}),
-            scrapedAt: new Date().toISOString(),
-            ...(result.extracted.tags.length > 0
-              ? { tags: result.extracted.tags }
-              : {}),
-            duplicateKey: sourceJobId
-              ? `linkedin:${sourceJobId}`
-              : normalizedUrl,
-            companyAddress,
-          };
-          const embedding = await createJobEmbedding(jobFields);
-          const match = await computeJobMatch(client, embedding);
-          jobs.push({
-            ...jobFields,
-            embedding,
-            ...(match !== undefined ? { match } : {}),
-          });
-          console.log(`Company address retry succeeded for ${normalizedUrl}.`);
+          const companyAddress = await extractCompanyAddress(companyPageUrl);
+          companyAddressCache.set(companyKey, companyAddress);
+          for (const { result, normalizedUrl } of entries) {
+            try {
+              jobs.push(
+                await buildScrapedJob(
+                  client,
+                  result,
+                  normalizedUrl,
+                  companyAddress,
+                ),
+              );
+              console.log(
+                `Company address retry succeeded for ${normalizedUrl}.`,
+              );
+            } catch (jobError) {
+              console.warn(
+                `Skipping job ${normalizedUrl}: ${jobError instanceof Error ? jobError.message : String(jobError)}`,
+              );
+            }
+          }
         } catch (retryError) {
-          console.log(
-            `Company address retry failed for ${normalizedUrl}: ${retryError instanceof Error ? retryError.message : String(retryError)}`,
-          );
+          companyAddressFailures.add(companyKey);
+          for (const { normalizedUrl } of entries) {
+            console.log(
+              `Company address retry failed for ${normalizedUrl}: ${retryError instanceof Error ? retryError.message : String(retryError)}`,
+            );
+          }
         }
       }
 
