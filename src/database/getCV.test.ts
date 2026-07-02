@@ -11,7 +11,8 @@ import {
 } from '../testMockModules/mongodb.test.js';
 import createResponse from '../testHelpers/createResponse.test.js';
 import createJobDuplicateKeyRequest from '../testHelpers/createJobDuplicateKeyRequest.test.js';
-import { createJob, duplicateKey } from '../testHelpers/createJob.test.js';
+import { duplicateKey } from '../testHelpers/createJob.test.js';
+import { mockJobAndCv } from '../testHelpers/mockJobAndCv.test.js';
 import path from 'path';
 
 const findOneJob =
@@ -41,22 +42,16 @@ const { default: getCV } = await import('./getCV.js');
 
 describe('getCV', () => {
   beforeEach(() => {
-    jest.clearAllMocks();
-
-    connect.mockResolvedValue();
-    close.mockResolvedValue();
-    findOneJob.mockResolvedValue({
-      ...createJob<StoredScrapedJob>(true),
-      _id: { toHexString: () => mockJobId },
+    mockJobAndCv({
+      connect,
+      close,
+      findOneJob,
+      findOneCv,
+      getCollection,
+      mockJobId,
+      storedCv,
     });
-    findOneCv.mockResolvedValue(storedCv);
     sendFile.mockImplementation((_filePath, callback) => callback());
-    getCollection.mockImplementation(
-      (_client: unknown, collectionName: unknown) => {
-        if (collectionName === 'jobs') return { findOne: findOneJob };
-        return { findOne: findOneCv };
-      },
-    );
   });
 
   it('sends the CV file when the job and CV are found', async () => {
