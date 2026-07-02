@@ -10,15 +10,7 @@ let dislikedEmbeddingsCache: { embeddings: number[][]; expiry: number } | null =
   null;
 const CACHE_TTL_MS = 30_000;
 
-export function resetLikedEmbeddingsCache(): void {
-  likedEmbeddingsCache = null;
-}
-
-export function resetDislikedEmbeddingsCache(): void {
-  dislikedEmbeddingsCache = null;
-}
-
-export async function getEmbeddings(
+async function getEmbeddings(
   liked: boolean,
   client: InstanceType<typeof MongoClient>,
 ): Promise<number[][]> {

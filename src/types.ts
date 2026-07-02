@@ -16,14 +16,6 @@ export type ScrapeJobResponseBody = Record<
   { searchUrl: string; jobs: ScrapedJob[] }
 >;
 
-export type ScrapedAnchor = {
-  href: string;
-  text: string;
-  ariaLabel?: string | undefined;
-  parentClassNames: string[];
-  nearbyText: string;
-};
-
 export type CompanyAddress = {
   streetAddress: string;
   city: string;
