@@ -190,15 +190,26 @@ Renders the stored cover letter to PDF, merges it with the CV and any certificat
 Stored jobs use a normalized format so downstream applications don't need to understand LinkedIn-specific markup:
 
 ```ts
+type CompanyAddress = {
+  streetAddress: string;
+  city: string;
+  postalCode: string;
+  countryCode: string;
+};
+
 type ScrapedJob = {
+  sourceHostname: string;
+  sourceJobId?: string;
+  sourceUrl: string;
   title: string;
   company: string;
-  companyAddress: { streetAddress: string; postalCode: string; city: string };
-  location: string;
-  description?: string;
+  location?: string;
+  descriptionText?: string;
   postedAt?: string;
+  scrapedAt: string;
   tags?: string[];
   duplicateKey: string;
+  companyAddress: CompanyAddress;
   embedding: number[];
   match?: number;
 };
