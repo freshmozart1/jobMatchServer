@@ -170,15 +170,18 @@ export async function clickLinkedInJobSearchResultCard(
     if (response === null) {
       throw new Error(
         `Detail pane did not render job ${card.jobId} and no jobPosting API response was observed — the click may have been intercepted or fired no request.`,
+        { cause: error },
       );
     }
     if (!response.ok()) {
       throw new Error(
         `Detail pane did not render job ${card.jobId} — jobPosting API responded ${response.status()}; LinkedIn is likely rate-limiting guest job detail requests.`,
+        { cause: error },
       );
     }
     throw new Error(
       `Detail pane did not render job ${card.jobId} although the jobPosting API responded ${response.status()}.`,
+      { cause: error },
     );
   }
 }
