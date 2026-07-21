@@ -1,6 +1,6 @@
 ---
 name: fix-issue
-description: End-to-end workflow for implementing a GitHub issue in this repo. Reads the issue, implements the fix, builds, runs relevant tests, and opens a PR with a conventional commit message.
+description: Use when the user asks to implement, fix, or resolve a specific GitHub issue by number in this repository (e.g. "/fix-issue 42", "fix issue 42").
 disable-model-invocation: true
 ---
 
@@ -8,16 +8,37 @@ You are implementing a GitHub issue for this repository. $ARGUMENTS should be an
 
 ## Steps
 
-1. **Read the issue** using `gh issue view $ARGUMENTS` to understand what needs to change.
+1. **Read the issue** with `gh issue view $ARGUMENTS` to understand what needs to change.
 
-2. **Explore the relevant code** — identify which files need to change. Use the issue description, labels, and linked code to narrow the scope.
+2. **Plan the fix in plan mode.** Call `EnterPlanMode`, explore the affected code, and write an implementation plan covering the approach, the files to change, and how it satisfies CLAUDE.md conventions (local imports end in `.js`, type-only imports use `import type`, new path aliases go in both `package.json` and `tsconfig.json`). Don't edit files yet. Call `ExitPlanMode` once the plan is ready — approval returns you to normal (auto) permission mode.
 
-3. **Implement the fix** — make the minimal change that resolves the issue. Follow the conventions in CLAUDE.md:
-   - Local imports must end in `.js`
-   - Type-only imports use `import type`
-   - Update both `package.json` imports and `tsconfig.json` paths if adding a new path alias
+3. **Create a branch** off `master`, named after the issue type and number:
+   - `feat/issue-$ARGUMENTS-<short-description>` for features
+   - `fix/issue-$ARGUMENTS-<short-description>` for bugs
+   - `refactor/issue-$ARGUMENTS-<short-description>` for refactors
 
-4. **Build and test**:
+4. **Save the approved plan as the branch description**, so reviewers can see the intended approach before any code lands:
+
+   ```bash
+   git config branch.<branch-name>.description "$(cat <<'EOF'
+   <the approved plan>
+   EOF
+   )"
+   ```
+
+5. **Open a draft PR before implementing.** GitHub rejects a PR with no diff from `master`, so give the branch one empty commit to push first:
+
+   ```bash
+   git commit --allow-empty -m "chore: start work on issue #$ARGUMENTS"
+   git push -u origin <branch-name>
+   gh pr create --draft --base master \
+     --title "type: short description (closes #$ARGUMENTS)" \
+     --body "Closes #$ARGUMENTS. Implements the plan below.\n\n<the approved plan>"
+   ```
+
+6. **Implement the plan** — make the minimal change that resolves the issue, following the plan and the CLAUDE.md conventions above.
+
+7. **Build and test**:
 
    ```bash
    npm run build
@@ -29,22 +50,14 @@ You are implementing a GitHub issue for this repository. $ARGUMENTS should be an
    node --experimental-vm-modules --localstorage-file=/tmp/jest-localstorage.json ./node_modules/jest/bin/jest.js --config jest.config.mjs --runInBand dist/path/to/relevant.test.js
    ```
 
-   Fix any build errors or test failures before continuing.
+   Fix any build errors or test failures. Do not commit until the build and all relevant tests are clean.
 
-5. **Create a branch** named after the issue type and number:
-   - `feat/issue-$ARGUMENTS-<short-description>` for features
-   - `fix/issue-$ARGUMENTS-<short-description>` for bugs
-   - `refactor/issue-$ARGUMENTS-<short-description>` for refactors
-
-6. **Commit** with a conventional message:
+8. **Commit** once build and tests pass, with a conventional message matching the branch/PR title:
 
    ```
    type: short description (closes #$ARGUMENTS)
    ```
 
-7. **Open a PR** targeting `master`:
-   ```bash
-   gh pr create --title "type: short description (closes #$ARGUMENTS)" --body "..."
-   ```
+   Push the commit — it updates the existing draft PR.
 
 Report the PR URL when done.
