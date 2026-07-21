@@ -11,7 +11,7 @@ Node.js/Express backend that scrapes LinkedIn job postings, computes semantic em
 - **Everything routes through `src/index.ts`.** There are no router modules — every endpoint is wired directly on `app` in that file, alongside CORS handling, graceful shutdown, and the token-service subprocess lifecycle. Handler logic itself lives in `src/database/*.ts`, `src/scrapers/**`, `src/coverLetters/*.ts`, and `src/tokens/*.ts`.
 - **Single MongoDB database (`jobMatch`), five collections**: `jobs`, `coverLetters`, `cv`, `certificates`, `users`. There is no auth/multi-tenancy — `getApplication.ts` reads a single hardcoded `USER_ID`. Each handler opens its own short-lived `MongoClient` (connect → operate → close in a `finally`); there's no shared/pooled client.
 - **Job scoring pipeline** (`src/scrapers/linkedin/playwright/scrapeJobs.ts` → `src/embeddings/jobEmbedding.ts` → `src/scrapers/linkedin/linkedInJobSimilarity.ts`): a scraped job is normalized, embedded, then scored against the average embedding of previously liked jobs (`like: true` docs) minus disliked ones, with liked/disliked embedding sets cached in-memory for 30s (`CACHE_TTL_MS` in `linkedInJobSimilarity.ts`) to avoid refetching on every job in a batch. `duplicateKey` (LinkedIn job ID when available, else the normalized URL) is the dedupe key used both to filter already-stored jobs and to upsert on `POST /jobs/create`.
-- **Cover letter pipeline** (`src/coverLetters/`): letters are stored *segmented* (`subject`/`salutation`/`introduction`/`mainBody`/`conclusion`/`greetings`, see `CoverLetterSegmentName` in `src/types.ts`), each with its own embedding. Segmentation is heuristic first with an LLM fallback (`coverLetterSegmentation.ts` / `coverLetterSegmentationFallback.ts`). Matching a job to past letters uses a fixed per-segment weighting (`SEGMENT_SIMILARITY_WEIGHTS` in `getTopXSimilarCoverLetters.ts`, `mainBody` dominant at 0.5) rather than a single whole-letter embedding.
+- **Cover letter pipeline** (`src/coverLetters/`): letters are stored _segmented_ (`subject`/`salutation`/`introduction`/`mainBody`/`conclusion`/`greetings`, see `CoverLetterSegmentName` in `src/types.ts`), each with its own embedding. Segmentation is heuristic first with an LLM fallback (`coverLetterSegmentation.ts` / `coverLetterSegmentationFallback.ts`). Matching a job to past letters uses a fixed per-segment weighting (`SEGMENT_SIMILARITY_WEIGHTS` in `getTopXSimilarCoverLetters.ts`, `mainBody` dominant at 0.5) rather than a single whole-letter embedding.
 - **Token counting is a Python sidecar**, not a Node library: `src/tokenService/tokenService.py` (Flask + `tiktoken`) is spawned lazily on first request by `ensureTokenServiceStarted()` in `index.ts`, which picks its own free port, prints `TOKEN_SERVICE_URL=http://...` on stdout, and is parsed line-by-line to learn the URL (stashed in `process.env['TOKEN_SERVICE_URL']`, consumed by `src/tokens/fetchTokens.ts`). The service is excluded from `tsc`/ESLint/nodemon watching (`src/tokenService/**`) since it isn't TypeScript. Python binary resolution order: `PYTHON` env var → `.venv/bin/python` → interpreter behind `pip`/`pip3` on `PATH` → `python3`.
 - **Application PDF assembly** (`getApplication.ts`): the stored cover letter is rendered from `src/database/coverLetter.html` (a `{{placeholder}}` template, copied to `dist/` by the build step) to PDF via headless Puppeteer, then merged with the stored CV and any certificates (PDF/JPEG/PNG) into one PDF via `pdf-lib`. A malformed certificate is skipped, not fatal, to the merge.
 - **Uploaded-file path safety**: `src/utils/isPathInside.ts` gates every filesystem read derived from a DB-stored `filePath` (CV, certificates) before `path.resolve()`/`readFile` — required because `getApplication.ts` and `getCV.ts` trust paths coming out of MongoDB, not directly off the request.
@@ -22,11 +22,11 @@ Node.js/Express backend that scrapes LinkedIn job postings, computes semantic em
 
 ```bash
 npm run build        # tsc + copies src/database/coverLetter.html → dist/
-npm run dev          # nodemon with ts-node ESM loader
+npm run dev          # concurrently starts mongod, waits for it, then nodemon (ts-node ESM loader)
 npm run test:once    # build then run Jest once — use this, not `npm run test` which loops forever
 npm run lint         # eslint .
 npm run format       # prettier --write .
-npm run mongo        # starts a local mongod using the homebrew dbpath
+npm run mongo        # starts a local mongod using the homebrew dbpath (also run automatically by `npm run dev`)
 ```
 
 To run a single test file:
@@ -53,10 +53,10 @@ node --experimental-vm-modules --localstorage-file=/tmp/jest-localstorage.json .
 
 ## Required environment variables
 
-| Variable                    | Notes                                                                       |
-| --------------------------- | --------------------------------------------------------------------------- |
-| `MONGODB_CONNECTION_STRING` | MongoDB connection URI; checked at startup and before every DB call         |
-| `OPENAI_API_KEY`            | Picked up automatically by the OpenAI SDK — no explicit reference in source |
+| Variable                    | Notes                                                                         |
+| --------------------------- | ----------------------------------------------------------------------------- |
+| `MONGODB_CONNECTION_STRING` | MongoDB connection URI; checked at startup and before every DB call           |
+| `OPENAI_API_KEY`            | Picked up automatically by the OpenAI SDK — no explicit reference in source   |
 | `PYTHON`                    | Optional; overrides Python binary resolution for the token-service subprocess |
 
 No `.env` file or dotenv library is used. Set variables in the shell or a process manager.
