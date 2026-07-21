@@ -34,6 +34,7 @@ import getCVStatus from '#database/getCVStatus.js';
 import uploadCertificates from '#database/uploadCertificates.js';
 import getCertificatesStatus from '#database/getCertificatesStatus.js';
 import getApplication from '#database/getApplication.js';
+import getCoverLetterPdf from '#database/getCoverLetterPdf.js';
 import { closeAllTrackedBrowserServers } from '#utils/trackedPlaywrightBrowsers.js';
 
 export const app = express();
@@ -160,6 +161,8 @@ app.post('/jobs/create', createJobInDatabase);
 app.post('/jobs/top-x-similar-cover-letters', getTopXSimilarCoverLetters);
 
 app.post('/cover-letters/upload/text', uploadCoverLetterAsText);
+
+app.get('/cover-letters/:jobDuplicateKey', getCoverLetterPdf);
 
 //TODO: #26 Check if multer allows uploading any file and if it does, restrict it to only allow PDF files. Also, check if the file is actually a PDF and not just a file with a .pdf extension.
 const upload = multer({ dest: `uploads/cv` });

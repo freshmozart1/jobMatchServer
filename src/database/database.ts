@@ -6,9 +6,12 @@ import type {
   StoredUser,
 } from '#types';
 import type { Response } from 'express';
-import type { MongoClient, WithId } from 'mongodb';
+import { ObjectId, type MongoClient, type WithId } from 'mongodb';
 
 export const MONGODB_CONNECTION = process.env['MONGODB_CONNECTION_STRING'];
+
+// Hardcoded because there's no auth/multi-tenancy yet — every request acts as this user.
+export const USER_ID = new ObjectId('6a3d03b1dba1b11cee01161c');
 
 export function getCollection<
   T extends

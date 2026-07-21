@@ -147,6 +147,10 @@ Body: a job (with its `embedding`) plus `{ "x": number }`. Ranks stored cover le
 
 Body: `{ "coverLetterText": string, "jobDuplicateKey"?: string }`. Segments the text into salutation/introduction/main body/conclusion/greetings (heuristic, with an LLM fallback), embeds each segment, and stores it — upserted against the given job if `jobDuplicateKey` is provided.
 
+### `GET /cover-letters/:jobDuplicateKey`
+
+Renders the stored cover letter to a standalone PDF and streams it as `cover-letter.pdf`.
+
 ### `POST /cv/upload`
 
 Multipart form upload (`file`) plus a `jobDuplicateKey` field. Stores the CV file and associates it with the job.
