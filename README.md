@@ -72,13 +72,7 @@ python3 -m venv .venv
 
 The server resolves a Python binary at startup in this order: the `PYTHON` env var, `.venv/bin/python`, the interpreter behind `pip`/`pip3` on `PATH`, then `python3`. If you use a different virtualenv layout, set `PYTHON` to the full path of your interpreter.
 
-Start MongoDB locally (or point `MONGODB_CONNECTION_STRING` at an existing instance):
-
-```bash
-npm run mongo
-```
-
-Start the development server:
+Start the development server — this also starts a local MongoDB (`npm run mongo` under the hood) unless you point `MONGODB_CONNECTION_STRING` at an existing instance:
 
 ```bash
 npm run dev
@@ -109,11 +103,11 @@ Server running on http://localhost:3000
 
 ## Required Environment Variables
 
-| Variable                    | Notes                                                                          |
-| ---------------------------- | ------------------------------------------------------------------------------ |
-| `MONGODB_CONNECTION_STRING` | MongoDB connection URI; checked at startup and before every DB call            |
-| `OPENAI_API_KEY`            | Picked up automatically by the OpenAI SDK — no explicit reference in source    |
-| `PYTHON`                    | Optional. Overrides Python binary resolution for the token service subprocess  |
+| Variable                    | Notes                                                                         |
+| --------------------------- | ----------------------------------------------------------------------------- |
+| `MONGODB_CONNECTION_STRING` | MongoDB connection URI; checked at startup and before every DB call           |
+| `OPENAI_API_KEY`            | Picked up automatically by the OpenAI SDK — no explicit reference in source   |
+| `PYTHON`                    | Optional. Overrides Python binary resolution for the token service subprocess |
 
 No `.env` file or dotenv library is used. Set variables in the shell or a process manager.
 
