@@ -6,6 +6,11 @@ export const connectionStringConfigured = jest.fn().mockReturnValue(true);
 export const jobNotFoundError = new Error('Job not found');
 export const cvNotFoundError = new Error('CV not found');
 
+// Mirrors the real database.ts USER_ID, run through the mocked ObjectId
+// constructor in mongodb.test.ts (which is an identity function), so it's
+// the same value handlers see whether or not that module is also mocked.
+export const USER_ID = '6a3d03b1dba1b11cee01161c';
+
 type MockJob = { _id: { toHexString: () => string } };
 type MockCollection = {
   findOne: (...args: unknown[]) => Promise<unknown>;
@@ -50,6 +55,7 @@ export function mockLocalDatabaseModule() {
     connectionStringConfigured,
     jobNotFoundError,
     cvNotFoundError,
+    USER_ID,
     findJobByDuplicateKey,
     findJobAndCvByDuplicateKey,
     findJobIdByDuplicateKey,
