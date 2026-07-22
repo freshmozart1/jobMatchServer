@@ -21,7 +21,6 @@ type SearchResult = {
 type SearchResultsExtraction = {
   results: SearchResult[];
   aborted: boolean;
-  abortReason?: 'consecutive-failures' | 'navigated-away';
 };
 
 const mockWaitForLinkedInPage = jest.fn<
@@ -98,9 +97,8 @@ function sampleResult(
 function searchResults(
   results: SearchResult[],
   aborted = false,
-  abortReason?: 'consecutive-failures' | 'navigated-away',
 ): SearchResultsExtraction {
-  return { results, aborted, ...(abortReason ? { abortReason } : {}) };
+  return { results, aborted };
 }
 
 describe('scrapeJob', () => {
@@ -211,9 +209,9 @@ describe('scrapeJob', () => {
     expect(mockWaitForLinkedInPage).toHaveBeenCalledTimes(3);
   });
 
-  it('stops paginating a keyword when card extraction aborts due to consecutive failures, but keeps the partial results', async () => {
+  it('stops paginating a keyword when job detail extraction aborts due to consecutive failures, but keeps the partial results', async () => {
     mockExtractLinkedInJobSearchResults.mockResolvedValueOnce(
-      searchResults([sampleResult('123456789')], true, 'consecutive-failures'),
+      searchResults([sampleResult('123456789')], true),
     );
     const { response, status, json } = createResponse();
 
@@ -224,24 +222,6 @@ describe('scrapeJob', () => {
     expect(browserServerClose).toHaveBeenCalledTimes(1);
     const body = json.mock.calls[0]?.[0] as Record<string, { jobs: unknown[] }>;
     expect(body['TypeScript']?.jobs).toHaveLength(1);
-  });
-
-  it('continues paginating a keyword to the next page when card extraction aborts due to an unexpected navigation, instead of stopping', async () => {
-    mockExtractLinkedInJobSearchResults
-      .mockResolvedValueOnce(
-        searchResults([sampleResult('1')], true, 'navigated-away'),
-      )
-      .mockResolvedValueOnce(searchResults([sampleResult('2')]));
-    const { response, status, json } = createResponse();
-
-    await scrapeJob(createRequest({ ...validBody, maxPages: 2 }), response);
-
-    expect(status).toHaveBeenCalledWith(200);
-    // Page 0 aborted mid-page (navigated-away) but pagination proceeds to
-    // page 1, which gets a brand-new browser/page regardless.
-    expect(mockWaitForLinkedInPage).toHaveBeenCalledTimes(2);
-    const body = json.mock.calls[0]?.[0] as Record<string, { jobs: unknown[] }>;
-    expect(body['TypeScript']?.jobs).toHaveLength(2);
   });
 
   it('computes an embedding and match for every scraped job and includes them in the response', async () => {

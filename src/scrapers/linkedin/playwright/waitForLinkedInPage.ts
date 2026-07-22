@@ -18,7 +18,6 @@ const LAZY_LOAD_RESPONSE_TIMEOUT_MS = 5_000;
 const LAZY_LOAD_SCROLL_SETTLE_MS = 300;
 const LAZY_LOAD_MAX_SCROLL_ATTEMPTS = 80;
 const SCROLL_BOTTOM_TOLERANCE_PX = 32;
-const SCROLL_TOP_SETTLE_MS = 300;
 
 type LinkedInLazyLoadResponse = {
   url(): string;
@@ -62,15 +61,6 @@ export default async function waitForLinkedInPage(
 
     await scrollLinkedInLazyLoadedJobsUntilComplete(page);
 
-    // The lazy-load pass above leaves the page scrolled to the very bottom.
-    // Reset to the top before returning: card extraction scrolls each card
-    // into view in list order, so starting from the top makes those
-    // per-card scrolls small and incremental instead of a single huge jump
-    // (bottom-of-a-long-page to the first card) that destabilizes LinkedIn's
-    // own click handling for that first card.
-    await scrollToPageTop(page);
-    await new Promise((resolve) => setTimeout(resolve, SCROLL_TOP_SETTLE_MS));
-
     return { browser, browserServer, page };
   } catch (error) {
     await closeTrackedBrowserServer(browserServer);
@@ -78,7 +68,9 @@ export default async function waitForLinkedInPage(
   }
 }
 
-async function dismissLinkedInSignInModalIfPresent(page: Page): Promise<void> {
+export async function dismissLinkedInSignInModalIfPresent(
+  page: Page,
+): Promise<void> {
   // Wait until at least one dismiss button appears in the DOM, then bail if
   // none show up (modal is optional — page may load without one).
   const hasModal = await page
@@ -210,10 +202,6 @@ async function scrollToPageBottom(
         distanceToBottom <= bottomTolerancePx ? 0 : distanceToBottom,
     };
   }, SCROLL_BOTTOM_TOLERANCE_PX);
-}
-
-async function scrollToPageTop(page: Page): Promise<void> {
-  await page.evaluate(() => window.scrollTo(0, 0));
 }
 
 function assertSuccessfulLinkedInSeeMoreJobPostingsResponse(
