@@ -142,15 +142,28 @@ describe('waitForLinkedInPage (playwright) lazy-load scrolling', () => {
     expect(page.waitForResponse).toHaveBeenCalledTimes(1);
   });
 
-  it('throws when a matching LinkedIn lazy-load response fails', async () => {
+  it('stops gracefully instead of throwing when a lazy-load response is rate-limited (429)', async () => {
     const page = createPageMock([createResponseMock({ status: 429 })]);
+    jest.spyOn(console, 'warn').mockImplementation(() => undefined);
 
     await expect(
       scrollLinkedInLazyLoadedJobsUntilComplete(page as unknown as Page, {
         responseTimeoutMs: 1,
         scrollSettleMs: 0,
       }),
-    ).rejects.toThrow('LinkedIn lazy-load request failed with status 429');
+    ).resolves.toBeUndefined();
+    expect(page.evaluate).toHaveBeenCalledTimes(1);
+  });
+
+  it('throws when a matching LinkedIn lazy-load response fails with a non-429 status', async () => {
+    const page = createPageMock([createResponseMock({ status: 500 })]);
+
+    await expect(
+      scrollLinkedInLazyLoadedJobsUntilComplete(page as unknown as Page, {
+        responseTimeoutMs: 1,
+        scrollSettleMs: 0,
+      }),
+    ).rejects.toThrow('LinkedIn lazy-load request failed with status 500');
   });
 
   it('throws when max scroll attempts are reached while lazy-load responses continue', async () => {

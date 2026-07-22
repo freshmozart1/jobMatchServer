@@ -140,6 +140,17 @@ export async function scrollLinkedInLazyLoadedJobsUntilComplete(
       return;
     }
 
+    // A 429 here just means "stop asking for more pages right now" — treat it
+    // the same as no lazy-load response at all (proceed with whatever cards
+    // are already loaded) instead of failing the whole scrape. Other non-2xx
+    // statuses are still unexpected and keep throwing.
+    if (response.status() === 429) {
+      console.warn(
+        `LinkedIn lazy-load request was rate-limited (429) after scrollAttempt: ${scrollAttempt} — stopping further lazy-load scrolling and proceeding with the jobs already loaded.`,
+      );
+      return;
+    }
+
     assertSuccessfulLinkedInSeeMoreJobPostingsResponse(response);
 
     console.debug(
