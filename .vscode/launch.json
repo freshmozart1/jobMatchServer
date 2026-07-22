@@ -4,7 +4,7 @@
     {
       "type": "node-terminal",
       "request": "launch",
-      "name": "npm: dev",
+      "name": "Launch dev backend",
       "command": "npm run dev",
       "cwd": "${workspaceFolder}"
     }
