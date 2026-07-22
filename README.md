@@ -103,11 +103,12 @@ Server running on http://localhost:3000
 
 ## Required Environment Variables
 
-| Variable                    | Notes                                                                         |
-| --------------------------- | ----------------------------------------------------------------------------- |
-| `MONGODB_CONNECTION_STRING` | MongoDB connection URI; checked at startup and before every DB call           |
-| `OPENAI_API_KEY`            | Picked up automatically by the OpenAI SDK — no explicit reference in source   |
-| `PYTHON`                    | Optional. Overrides Python binary resolution for the token service subprocess |
+| Variable                    | Notes                                                                                                                                 |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `MONGODB_CONNECTION_STRING` | MongoDB connection URI; checked at startup and before every DB call                                                                   |
+| `OPENAI_API_KEY`            | Picked up automatically by the OpenAI SDK — no explicit reference in source                                                           |
+| `PYTHON`                    | Optional. Overrides Python binary resolution for the token service subprocess                                                         |
+| `PLAYWRIGHT_HEADLESS`       | Optional. Set to `false` to run the LinkedIn scraper's Chromium browser with a visible window instead of headless (default: headless) |
 
 No `.env` file or dotenv library is used. Set variables in the shell or a process manager.
 
