@@ -112,6 +112,13 @@ export async function clickLinkedInJobSearchResultCard(
   // company-name/logo link LinkedIn layers on top of the full-link overlay in
   // part of the card. Clicking that link is a normal, non-intercepted
   // navigation that leaves the search-results page entirely.
+  //
+  // Scroll the card into view first: bypassing Playwright's actionability
+  // checks (above) also drops the scroll-into-view step those checks would
+  // normally perform. The results list is scrolled to the very bottom by the
+  // lazy-load pass in waitForLinkedInPage, so without this, cards get clicked
+  // while genuinely off-screen — LinkedIn's own pane update is unreliable for
+  // that, which was previously misread as guest rate-limiting.
   const clicked = await page.evaluate(
     ({ listSel, linkSel, cardIndex }) => {
       const li = document.querySelectorAll<HTMLElement>(listSel)[cardIndex];
@@ -119,6 +126,7 @@ export async function clickLinkedInJobSearchResultCard(
       document.querySelectorAll('.modal__overlay').forEach((el) => el.remove());
       const link = li.querySelector<HTMLAnchorElement>(linkSel);
       if (!link) return false;
+      li.scrollIntoView({ block: 'center', inline: 'nearest' });
       link.click();
       return true;
     },

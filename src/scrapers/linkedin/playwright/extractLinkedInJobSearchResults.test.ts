@@ -157,6 +157,21 @@ describe('clickLinkedInJobSearchResultCard', () => {
     expect(page.waitForResponse).toHaveBeenCalledTimes(1);
   });
 
+  it('scrolls the card into view before dispatching the click', async () => {
+    // page.evaluate is fully mocked, so the in-page callback never actually
+    // runs against a DOM — inspecting its source is the only way to guard
+    // against this call being dropped again.
+    const page = createPageMock();
+    page.evaluate.mockResolvedValueOnce(true);
+    const card = sampleCards[0]!;
+
+    await clickLinkedInJobSearchResultCard(page as unknown as Page, card, 0);
+
+    const callback = page.evaluate.mock.calls[0]?.[0];
+    expect(typeof callback).toBe('function');
+    expect(callback?.toString()).toContain('scrollIntoView');
+  });
+
   it('throws when the card link anchor is not found at the given index', async () => {
     const page = createPageMock();
     page.evaluate.mockResolvedValueOnce(false);
