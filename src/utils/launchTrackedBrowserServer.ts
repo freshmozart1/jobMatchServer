@@ -9,7 +9,8 @@ export async function launchTrackedBrowserServer(): Promise<{
   browserServer: BrowserServer;
   browser: Browser;
 }> {
-  const browserServer = await chromium.launchServer({ headless: true });
+  const headless = process.env['PLAYWRIGHT_HEADLESS'] !== 'false';
+  const browserServer = await chromium.launchServer({ headless });
   trackBrowserServer(browserServer);
 
   const browser = await chromium.connect(browserServer.wsEndpoint());
