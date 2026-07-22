@@ -182,6 +182,17 @@ describe('clickLinkedInJobSearchResultCard', () => {
     ).rejects.toThrow(/could not find/);
   });
 
+  it('classifies a missing card link as navigated-away instead of markup drift when the page already left the search results', async () => {
+    const page = createPageMock();
+    page.evaluate.mockResolvedValueOnce(false);
+    page.url.mockReturnValue('https://www.linkedin.com/jobs/view/111/');
+    const card = sampleCards[0]!;
+
+    await expect(
+      clickLinkedInJobSearchResultCard(page as unknown as Page, card, 0),
+    ).rejects.toThrow(/Navigated away from LinkedIn job search results/);
+  });
+
   it('verifies the detail pane renders the clicked job via its job-view link', async () => {
     const page = createPageMock();
     page.evaluate.mockResolvedValueOnce(true);
@@ -233,6 +244,20 @@ describe('clickLinkedInJobSearchResultCard', () => {
     ).rejects.toThrow(/no jobPosting API response was observed/);
   });
 
+  it('classifies a navigation that only completes mid-wait as navigated-away instead of misattributing it to rate-limiting', async () => {
+    const page = createPageMock();
+    page.evaluate.mockResolvedValueOnce(true);
+    page.waitForSelector.mockRejectedValue(timeoutError());
+    page.url
+      .mockReturnValueOnce(SEARCH_RESULTS_URL) // synchronous check right after the click
+      .mockReturnValue('https://www.linkedin.com/jobs/view/111/'); // navigation finished during the wait
+    const card = sampleCards[0]!;
+
+    await expect(
+      clickLinkedInJobSearchResultCard(page as unknown as Page, card, 0),
+    ).rejects.toThrow(/Navigated away from LinkedIn job search results/);
+  });
+
   it('throws even when the API responded ok but the pane never rendered the job', async () => {
     const page = createPageMock();
     page.evaluate.mockResolvedValueOnce(true);
@@ -254,6 +279,23 @@ describe('clickLinkedInJobSearchResultCard', () => {
     expect(page.waitForSelector).not.toHaveBeenCalled();
     expect(console.warn).toHaveBeenCalledWith(
       expect.stringContaining('no data-entity-urn job id'),
+    );
+  });
+
+  it('does not warn when the jobPosting response watcher fails because the browser was already closed', async () => {
+    const page = createPageMock();
+    page.evaluate.mockResolvedValueOnce(true);
+    page.waitForResponse.mockRejectedValue(
+      new Error(
+        'page.waitForResponse: Target page, context or browser has been closed',
+      ),
+    );
+    const card = sampleCards[1]!; // jobId: null -> awaits responsePromise directly
+
+    await clickLinkedInJobSearchResultCard(page as unknown as Page, card, 1);
+
+    expect(console.warn).not.toHaveBeenCalledWith(
+      expect.stringContaining('response watcher failed'),
     );
   });
 

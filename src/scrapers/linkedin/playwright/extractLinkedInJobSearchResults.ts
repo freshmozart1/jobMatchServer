@@ -28,6 +28,13 @@ function isTimeoutError(error: unknown): boolean {
   );
 }
 
+// Expected once a page aborts and the caller closes the browser (see
+// scrapeJobs.ts's finally block) while this card's own watcher is still
+// pending — not a new failure, just cleanup racing an in-flight promise.
+function isTargetClosedError(error: unknown): boolean {
+  return error instanceof Error && error.message.includes('has been closed');
+}
+
 // LinkedIn guest cards commonly layer a secondary company-name/logo anchor
 // (a normal, non-intercepted link to /company/...) on top of the full-link
 // overlay in part of the card. A coordinate-based Playwright click can land on
@@ -96,7 +103,7 @@ export async function clickLinkedInJobSearchResultCard(
       { timeout: DETAIL_PANE_UPDATE_TIMEOUT_MS },
     )
     .catch((error: unknown) => {
-      if (!isTimeoutError(error)) {
+      if (!isTimeoutError(error) && !isTargetClosedError(error)) {
         console.warn(
           `jobPosting response watcher failed for card at index ${index}: ${error instanceof Error ? error.message : String(error)}`,
         );
@@ -138,6 +145,16 @@ export async function clickLinkedInJobSearchResultCard(
   );
 
   if (!clicked) {
+    // The results list can vanish between cards if an earlier click in this
+    // same page turned into a real navigation whose completion we couldn't
+    // observe synchronously (see the check below) — that leaves nothing at
+    // JOB_CARDS_SELECTOR at all, which looks identical to markup drift unless
+    // we also check where we ended up.
+    if (!page.url().includes('/jobs/search')) {
+      throw new Error(
+        `${NAVIGATED_AWAY_PREFIX} before card at index ${index} could be clicked (now at ${page.url()}).`,
+      );
+    }
     throw new Error(
       `Job card at index ${index} — could not find ${JOB_CARD_LINK_SELECTOR} to click (card missing or markup drift).`,
     );
@@ -173,6 +190,16 @@ export async function clickLinkedInJobSearchResultCard(
     });
   } catch (error) {
     if (!isTimeoutError(error)) throw error;
+    // The synchronous check right after the click (above) can't catch a
+    // navigation that only finishes mid-wait — re-check here, now that the
+    // full timeout window has elapsed, before assuming this is a stalled
+    // AJAX/rate-limit case.
+    if (!page.url().includes('/jobs/search')) {
+      throw new Error(
+        `${NAVIGATED_AWAY_PREFIX} while waiting for the detail pane to update for card at index ${index} (now at ${page.url()}).`,
+        { cause: error },
+      );
+    }
     // The watcher shares the click's timeout window, so it has settled by now.
     const response = await responsePromise;
     if (response === null) {
