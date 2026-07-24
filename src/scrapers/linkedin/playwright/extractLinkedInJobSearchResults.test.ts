@@ -70,6 +70,11 @@ const SKIP_LOAD_ALL_OPTIONS = {
   maxScrollAttempts: 0,
   maxSeeMoreClicks: 0,
   delayBetweenJobsMs: 0,
+  // 1 attempt by default so failure tests see exactly one click evaluate()
+  // call per card; the click-retry mechanism itself is covered by its own
+  // dedicated test below.
+  cardClickMaxAttempts: 1,
+  cardClickRetryDelayMs: 0,
 };
 
 function card(
@@ -461,6 +466,34 @@ describe('extractLinkedInJobSearchResults', () => {
     expect(aborted).toBe(true);
     // Card 2 must never be attempted.
     expect(page.evaluate).toHaveBeenCalledTimes(6);
+  });
+
+  it('recovers a card whose click misses on the first attempt (e.g. the sign-in nag transiently covering the list) by retrying', async () => {
+    const page = createPageMock();
+    const c = card('111');
+    page.evaluate
+      .mockImplementationOnce(async () => [c])
+      .mockImplementationOnce(async () => 'Acme Corp')
+      .mockImplementationOnce(async () => false) // click attempt 1 misses
+      .mockImplementationOnce(async () => true) // click attempt 2 succeeds
+      .mockImplementationOnce(async () => sampleExtracted);
+
+    const { results, aborted } = await extractLinkedInJobSearchResults(
+      page as unknown as Page,
+      {
+        ...SKIP_LOAD_ALL_OPTIONS,
+        cardClickMaxAttempts: 2,
+        cardClickRetryDelayMs: 0,
+      },
+    );
+
+    expect(results).toEqual([
+      { detailUrl: c.detailUrl, extracted: sampleExtracted },
+    ]);
+    expect(aborted).toBe(false);
+    // Overlay clearing runs before each click attempt (2) plus once after
+    // reading the pane (1).
+    expect(mockClearLinkedInOverlays).toHaveBeenCalledTimes(3);
   });
 
   it('aborts after three consecutive card failures instead of clicking every remaining card, keeping partial results', async () => {

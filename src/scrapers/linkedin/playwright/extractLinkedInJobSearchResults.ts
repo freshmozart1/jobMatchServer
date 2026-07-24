@@ -31,10 +31,23 @@ const STABLE_CLICKS_TO_STOP = 3; // same rationale as STABLE_SCROLLS_TO_STOP
 const SEE_MORE_POLL_ATTEMPTS = 10;
 const SEE_MORE_POLL_INTERVAL_MS = 300;
 
-// Lightweight, single-pass overlay check used around each per-card click —
-// unlike the patient multi-second poll used once at page load, this only
-// needs to catch (and clear) whatever is covering the page *right now*.
-const PER_INTERACTION_OVERLAY_OPTIONS = { requiredConsecutiveClear: 1 };
+// Lighter-weight than the patient multi-second poll used once at page load,
+// but still requires 2 consecutive clear reads (not just 1) — LinkedIn's
+// "sign in to view more jobs" nag can reappear right after being dismissed,
+// and a single check-and-move-on missed that in practice.
+const PER_INTERACTION_OVERLAY_OPTIONS = {
+  requiredConsecutiveClear: 2,
+  timeoutMs: 4_000,
+  pollIntervalMs: 150,
+};
+
+// The sign-in nag (or the page still settling from the previous card) can
+// make a single click attempt find no anchor to click. Retrying a few times
+// with an overlay-clear between each attempt — rather than failing on the
+// first miss — gives the page a chance to recover, mirroring
+// playwrightLinkedInScraperTest's clickWithOverlayRetries().
+const CARD_CLICK_MAX_ATTEMPTS = 4;
+const CARD_CLICK_RETRY_DELAY_MS = 500;
 
 // The pane's topcard title anchor links to the job-view URL, whose slug ends with the
 // numeric job id (…/jobs/view/<slug>-<jobId>). Matching on href rather than the
@@ -300,6 +313,24 @@ export async function clickLinkedInJobSearchResultCard(
   );
 }
 
+// Wraps clickLinkedInJobSearchResultCard() with overlay-clear-and-retry: a
+// miss on the first attempt is often the sign-in nag transiently covering the
+// list or the page still settling from the previous card, not markup drift.
+async function clickLinkedInJobSearchResultCardWithRetries(
+  page: Page,
+  index: number,
+  maxAttempts: number,
+  retryDelayMs: number,
+): Promise<boolean> {
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    await clearLinkedInOverlays(page, PER_INTERACTION_OVERLAY_OPTIONS);
+    const clicked = await clickLinkedInJobSearchResultCard(page, index);
+    if (clicked) return true;
+    if (attempt < maxAttempts) await sleep(retryDelayMs);
+  }
+  return false;
+}
+
 // The company name shown in the list card doesn't change on click, unlike the
 // detail pane's — reading it lets scrapeLinkedInJobSearchResultCard() compare
 // the two and catch a pane that silently kept showing a previous job's data.
@@ -332,7 +363,22 @@ export async function extractLinkedInJobDetailPane(
 ): Promise<ExtractedLinkedInJobPage> {
   return page.evaluate((detailPaneSel) => {
     const paneMaybe = document.querySelector<HTMLElement>(detailPaneSel);
-    if (!paneMaybe) throw new Error('LinkedIn detail pane not found.');
+    // A missing pane means the click hasn't rendered content yet (still
+    // loading, or a sign-in wall is covering it) rather than a markup
+    // mismatch — returning empty fields here lets the caller's staleness
+    // check (paneConfirmed) flag it for a retry instead of this throwing and
+    // counting as a hard, unretried failure.
+    if (!paneMaybe) {
+      return {
+        title: null,
+        company: null,
+        location: null,
+        descriptionText: null,
+        postedAt: null,
+        tags: [],
+        companyPageUrl: '',
+      };
+    }
     // Shadow with an explicitly non-nullable typed binding so closures can
     // reference it without TypeScript widening back to HTMLElement | null.
     const pane: HTMLElement = paneMaybe;
@@ -443,15 +489,20 @@ async function scrapeLinkedInJobSearchResultCard(
   card: LinkedInJobSearchResultCard,
   index: number,
   detailPaneUpdateTimeoutMs: number,
+  cardClickMaxAttempts: number,
+  cardClickRetryDelayMs: number,
 ): Promise<ScrapeCardResult> {
   const listCompany = await readListCardCompany(page, index);
 
-  await clearLinkedInOverlays(page, PER_INTERACTION_OVERLAY_OPTIONS);
-
-  const clicked = await clickLinkedInJobSearchResultCard(page, index);
+  const clicked = await clickLinkedInJobSearchResultCardWithRetries(
+    page,
+    index,
+    cardClickMaxAttempts,
+    cardClickRetryDelayMs,
+  );
   if (!clicked) {
     throw new Error(
-      `Job card at index ${index} — could not find ${JOB_CARD_LINK_SELECTOR} to click (card missing or markup drift).`,
+      `Job card at index ${index} — could not find ${JOB_CARD_LINK_SELECTOR} to click after ${cardClickMaxAttempts} attempts (card missing or markup drift).`,
     );
   }
 
@@ -513,6 +564,8 @@ export type LinkedInJobSearchResultsExtraction = {
 export type ExtractLinkedInJobSearchResultsOptions = LoadAllJobsOptions & {
   delayBetweenJobsMs?: number;
   detailPaneUpdateTimeoutMs?: number;
+  cardClickMaxAttempts?: number;
+  cardClickRetryDelayMs?: number;
 };
 
 export async function extractLinkedInJobSearchResults(
@@ -523,6 +576,10 @@ export async function extractLinkedInJobSearchResults(
     options.delayBetweenJobsMs ?? DELAY_BETWEEN_JOBS_MS;
   const detailPaneUpdateTimeoutMs =
     options.detailPaneUpdateTimeoutMs ?? DETAIL_PANE_UPDATE_TIMEOUT_MS;
+  const cardClickMaxAttempts =
+    options.cardClickMaxAttempts ?? CARD_CLICK_MAX_ATTEMPTS;
+  const cardClickRetryDelayMs =
+    options.cardClickRetryDelayMs ?? CARD_CLICK_RETRY_DELAY_MS;
 
   await loadAllLinkedInJobSearchResults(page, options);
 
@@ -546,6 +603,8 @@ export async function extractLinkedInJobSearchResults(
         card,
         index,
         detailPaneUpdateTimeoutMs,
+        cardClickMaxAttempts,
+        cardClickRetryDelayMs,
       );
       results.push({ detailUrl: card.detailUrl, extracted });
       if (card.jobId !== null) seenJobIds.add(card.jobId);
@@ -597,6 +656,8 @@ export async function extractLinkedInJobSearchResults(
         card,
         cardIndex,
         detailPaneUpdateTimeoutMs,
+        cardClickMaxAttempts,
+        cardClickRetryDelayMs,
       );
       const existing = results[resultIndex];
       if (existing) {
