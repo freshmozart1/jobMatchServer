@@ -9,29 +9,20 @@ export const LINKEDIN_USER_AGENT =
 
 const DEFAULT_NAVIGATION_TIMEOUT_MS = 30_000;
 const DEFAULT_PAGE_TIMEOUT_MS = 15_000;
-const SIGN_IN_MODAL_DISMISS_SELECTOR = '.modal__dismiss';
-const SIGN_IN_MODAL_TIMEOUT_MS = 5_000;
-const SIGN_IN_MODAL_SETTLE_MS = 300;
-const LINKEDIN_SEE_MORE_JOB_POSTINGS_PATH =
-  '/jobs-guest/jobs/api/seeMoreJobPostings/search';
-const LAZY_LOAD_RESPONSE_TIMEOUT_MS = 5_000;
-const LAZY_LOAD_SCROLL_SETTLE_MS = 300;
-const LAZY_LOAD_MAX_SCROLL_ATTEMPTS = 80;
-const SCROLL_BOTTOM_TOLERANCE_PX = 32;
 
-type LinkedInLazyLoadResponse = {
-  url(): string;
-  status(): number;
-  request(): {
-    method(): string;
-  };
-};
+// Cookie-consent (on load) and the "sign in to view more jobs" nag (any time
+// after) share the same overlay/dismiss-button markup on LinkedIn's guest
+// pages, so one generic poll-and-clear routine handles both.
+const OVERLAY_SELECTOR = '.modal__overlay';
+const OVERLAY_DISMISS_SELECTOR = '.modal__dismiss';
+const OVERLAY_POLL_TIMEOUT_MS = 15_000;
+const OVERLAY_POLL_INTERVAL_MS = 250;
+const OVERLAY_REQUIRED_CONSECUTIVE_CLEAR = 5;
+const OVERLAY_SETTLE_MS = 300;
 
-type LinkedInLazyLoadScrollOptions = {
-  maxScrollAttempts?: number;
-  responseTimeoutMs?: number;
-  scrollSettleMs?: number;
-};
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 export default async function waitForLinkedInPage(
   url: string,
@@ -55,11 +46,7 @@ export default async function waitForLinkedInPage(
       timeout: DEFAULT_NAVIGATION_TIMEOUT_MS,
     });
 
-    await dismissLinkedInSignInModalIfPresent(page);
-
-    await new Promise((resolve) => setTimeout(resolve, 750));
-
-    await scrollLinkedInLazyLoadedJobsUntilComplete(page);
+    await clearLinkedInOverlays(page);
 
     return { browser, browserServer, page };
   } catch (error) {
@@ -68,156 +55,65 @@ export default async function waitForLinkedInPage(
   }
 }
 
-async function dismissLinkedInSignInModalIfPresent(page: Page): Promise<void> {
-  // Wait until at least one dismiss button appears in the DOM, then bail if
-  // none show up (modal is optional — page may load without one).
-  const hasModal = await page
-    .waitForSelector(SIGN_IN_MODAL_DISMISS_SELECTOR, {
-      timeout: SIGN_IN_MODAL_TIMEOUT_MS,
-      state: 'attached',
-    })
-    .then(() => true)
-    .catch((error: unknown) => {
-      if (isOptionalSignInModalWaitError(error)) return false;
-      throw error;
-    });
+export type ClearLinkedInOverlaysOptions = {
+  timeoutMs?: number;
+  pollIntervalMs?: number;
+  requiredConsecutiveClear?: number;
+};
 
-  if (!hasModal) return;
-
-  // Use a direct JS click and DOM removal instead of elementHandle.click().
-  // The modal overlay carries pointer-events:none on its container, which causes
-  // Playwright's actionability check for pointer events to fail even though the
-  // dismiss button is visually present and interactable via JS.
-  await page.evaluate((dismissSel) => {
-    document
-      .querySelectorAll<HTMLElement>(dismissSel)
-      .forEach((btn) => btn.click());
-    document.querySelectorAll('.modal__overlay').forEach((el) => el.remove());
-  }, SIGN_IN_MODAL_DISMISS_SELECTOR);
-
-  await new Promise((resolve) => setTimeout(resolve, SIGN_IN_MODAL_SETTLE_MS));
-}
-
-export async function scrollLinkedInLazyLoadedJobsUntilComplete(
+// LinkedIn's guest pages block interaction behind a dismissible modal overlay
+// (a cookie-consent banner on load, later a "sign in to view more jobs" nag)
+// that can appear asynchronously at any point, not just once at page-load —
+// so this polls for a while instead of checking once, only concluding
+// "nothing to dismiss" after several consecutive not-found reads. Returns
+// whether an overlay was found (and dismissed) at any point during the poll,
+// which callers also use as a "was something covering the page just now"
+// staleness signal.
+//
+// Dismissal uses a direct JS click + DOM removal instead of relying on
+// Playwright's own actionability-checked click: the overlay carries
+// pointer-events:none on its container, which fails that check even though
+// the dismiss button is visually present and interactable via JS.
+export async function clearLinkedInOverlays(
   page: Page,
-  options: LinkedInLazyLoadScrollOptions = {},
-): Promise<void> {
-  const maxScrollAttempts =
-    options.maxScrollAttempts ?? LAZY_LOAD_MAX_SCROLL_ATTEMPTS;
-  const responseTimeoutMs =
-    options.responseTimeoutMs ?? LAZY_LOAD_RESPONSE_TIMEOUT_MS;
-  const scrollSettleMs = options.scrollSettleMs ?? LAZY_LOAD_SCROLL_SETTLE_MS;
+  options: ClearLinkedInOverlaysOptions = {},
+): Promise<boolean> {
+  const timeoutMs = options.timeoutMs ?? OVERLAY_POLL_TIMEOUT_MS;
+  const pollIntervalMs = options.pollIntervalMs ?? OVERLAY_POLL_INTERVAL_MS;
+  const requiredConsecutiveClear =
+    options.requiredConsecutiveClear ?? OVERLAY_REQUIRED_CONSECUTIVE_CLEAR;
+  const deadline = Date.now() + timeoutMs;
+  let consecutiveClear = 0;
+  let dismissedAny = false;
 
-  for (
-    let scrollAttempt = 0;
-    scrollAttempt < maxScrollAttempts;
-    scrollAttempt += 1
-  ) {
-    // Attach the rejection handler synchronously, before the await below.
-    // The timeout timer starts the moment waitForResponse is called, so if the
-    // handler were only wired up after `await scrollToPageBottom(page)` the
-    // timeout could reject during that gap with no listener attached, surfacing
-    // as an unhandled rejection that crashes the process under Node's default policy.
-    const responsePromise = page
-      .waitForResponse(isLinkedInSeeMoreJobPostingsResponse, {
-        timeout: responseTimeoutMs,
-      })
-      .catch((error: unknown) => {
-        if (isResponseWaitTimeoutError(error)) {
-          return null;
-        }
+  while (Date.now() < deadline) {
+    const foundOverlay = await page.evaluate(
+      ({ overlaySel, dismissSel }) => {
+        const overlay = document.querySelector(overlaySel);
+        if (!overlay) return false;
+        document
+          .querySelectorAll<HTMLElement>(dismissSel)
+          .forEach((btn) => btn.click());
+        document.querySelectorAll(overlaySel).forEach((el) => el.remove());
+        return true;
+      },
+      { overlaySel: OVERLAY_SELECTOR, dismissSel: OVERLAY_DISMISS_SELECTOR },
+    );
 
-        throw error;
-      });
-
-    const scrollState = await scrollToPageBottom(page);
-    const response = await responsePromise;
-
-    if (!response) {
-      console.debug(
-        `No LinkedIn lazy-load request detected after bottom scroll, scrollAttempt: ${scrollAttempt}, distanceToBottom: ${scrollState.distanceToBottom}`,
-      );
-      return;
+    if (foundOverlay) {
+      dismissedAny = true;
+      consecutiveClear = 0;
+    } else {
+      consecutiveClear += 1;
+      if (consecutiveClear >= requiredConsecutiveClear) break;
     }
 
-    assertSuccessfulLinkedInSeeMoreJobPostingsResponse(response);
-
-    console.debug(
-      `LinkedIn lazy-load response received, scrollAttempt: ${scrollAttempt}, status: ${response.status()}`,
-    );
-
-    if (scrollSettleMs > 0) {
-      await new Promise((resolve) => setTimeout(resolve, scrollSettleMs));
-    }
+    await sleep(pollIntervalMs);
   }
 
-  throw new Error(
-    `Max LinkedIn lazy-load scroll attempts reached: ${maxScrollAttempts}`,
-  );
-}
-
-export function isLinkedInSeeMoreJobPostingsResponse(
-  response: LinkedInLazyLoadResponse,
-): boolean {
-  try {
-    const url = new URL(response.url());
-
-    return (
-      response.request().method() === 'GET' &&
-      url.pathname === LINKEDIN_SEE_MORE_JOB_POSTINGS_PATH
-    );
-  } catch {
-    return false;
-  }
-}
-
-async function scrollToPageBottom(
-  page: Page,
-): Promise<{ distanceToBottom: number }> {
-  return page.evaluate((bottomTolerancePx) => {
-    const scrollElement = document.scrollingElement ?? document.documentElement;
-
-    window.scrollTo(0, scrollElement.scrollHeight);
-
-    const distanceToBottom = Math.max(
-      0,
-      scrollElement.scrollHeight - window.scrollY - window.innerHeight,
-    );
-
-    return {
-      distanceToBottom:
-        distanceToBottom <= bottomTolerancePx ? 0 : distanceToBottom,
-    };
-  }, SCROLL_BOTTOM_TOLERANCE_PX);
-}
-
-function assertSuccessfulLinkedInSeeMoreJobPostingsResponse(
-  response: LinkedInLazyLoadResponse,
-): void {
-  const status = response.status();
-
-  if (status >= 200 && status < 300) {
-    return;
+  if (dismissedAny) {
+    await sleep(OVERLAY_SETTLE_MS);
   }
 
-  throw new Error(
-    `LinkedIn lazy-load request failed with status ${status}: ${response.url()}`,
-  );
-}
-
-function isResponseWaitTimeoutError(error: unknown): boolean {
-  return (
-    error instanceof Error &&
-    (error.name === 'TimeoutError' ||
-      error.message.includes('Timeout') ||
-      error.message.includes('waiting for response'))
-  );
-}
-
-function isOptionalSignInModalWaitError(error: unknown): boolean {
-  return (
-    error instanceof Error &&
-    (error.name === 'TimeoutError' ||
-      error.message.includes(SIGN_IN_MODAL_DISMISS_SELECTOR))
-  );
+  return dismissedAny;
 }

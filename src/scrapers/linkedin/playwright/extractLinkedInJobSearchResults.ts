@@ -1,5 +1,6 @@
-import type { Page, Response } from 'playwright';
+import type { Page } from 'playwright';
 import type { ExtractedLinkedInJobPage } from '#types';
+import { clearLinkedInOverlays } from './waitForLinkedInPage.js';
 
 // Selectors verified against the live LinkedIn guest job-search page (public, unauthenticated).
 // The guest page renders a two-pane layout at viewport widths ≥1128 px: a left list of job cards
@@ -8,10 +9,32 @@ import type { ExtractedLinkedInJobPage } from '#types';
 const JOB_CARDS_SELECTOR = 'ul.jobs-search__results-list > li';
 const JOB_CARD_URN_ATTR = 'data-entity-urn';
 const JOB_CARD_LINK_SELECTOR = 'a.base-card__full-link';
+// Belt-and-suspenders: LinkedIn's guest job list can append a handful of
+// trailing, non-job `<li>`s after the real cards (no title, clicking them
+// does nothing useful) — scoping to items that actually contain a title
+// heading keeps the counted total and the clicked index in sync so the click
+// loop never targets one of those.
+const JOB_CARD_TITLE_SELECTOR = 'h3';
+const JOB_CARD_COMPANY_SELECTOR = 'h4.base-search-card__subtitle';
 const DETAIL_PANE_SELECTOR = '.two-pane-serp-page__detail-view';
-const DETAIL_PANE_API_PATH = '/jobs-guest/jobs/api/jobPosting/';
 const DETAIL_PANE_UPDATE_TIMEOUT_MS = 5_000;
 const MAX_CONSECUTIVE_CARD_FAILURES = 3;
+const DELAY_BETWEEN_JOBS_MS = 700;
+
+const SEE_MORE_BUTTON_SELECTOR = 'button.infinite-scroller__show-more-button';
+const VIEWED_ALL_JOBS_SELECTOR = '.see-more-jobs__viewed-all';
+const MAX_SCROLL_ATTEMPTS = 60;
+const STABLE_SCROLLS_TO_STOP = 3;
+const SCROLL_SETTLE_MS = 800;
+const MAX_SEE_MORE_CLICKS = 200; // circuit breaker, not an expected real limit
+const STABLE_CLICKS_TO_STOP = 3; // same rationale as STABLE_SCROLLS_TO_STOP
+const SEE_MORE_POLL_ATTEMPTS = 10;
+const SEE_MORE_POLL_INTERVAL_MS = 300;
+
+// Lightweight, single-pass overlay check used around each per-card click —
+// unlike the patient multi-second poll used once at page load, this only
+// needs to catch (and clear) whatever is covering the page *right now*.
+const PER_INTERACTION_OVERLAY_OPTIONS = { requiredConsecutiveClear: 1 };
 
 // The pane's topcard title anchor links to the job-view URL, whose slug ends with the
 // numeric job id (…/jobs/view/<slug>-<jobId>). Matching on href rather than the
@@ -45,6 +68,10 @@ function isNavigatedAwayError(error: unknown): boolean {
   );
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 export type LinkedInJobSearchResultCard = {
   jobId: string | null;
   detailUrl: string | null;
@@ -54,9 +81,10 @@ export async function listLinkedInJobSearchResultCards(
   page: Page,
 ): Promise<LinkedInJobSearchResultCard[]> {
   return page.evaluate(
-    ({ listSel, urnAttr, linkSel }) => {
-      return Array.from(document.querySelectorAll<HTMLElement>(listSel)).map(
-        (li) => {
+    ({ listSel, urnAttr, linkSel, titleSel }) => {
+      return Array.from(document.querySelectorAll<HTMLElement>(listSel))
+        .filter((li) => li.querySelector(titleSel))
+        .map((li) => {
           const urn = li.querySelector<HTMLElement>('[' + urnAttr + ']');
           const rawUrn = urn?.getAttribute(urnAttr) ?? null;
           const jobIdMatch = rawUrn?.match(/jobPosting:(\d+)/);
@@ -64,59 +92,200 @@ export async function listLinkedInJobSearchResultCards(
 
           const link = li.querySelector<HTMLAnchorElement>(linkSel);
           return { jobId, detailUrl: link?.href ?? null };
-        },
-      );
+        });
     },
     {
       listSel: JOB_CARDS_SELECTOR,
       urnAttr: JOB_CARD_URN_ATTR,
       linkSel: JOB_CARD_LINK_SELECTOR,
+      titleSel: JOB_CARD_TITLE_SELECTOR,
     },
   );
 }
 
+async function isSelectorVisible(
+  page: Page,
+  selector: string,
+): Promise<boolean> {
+  return page.evaluate((sel) => {
+    const el = document.querySelector<HTMLElement>(sel);
+    if (!el) return false;
+    const rect = el.getBoundingClientRect();
+    const style = window.getComputedStyle(el);
+    return (
+      rect.width > 0 &&
+      rect.height > 0 &&
+      style.visibility !== 'hidden' &&
+      style.display !== 'none'
+    );
+  }, selector);
+}
+
+async function evaluateClick(page: Page, selector: string): Promise<boolean> {
+  return page.evaluate((sel) => {
+    const el = document.querySelector<HTMLElement>(sel);
+    if (!el) return false;
+    el.click();
+    return true;
+  }, selector);
+}
+
+// Counts unique job IDs rather than raw `<li>` nodes: LinkedIn's guest
+// pagination can silently re-serve an earlier page verbatim on a long enough
+// session, which raw DOM counting can't distinguish from genuine growth.
+async function countUniqueJobIds(page: Page): Promise<number> {
+  const cards = await listLinkedInJobSearchResultCards(page);
+  return new Set(
+    cards
+      .map((card) => card.jobId)
+      .filter((jobId): jobId is string => jobId !== null),
+  ).size;
+}
+
+async function scrollToPageBottom(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const scrollElement = document.scrollingElement ?? document.documentElement;
+    window.scrollTo(0, scrollElement.scrollHeight);
+  });
+}
+
+// Phase A: LinkedIn's own scroll-triggered infinite scroll, which loads jobs
+// in batches of 10 automatically until the list reaches 120 items — at that
+// point LinkedIn hides this behavior behind a manual "See more jobs" button
+// instead (Phase B below), so stop scrolling the moment that button appears
+// rather than waiting for scroll growth to go stable on its own (it can
+// appear before that happens). Returns the unique job count once scrolling
+// stops, as the starting point for Phase B.
+async function scrollLoadPhase(
+  page: Page,
+  options: LoadAllJobsOptions,
+): Promise<number> {
+  const maxScrollAttempts = options.maxScrollAttempts ?? MAX_SCROLL_ATTEMPTS;
+  const stableScrollsToStop =
+    options.stableScrollsToStop ?? STABLE_SCROLLS_TO_STOP;
+  const scrollSettleMs = options.scrollSettleMs ?? SCROLL_SETTLE_MS;
+  let previousUniqueCount = 0;
+  let stableReads = 0;
+
+  for (let attempt = 0; attempt < maxScrollAttempts; attempt += 1) {
+    const currentUniqueCount = await countUniqueJobIds(page);
+
+    if (currentUniqueCount === previousUniqueCount) {
+      stableReads += 1;
+      if (stableReads >= stableScrollsToStop) break;
+    } else {
+      stableReads = 0;
+    }
+    previousUniqueCount = currentUniqueCount;
+
+    if (await isSelectorVisible(page, SEE_MORE_BUTTON_SELECTOR)) break;
+
+    await scrollToPageBottom(page);
+    if (scrollSettleMs > 0) await sleep(scrollSettleMs);
+  }
+
+  return previousUniqueCount;
+}
+
+async function pollForJobCountChange(
+  page: Page,
+  previousCount: number,
+  pollAttempts: number,
+  pollIntervalMs: number,
+): Promise<number> {
+  let currentCount = previousCount;
+  for (let poll = 0; poll < pollAttempts; poll += 1) {
+    if (pollIntervalMs > 0) await sleep(pollIntervalMs);
+    currentCount = await countUniqueJobIds(page);
+    if (currentCount !== previousCount) break;
+  }
+  return currentCount;
+}
+
+// Phase B: past 120 items LinkedIn requires clicking "See more jobs" for each
+// further batch of 10 instead of auto-loading on scroll. Stops once
+// LinkedIn's own "You've viewed all jobs for this search" banner appears, the
+// button itself goes away, or growth stalls for several consecutive clicks
+// (the same stale/repeated-page risk countUniqueJobIds() already guards
+// against in Phase A). The next batch of 10 arrives asynchronously after a
+// "See more" click, so this polls briefly rather than assuming it's already
+// in the DOM.
+async function clickLoadPhase(
+  page: Page,
+  initialUniqueCount: number,
+  options: LoadAllJobsOptions,
+): Promise<void> {
+  const maxSeeMoreClicks = options.maxSeeMoreClicks ?? MAX_SEE_MORE_CLICKS;
+  const stableClicksToStop =
+    options.stableClicksToStop ?? STABLE_CLICKS_TO_STOP;
+  const pollAttempts = options.seeMorePollAttempts ?? SEE_MORE_POLL_ATTEMPTS;
+  const pollIntervalMs =
+    options.seeMorePollIntervalMs ?? SEE_MORE_POLL_INTERVAL_MS;
+  let previousUniqueCount = initialUniqueCount;
+  let stableClicks = 0;
+
+  for (let attempt = 0; attempt < maxSeeMoreClicks; attempt += 1) {
+    if (await isSelectorVisible(page, VIEWED_ALL_JOBS_SELECTOR)) break;
+    if (!(await isSelectorVisible(page, SEE_MORE_BUTTON_SELECTOR))) break;
+
+    // The sign-in nag can reappear here too — clear it before every click.
+    await clearLinkedInOverlays(page, PER_INTERACTION_OVERLAY_OPTIONS);
+    const clicked = await evaluateClick(page, SEE_MORE_BUTTON_SELECTOR);
+    if (!clicked) break;
+
+    const currentUniqueCount = await pollForJobCountChange(
+      page,
+      previousUniqueCount,
+      pollAttempts,
+      pollIntervalMs,
+    );
+
+    if (currentUniqueCount === previousUniqueCount) {
+      stableClicks += 1;
+      if (stableClicks >= stableClicksToStop) break;
+    } else {
+      stableClicks = 0;
+    }
+    previousUniqueCount = currentUniqueCount;
+  }
+}
+
+export type LoadAllJobsOptions = {
+  maxScrollAttempts?: number;
+  stableScrollsToStop?: number;
+  scrollSettleMs?: number;
+  maxSeeMoreClicks?: number;
+  stableClicksToStop?: number;
+  seeMorePollAttempts?: number;
+  seeMorePollIntervalMs?: number;
+};
+
+export async function loadAllLinkedInJobSearchResults(
+  page: Page,
+  options: LoadAllJobsOptions = {},
+): Promise<void> {
+  const afterScrollCount = await scrollLoadPhase(page, options);
+  await clickLoadPhase(page, afterScrollCount, options);
+}
+
+// Clicks the Nth *valid* job card (same title-filtered ordering
+// listLinkedInJobSearchResultCards uses) via a direct JS click on its own
+// detail-link anchor rather than a Playwright coordinate click on the parent
+// `<li>`: a coordinate click is satisfied by any descendant receiving the
+// hit-tested pixel, including a secondary company-name/logo link LinkedIn
+// layers on top of the full-link overlay in part of the card, which would
+// trigger a normal, non-intercepted navigation away from the results page.
 export async function clickLinkedInJobSearchResultCard(
   page: Page,
-  card: LinkedInJobSearchResultCard,
   index: number,
-): Promise<void> {
-  // Wire up the response watcher BEFORE clicking so the response is never missed
-  // if LinkedIn's AJAX call fires faster than a post-click waitForResponse setup.
-  // The response is diagnostics only — the DOM check below is authoritative
-  // (LinkedIn server-renders the first card's detail, so clicking it may fire no
-  // request at all). The catch must be attached at creation: the promise may
-  // settle unobserved on the happy path, and an unhandled rejection would crash
-  // the process under Node's default policy.
-  const expectedResponsePath = card.jobId
-    ? DETAIL_PANE_API_PATH + card.jobId
-    : DETAIL_PANE_API_PATH;
-  const responsePromise: Promise<Response | null> = page
-    .waitForResponse(
-      (response) => response.url().includes(expectedResponsePath),
-      { timeout: DETAIL_PANE_UPDATE_TIMEOUT_MS },
-    )
-    .catch((error: unknown) => {
-      if (!isTimeoutError(error)) {
-        console.warn(
-          `jobPosting response watcher failed for card at index ${index}: ${error instanceof Error ? error.message : String(error)}`,
-        );
-      }
-      return null;
-    });
-
-  // Dismiss any sign-in overlay modals that would intercept the click, then
-  // dispatch a native DOM click directly on the card's own detail-link anchor.
-  // A native HTMLElement.click() call targets that exact anchor unambiguously —
-  // unlike a Playwright coordinate click on the parent <li>, which is satisfied
-  // by ANY descendant receiving the hit-tested pixel, including a secondary
-  // company-name/logo link LinkedIn layers on top of the full-link overlay in
-  // part of the card. Clicking that link is a normal, non-intercepted
-  // navigation that leaves the search-results page entirely.
-  const clicked = await page.evaluate(
-    ({ listSel, linkSel, cardIndex }) => {
-      const li = document.querySelectorAll<HTMLElement>(listSel)[cardIndex];
+): Promise<boolean> {
+  return page.evaluate(
+    ({ listSel, linkSel, titleSel, cardIndex }) => {
+      const items = Array.from(
+        document.querySelectorAll<HTMLElement>(listSel),
+      ).filter((li) => li.querySelector(titleSel));
+      const li = items[cardIndex];
       if (!li) return false;
-      document.querySelectorAll('.modal__overlay').forEach((el) => el.remove());
       const link = li.querySelector<HTMLAnchorElement>(linkSel);
       if (!link) return false;
       link.click();
@@ -125,65 +294,37 @@ export async function clickLinkedInJobSearchResultCard(
     {
       listSel: JOB_CARDS_SELECTOR,
       linkSel: JOB_CARD_LINK_SELECTOR,
+      titleSel: JOB_CARD_TITLE_SELECTOR,
       cardIndex: index,
     },
   );
+}
 
-  if (!clicked) {
-    throw new Error(
-      `Job card at index ${index} — could not find ${JOB_CARD_LINK_SELECTOR} to click (card missing or markup drift).`,
-    );
-  }
-
-  // Fast, distinct detection of a genuine full navigation. Checked before any
-  // further waiting since we already know deterministically the page is gone.
-  if (!page.url().includes('/jobs/search')) {
-    throw new Error(
-      `${NAVIGATED_AWAY_PREFIX} while clicking card at index ${index} (now at ${page.url()}).`,
-    );
-  }
-
-  if (card.jobId === null) {
-    // Without a job id there is nothing to verify the pane against; give the
-    // pane its best chance to settle by waiting out the API response window.
-    console.warn(
-      `Job card at index ${index} has no data-entity-urn job id; cannot verify the detail pane updated.`,
-    );
-    await responsePromise;
-    return;
-  }
-
-  // Authoritative check that the pane now renders the clicked job. LinkedIn
-  // updates the page URL via history.pushState even when the content fetch
-  // fails (e.g. rate-limited), so only the pane's own job-view link proves the
-  // DOM updated. Resolves instantly for the server-rendered first card and
-  // polls through the response-arrived-but-DOM-not-yet-patched race.
-  try {
-    await page.waitForSelector(detailPaneJobLinkSelector(card.jobId), {
-      state: 'visible',
-      timeout: DETAIL_PANE_UPDATE_TIMEOUT_MS,
-    });
-  } catch (error) {
-    if (!isTimeoutError(error)) throw error;
-    // The watcher shares the click's timeout window, so it has settled by now.
-    const response = await responsePromise;
-    if (response === null) {
-      throw new Error(
-        `Detail pane did not render job ${card.jobId} and no jobPosting API response was observed — the click may have been intercepted or fired no request.`,
-        { cause: error },
-      );
-    }
-    if (!response.ok()) {
-      throw new Error(
-        `Detail pane did not render job ${card.jobId} — jobPosting API responded ${response.status()}; LinkedIn is likely rate-limiting guest job detail requests.`,
-        { cause: error },
-      );
-    }
-    throw new Error(
-      `Detail pane did not render job ${card.jobId} although the jobPosting API responded ${response.status()}.`,
-      { cause: error },
-    );
-  }
+// The company name shown in the list card doesn't change on click, unlike the
+// detail pane's — reading it lets scrapeLinkedInJobSearchResultCard() compare
+// the two and catch a pane that silently kept showing a previous job's data.
+async function readListCardCompany(
+  page: Page,
+  index: number,
+): Promise<string | null> {
+  return page.evaluate(
+    ({ listSel, titleSel, companySel, cardIndex }) => {
+      const items = Array.from(
+        document.querySelectorAll<HTMLElement>(listSel),
+      ).filter((li) => li.querySelector(titleSel));
+      const li = items[cardIndex];
+      if (!li) return null;
+      const text = li.querySelector(companySel)?.textContent ?? '';
+      const normalized = text.replace(/\s+/g, ' ').trim();
+      return normalized.length > 0 ? normalized : null;
+    },
+    {
+      listSel: JOB_CARDS_SELECTOR,
+      titleSel: JOB_CARD_TITLE_SELECTOR,
+      companySel: JOB_CARD_COMPANY_SELECTOR,
+      cardIndex: index,
+    },
+  );
 }
 
 export async function extractLinkedInJobDetailPane(
@@ -285,33 +426,135 @@ export async function extractLinkedInJobDetailPane(
   }, DETAIL_PANE_SELECTOR);
 }
 
+type ScrapeCardResult = {
+  extracted: ExtractedLinkedInJobPage;
+  stale: boolean;
+};
+
+// Clicks the card at `index`, confirms (best-effort) that the detail pane now
+// shows *that* job, and extracts its full field set. Returns `stale: true`
+// rather than throwing when the confirmation is merely inconclusive (pane
+// didn't visibly settle in time, company text disagrees with the list card,
+// or an overlay was still up when we read the data) — those jobs get exactly
+// one retry after the full list has been scraped once, instead of being
+// discarded outright on what may just be a slow render.
+async function scrapeLinkedInJobSearchResultCard(
+  page: Page,
+  card: LinkedInJobSearchResultCard,
+  index: number,
+  detailPaneUpdateTimeoutMs: number,
+): Promise<ScrapeCardResult> {
+  const listCompany = await readListCardCompany(page, index);
+
+  await clearLinkedInOverlays(page, PER_INTERACTION_OVERLAY_OPTIONS);
+
+  const clicked = await clickLinkedInJobSearchResultCard(page, index);
+  if (!clicked) {
+    throw new Error(
+      `Job card at index ${index} — could not find ${JOB_CARD_LINK_SELECTOR} to click (card missing or markup drift).`,
+    );
+  }
+
+  // Fast, distinct detection of a genuine full navigation. Checked before any
+  // further waiting since we already know deterministically the page is gone.
+  if (!page.url().includes('/jobs/search')) {
+    throw new Error(
+      `${NAVIGATED_AWAY_PREFIX} while clicking card at index ${index} (now at ${page.url()}).`,
+    );
+  }
+
+  let paneConfirmed: boolean;
+  if (card.jobId === null) {
+    // Without a job id there is nothing to verify the pane against; give the
+    // pane a moment to settle and proceed — flagged as stale below only via
+    // the company-mismatch/late-overlay signals, same as any other card.
+    console.warn(
+      `Job card at index ${index} has no data-entity-urn job id; cannot verify the detail pane updated.`,
+    );
+    await sleep(300);
+    paneConfirmed = true;
+  } else {
+    paneConfirmed = await page
+      .waitForSelector(detailPaneJobLinkSelector(card.jobId), {
+        state: 'visible',
+        timeout: detailPaneUpdateTimeoutMs,
+      })
+      .then(() => true)
+      .catch((error: unknown) => {
+        if (isTimeoutError(error)) return false;
+        throw error;
+      });
+  }
+
+  const extracted = await extractLinkedInJobDetailPane(page);
+  const lateOverlayDetected = await clearLinkedInOverlays(
+    page,
+    PER_INTERACTION_OVERLAY_OPTIONS,
+  );
+  const companyMismatch =
+    listCompany !== null &&
+    extracted.company !== null &&
+    listCompany !== extracted.company;
+
+  return {
+    extracted,
+    stale: !paneConfirmed || companyMismatch || lateOverlayDetected,
+  };
+}
+
 export type LinkedInJobSearchResultsExtraction = {
   results: Array<{
     detailUrl: string | null;
     extracted: ExtractedLinkedInJobPage;
   }>;
   aborted: boolean;
-  abortReason?: 'consecutive-failures' | 'navigated-away';
+};
+
+export type ExtractLinkedInJobSearchResultsOptions = LoadAllJobsOptions & {
+  delayBetweenJobsMs?: number;
+  detailPaneUpdateTimeoutMs?: number;
 };
 
 export async function extractLinkedInJobSearchResults(
   page: Page,
+  options: ExtractLinkedInJobSearchResultsOptions = {},
 ): Promise<LinkedInJobSearchResultsExtraction> {
-  const cards: LinkedInJobSearchResultCard[] =
-    await listLinkedInJobSearchResultCards(page);
+  const delayBetweenJobsMs =
+    options.delayBetweenJobsMs ?? DELAY_BETWEEN_JOBS_MS;
+  const detailPaneUpdateTimeoutMs =
+    options.detailPaneUpdateTimeoutMs ?? DETAIL_PANE_UPDATE_TIMEOUT_MS;
+
+  await loadAllLinkedInJobSearchResults(page, options);
+
+  const cards = await listLinkedInJobSearchResultCards(page);
   const results: LinkedInJobSearchResultsExtraction['results'] = [];
+  const staleEntries: Array<{ cardIndex: number; resultIndex: number }> = [];
+  // A job ID already scraped successfully earlier in this same request is
+  // skipped rather than re-clicked/re-embedded — LinkedIn's guest pagination
+  // can silently re-serve an earlier page's cards.
+  const seenJobIds = new Set<string>();
   let consecutiveFailures = 0;
-  let aborted = false;
-  let abortReason: LinkedInJobSearchResultsExtraction['abortReason'];
 
   for (let index = 0; index < cards.length; index += 1) {
     const card = cards[index];
     if (!card) continue;
+    if (card.jobId !== null && seenJobIds.has(card.jobId)) continue;
 
     try {
-      await clickLinkedInJobSearchResultCard(page, card, index);
-      const extracted = await extractLinkedInJobDetailPane(page);
+      const { extracted, stale } = await scrapeLinkedInJobSearchResultCard(
+        page,
+        card,
+        index,
+        detailPaneUpdateTimeoutMs,
+      );
       results.push({ detailUrl: card.detailUrl, extracted });
+      if (card.jobId !== null) seenJobIds.add(card.jobId);
+      if (stale) {
+        staleEntries.push({
+          cardIndex: index,
+          resultIndex: results.length - 1,
+        });
+      }
       consecutiveFailures = 0;
     } catch (err) {
       console.warn(
@@ -320,29 +563,51 @@ export async function extractLinkedInJobSearchResults(
 
       if (isNavigatedAwayError(err)) {
         // The results-list DOM is gone; no point retrying or waiting for a
-        // 3-strike streak. This is a page-local click mishap, not systemic
-        // rate-limiting — the caller should still try subsequent pages.
+        // 3-strike streak.
         console.warn(
-          `Aborting remaining ${cards.length - index - 1} card(s) on this page — navigated away from the search results unexpectedly.`,
+          `Aborting remaining ${cards.length - index - 1} card(s) — navigated away from the search results unexpectedly.`,
         );
-        aborted = true;
-        abortReason = 'navigated-away';
-        break;
+        return { results, aborted: true };
       }
 
       consecutiveFailures += 1;
       if (consecutiveFailures >= MAX_CONSECUTIVE_CARD_FAILURES) {
-        // When the detail pane stops updating (e.g. guest rate limit), every
-        // remaining card fails identically — stop hammering LinkedIn.
         console.warn(
-          `Aborting remaining ${cards.length - index - 1} card(s) on this page after ${consecutiveFailures} consecutive failures — LinkedIn is likely rate-limiting guest job detail requests.`,
+          `Aborting remaining ${cards.length - index - 1} card(s) after ${consecutiveFailures} consecutive failures.`,
         );
-        aborted = true;
-        abortReason = 'consecutive-failures';
-        break;
+        return { results, aborted: true };
       }
+    }
+
+    await sleep(delayBetweenJobsMs);
+  }
+
+  // Deferred until the whole list has been scraped once — by then the page
+  // has settled down, giving stale cards a better chance the second time
+  // instead of compounding retries into the middle of the first pass.
+  for (const { cardIndex, resultIndex } of staleEntries) {
+    const card = cards[cardIndex];
+    if (!card) continue;
+
+    await sleep(delayBetweenJobsMs);
+
+    try {
+      const { extracted } = await scrapeLinkedInJobSearchResultCard(
+        page,
+        card,
+        cardIndex,
+        detailPaneUpdateTimeoutMs,
+      );
+      const existing = results[resultIndex];
+      if (existing) {
+        results[resultIndex] = { detailUrl: existing.detailUrl, extracted };
+      }
+    } catch (err) {
+      console.warn(
+        `Retry failed for stale job card at index ${cardIndex}: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   }
 
-  return { results, aborted, ...(abortReason ? { abortReason } : {}) };
+  return { results, aborted: false };
 }

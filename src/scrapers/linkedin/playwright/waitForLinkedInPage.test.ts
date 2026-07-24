@@ -1,169 +1,70 @@
-import { beforeEach, describe, expect, it, jest } from '@jest/globals';
+import { describe, expect, it, jest } from '@jest/globals';
 import type { Page } from 'playwright';
-import {
-  isLinkedInSeeMoreJobPostingsResponse,
-  scrollLinkedInLazyLoadedJobsUntilComplete,
-} from './waitForLinkedInPage.js';
-
-type ResponseMock = {
-  url(): string;
-  status(): number;
-  request(): {
-    method(): string;
-  };
-};
+import { clearLinkedInOverlays } from './waitForLinkedInPage.js';
 
 type PageMock = {
-  evaluate: ReturnType<
-    typeof jest.fn<() => Promise<{ distanceToBottom: number }>>
-  >;
-  waitForResponse: ReturnType<
-    typeof jest.fn<
-      (
-        predicate: (response: ResponseMock) => boolean,
-        options: { timeout: number },
-      ) => Promise<ResponseMock>
-    >
-  >;
+  evaluate: ReturnType<typeof jest.fn<() => Promise<boolean>>>;
 };
 
-const linkedInLazyLoadUrl =
-  'https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?trk=guest_homepage-basic_guest_nav_menu_jobs&position=1&pageNum=0&start=25';
-
-function createResponseMock({
-  method = 'GET',
-  status = 200,
-  url = linkedInLazyLoadUrl,
-}: {
-  method?: string;
-  status?: number;
-  url?: string;
-} = {}): ResponseMock {
-  return {
-    url: () => url,
-    status: () => status,
-    request: () => ({
-      method: () => method,
-    }),
-  };
+function createPageMock(overlayReads: boolean[]): PageMock {
+  const evaluate = jest.fn<() => Promise<boolean>>();
+  for (const read of overlayReads) {
+    evaluate.mockResolvedValueOnce(read);
+  }
+  evaluate.mockResolvedValue(false);
+  return { evaluate };
 }
 
-function createTimeoutError(): Error {
-  const error = new Error('Timeout 5000ms exceeded while waiting for response');
+describe('clearLinkedInOverlays', () => {
+  it('resolves quickly with false when no overlay is ever found', async () => {
+    const page = createPageMock([]);
 
-  error.name = 'TimeoutError';
-
-  return error;
-}
-
-function createPageMock(responses: Array<ResponseMock | Error>): PageMock {
-  const evaluate = jest.fn<() => Promise<{ distanceToBottom: number }>>();
-  const waitForResponse =
-    jest.fn<
-      (
-        predicate: (response: ResponseMock) => boolean,
-        options: { timeout: number },
-      ) => Promise<ResponseMock>
-    >();
-
-  evaluate.mockResolvedValue({ distanceToBottom: 0 });
-  waitForResponse.mockImplementation(async (predicate) => {
-    const response = responses.shift() ?? createTimeoutError();
-
-    if (response instanceof Error) {
-      throw response;
-    }
-
-    if (!predicate(response)) {
-      throw new Error(
-        `Unexpected unmatched response in test: ${response.url()}`,
-      );
-    }
-
-    return response;
-  });
-
-  return { evaluate, waitForResponse };
-}
-
-describe('waitForLinkedInPage (playwright) lazy-load scrolling', () => {
-  beforeEach(() => {
-    jest.spyOn(console, 'debug').mockImplementation(() => undefined);
-  });
-
-  it('matches LinkedIn see-more job posting GET responses', () => {
-    expect(isLinkedInSeeMoreJobPostingsResponse(createResponseMock())).toBe(
-      true,
-    );
-  });
-
-  it('rejects non-GET responses and unrelated paths', () => {
-    expect(
-      isLinkedInSeeMoreJobPostingsResponse(
-        createResponseMock({ method: 'POST' }),
-      ),
-    ).toBe(false);
-    expect(
-      isLinkedInSeeMoreJobPostingsResponse(
-        createResponseMock({ url: 'https://www.linkedin.com/jobs/search' }),
-      ),
-    ).toBe(false);
-  });
-
-  it('scrolls again after each successful lazy-load response and stops on timeout', async () => {
-    const page = createPageMock([
-      createResponseMock({
-        url: linkedInLazyLoadUrl.replace('start=25', 'start=25'),
-      }),
-      createResponseMock({
-        url: linkedInLazyLoadUrl.replace('start=25', 'start=50'),
-      }),
-      createTimeoutError(),
-    ]);
-
-    await scrollLinkedInLazyLoadedJobsUntilComplete(page as unknown as Page, {
-      responseTimeoutMs: 1,
-      scrollSettleMs: 0,
+    const dismissed = await clearLinkedInOverlays(page as unknown as Page, {
+      pollIntervalMs: 0,
+      requiredConsecutiveClear: 1,
     });
 
-    expect(page.evaluate).toHaveBeenCalledTimes(3);
-    expect(page.waitForResponse).toHaveBeenCalledTimes(3);
-  });
-
-  it('returns when the first bottom scroll does not trigger a lazy-load response', async () => {
-    const page = createPageMock([createTimeoutError()]);
-
-    await scrollLinkedInLazyLoadedJobsUntilComplete(page as unknown as Page, {
-      responseTimeoutMs: 1,
-      scrollSettleMs: 0,
-    });
-
+    expect(dismissed).toBe(false);
     expect(page.evaluate).toHaveBeenCalledTimes(1);
-    expect(page.waitForResponse).toHaveBeenCalledTimes(1);
   });
 
-  it('throws when a matching LinkedIn lazy-load response fails', async () => {
-    const page = createPageMock([createResponseMock({ status: 429 })]);
+  it('returns true after dismissing an overlay and confirming it stays cleared', async () => {
+    const page = createPageMock([true]);
 
-    await expect(
-      scrollLinkedInLazyLoadedJobsUntilComplete(page as unknown as Page, {
-        responseTimeoutMs: 1,
-        scrollSettleMs: 0,
-      }),
-    ).rejects.toThrow('LinkedIn lazy-load request failed with status 429');
+    const dismissed = await clearLinkedInOverlays(page as unknown as Page, {
+      pollIntervalMs: 0,
+      requiredConsecutiveClear: 2,
+    });
+
+    expect(dismissed).toBe(true);
+    // 1 read that finds+dismisses the overlay, then 2 consecutive clear reads.
+    expect(page.evaluate).toHaveBeenCalledTimes(3);
   });
 
-  it('throws when max scroll attempts are reached while lazy-load responses continue', async () => {
-    const page = createPageMock([createResponseMock(), createResponseMock()]);
+  it('keeps polling through a re-appearing overlay before concluding it is clear', async () => {
+    const page = createPageMock([true, false, true, false]);
 
-    await expect(
-      scrollLinkedInLazyLoadedJobsUntilComplete(page as unknown as Page, {
-        maxScrollAttempts: 2,
-        responseTimeoutMs: 1,
-        scrollSettleMs: 0,
-      }),
-    ).rejects.toThrow('Max LinkedIn lazy-load scroll attempts reached: 2');
+    const dismissed = await clearLinkedInOverlays(page as unknown as Page, {
+      pollIntervalMs: 0,
+      requiredConsecutiveClear: 2,
+    });
 
-    expect(page.evaluate).toHaveBeenCalledTimes(2);
+    expect(dismissed).toBe(true);
+    // Sequence: found, clear(1), found again (resets streak), clear(1), clear(2) -> stop.
+    expect(page.evaluate).toHaveBeenCalledTimes(5);
+  });
+
+  it('stops once the timeout budget is exhausted even if the overlay keeps reappearing', async () => {
+    const page = createPageMock([true, true, true, true, true]);
+
+    const dismissed = await clearLinkedInOverlays(page as unknown as Page, {
+      pollIntervalMs: 5,
+      timeoutMs: 12,
+      requiredConsecutiveClear: 10,
+    });
+
+    expect(dismissed).toBe(true);
+    expect(page.evaluate.mock.calls.length).toBeGreaterThan(0);
+    expect(page.evaluate.mock.calls.length).toBeLessThan(10);
   });
 });

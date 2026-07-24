@@ -286,80 +286,52 @@ export async function scrapeJob(
     await client.connect();
 
     for (const keyword of searchParams.keywords) {
-      const firstPageUrl = buildLinkedInJobSearchUrl(
+      const pageUrl = buildLinkedInJobSearchUrl(
         keyword,
         searchParams.location,
         searchParams.distance,
         searchParams.datePosted,
-        0,
       );
       const state: KeywordScrapeState = {
         jobs: [],
         companyAddressFailures: new Set(),
         pendingRetry: new Map(),
       };
-      let pageNum = 0;
 
-      while (searchParams.maxPages === 0 || pageNum < searchParams.maxPages) {
-        const pageUrl = buildLinkedInJobSearchUrl(
-          keyword,
-          searchParams.location,
-          searchParams.distance,
-          searchParams.datePosted,
-          pageNum,
-        );
+      if (!isSupportedLinkedInUrl(pageUrl, 'jobSearchPage')) {
+        throw new Error('Only LinkedIn jobs search URLs are supported.');
+      }
 
-        if (!isSupportedLinkedInUrl(pageUrl, 'jobSearchPage')) {
-          throw new Error('Only LinkedIn jobs search URLs are supported.');
+      const { browserServer, page } = await waitForLinkedInPage(pageUrl);
+
+      try {
+        const { results, aborted } =
+          await extractLinkedInJobSearchResults(page);
+
+        for (const result of results) {
+          await processSearchResult(
+            client,
+            result,
+            pageUrl,
+            companyAddressCache,
+            state,
+          );
         }
 
-        const { browserServer, page } = await waitForLinkedInPage(pageUrl);
-
-        try {
-          const { results, aborted, abortReason } =
-            await extractLinkedInJobSearchResults(page);
-
-          if (results.length === 0) {
-            break;
-          }
-
-          for (const result of results) {
-            await processSearchResult(
-              client,
-              result,
-              pageUrl,
-              companyAddressCache,
-              state,
-            );
-          }
-
-          // The aborted page's partial results above are still processed either way.
-          if (aborted) {
-            if (abortReason === 'navigated-away') {
-              // Page-local DOM corruption from a single misclicked card — not
-              // a systemic block. The next pageNum iteration already opens a
-              // brand-new browser/page, so just continue pagination.
-              console.warn(
-                `Card extraction on this page for "${keyword}" hit an unexpected navigation; continuing to the next page.`,
-              );
-            } else {
-              console.warn(
-                `Stopping pagination for "${keyword}" — card extraction aborted after repeated failures.`,
-              );
-              break;
-            }
-          }
-        } finally {
-          await closeTrackedBrowserServer(browserServer);
+        // The aborted request's partial results above are still processed either way.
+        if (aborted) {
+          console.warn(
+            `Card extraction for "${keyword}" aborted after repeated failures; keeping the partial results.`,
+          );
         }
-
-        pageNum += 1;
+      } finally {
+        await closeTrackedBrowserServer(browserServer);
       }
 
       await resolvePendingRetries(client, companyAddressCache, state);
 
       const newJobs = await filterNewJobs(client, keyword, state.jobs);
-      responseBody[keyword] = { searchUrl: firstPageUrl, jobs: newJobs };
+      responseBody[keyword] = { searchUrl: pageUrl, jobs: newJobs };
     }
 
     response.status(200).json(responseBody);

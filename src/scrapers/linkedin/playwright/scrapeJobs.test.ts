@@ -21,7 +21,6 @@ type SearchResult = {
 type SearchResultsExtraction = {
   results: SearchResult[];
   aborted: boolean;
-  abortReason?: 'consecutive-failures' | 'navigated-away';
 };
 
 const mockWaitForLinkedInPage = jest.fn<
@@ -98,9 +97,8 @@ function sampleResult(
 function searchResults(
   results: SearchResult[],
   aborted = false,
-  abortReason?: 'consecutive-failures' | 'navigated-away',
 ): SearchResultsExtraction {
-  return { results, aborted, ...(abortReason ? { abortReason } : {}) };
+  return { results, aborted };
 }
 
 describe('scrapeJob', () => {
@@ -174,21 +172,7 @@ describe('scrapeJob', () => {
     expect(connect).not.toHaveBeenCalled();
   });
 
-  it('stops pagination when a page returns no results', async () => {
-    mockExtractLinkedInJobSearchResults.mockResolvedValueOnce(
-      searchResults([]),
-    );
-    const { response, status, json } = createResponse();
-
-    await scrapeJob(createRequest({ ...validBody, maxPages: 0 }), response);
-
-    expect(status).toHaveBeenCalledWith(200);
-    const body = json.mock.calls[0]?.[0] as Record<string, { jobs: unknown[] }>;
-    expect(body['TypeScript']?.jobs).toEqual([]);
-    expect(mockWaitForLinkedInPage).toHaveBeenCalledTimes(1);
-  });
-
-  it('stops pagination at maxPages even if pages keep returning results', async () => {
+  it('loads each keyword exactly once regardless of maxPages, since the new mechanism loads a whole keyword in one page visit', async () => {
     mockExtractLinkedInJobSearchResults.mockResolvedValue(
       searchResults([sampleResult('1')]),
     );
@@ -196,52 +180,22 @@ describe('scrapeJob', () => {
 
     await scrapeJob(createRequest({ ...validBody, maxPages: 2 }), response);
 
-    expect(mockWaitForLinkedInPage).toHaveBeenCalledTimes(2);
+    expect(mockWaitForLinkedInPage).toHaveBeenCalledTimes(1);
   });
 
-  it('continues across pages when maxPages is 0, until a page is empty', async () => {
-    mockExtractLinkedInJobSearchResults
-      .mockResolvedValueOnce(searchResults([sampleResult('1')]))
-      .mockResolvedValueOnce(searchResults([sampleResult('2')]))
-      .mockResolvedValueOnce(searchResults([]));
-    const { response } = createResponse();
-
-    await scrapeJob(createRequest({ ...validBody, maxPages: 0 }), response);
-
-    expect(mockWaitForLinkedInPage).toHaveBeenCalledTimes(3);
-  });
-
-  it('stops paginating a keyword when card extraction aborts due to consecutive failures, but keeps the partial results', async () => {
+  it('keeps the partial results when card extraction aborts after repeated failures', async () => {
     mockExtractLinkedInJobSearchResults.mockResolvedValueOnce(
-      searchResults([sampleResult('123456789')], true, 'consecutive-failures'),
+      searchResults([sampleResult('123456789')], true),
     );
     const { response, status, json } = createResponse();
 
-    await scrapeJob(createRequest({ ...validBody, maxPages: 2 }), response);
+    await scrapeJob(createRequest(validBody), response);
 
     expect(status).toHaveBeenCalledWith(200);
     expect(mockWaitForLinkedInPage).toHaveBeenCalledTimes(1);
     expect(browserServerClose).toHaveBeenCalledTimes(1);
     const body = json.mock.calls[0]?.[0] as Record<string, { jobs: unknown[] }>;
     expect(body['TypeScript']?.jobs).toHaveLength(1);
-  });
-
-  it('continues paginating a keyword to the next page when card extraction aborts due to an unexpected navigation, instead of stopping', async () => {
-    mockExtractLinkedInJobSearchResults
-      .mockResolvedValueOnce(
-        searchResults([sampleResult('1')], true, 'navigated-away'),
-      )
-      .mockResolvedValueOnce(searchResults([sampleResult('2')]));
-    const { response, status, json } = createResponse();
-
-    await scrapeJob(createRequest({ ...validBody, maxPages: 2 }), response);
-
-    expect(status).toHaveBeenCalledWith(200);
-    // Page 0 aborted mid-page (navigated-away) but pagination proceeds to
-    // page 1, which gets a brand-new browser/page regardless.
-    expect(mockWaitForLinkedInPage).toHaveBeenCalledTimes(2);
-    const body = json.mock.calls[0]?.[0] as Record<string, { jobs: unknown[] }>;
-    expect(body['TypeScript']?.jobs).toHaveLength(2);
   });
 
   it('computes an embedding and match for every scraped job and includes them in the response', async () => {
