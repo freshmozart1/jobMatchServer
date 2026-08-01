@@ -154,7 +154,7 @@ app.get('/health', (_request: Request, response: Response): void => {
     response.status(200).json({ status: 'ok' });
 });
 
-app.post('/scrape/linkedin/playwright', scrapeJob);
+app.post('/scrape/linkedin', scrapeJob);
 
 app.post('/jobs/create', createJobInDatabase);
 

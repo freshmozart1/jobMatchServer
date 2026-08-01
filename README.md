@@ -10,7 +10,7 @@ This project is under active development. Implemented today:
 
 - Express server entry point (`src/index.ts`) with automatic port fallback starting from port `3000`
 - MongoDB persistence for jobs, cover letters, CVs, certificates, and a user profile
-- Playwright-based LinkedIn scraper that paginates job search results and extracts job + company details
+- LinkedIn scraper (via the `linkedin-job-scraper` package) that gathers job search results and extracts job + company details
 - OpenAI (`text-embedding-3-small`) embeddings for jobs and cover letters, used to rank scraped jobs by similarity to liked/disliked examples
 - OpenAI (`gpt-5.5`) cover letter generation, seeded with your most similar past cover letters
 - CV and certificate upload endpoints (PDF/JPEG/PNG), with per-job status checks
@@ -27,7 +27,7 @@ Not yet implemented:
 ## Architecture
 
 1. **Express server** (`src/index.ts`) exposes all HTTP endpoints, handles CORS for a local frontend, and manages graceful shutdown of the Playwright browser and token service.
-2. **Playwright scraping layer** (`src/scrapers/linkedin/playwright/`) opens LinkedIn job search pages, paginates results, and extracts job postings and company addresses.
+2. **LinkedIn scraping layer** (`src/scrapers/linkedin/scrapeJob.ts`) invokes the `linkedin-job-scraper` package to gather job search results and extracts job postings and company addresses.
 3. **Embeddings layer** (`src/embeddings/`) computes OpenAI embeddings for jobs and compares a new job's embedding against the average embedding of previously liked/disliked jobs to produce a match score.
 4. **MongoDB storage layer** (`src/database/`) persists jobs (deduplicated by `duplicateKey`), cover letters (with per-segment embeddings), CVs, certificates, and users.
 5. **Cover letter pipeline** (`src/coverLetters/`) segments uploaded cover letters (heuristic first, LLM fallback), embeds each segment, ranks past cover letters by similarity to a target job, and generates new cover letters with `gpt-5.5`.
@@ -55,12 +55,6 @@ Install Node dependencies:
 
 ```bash
 npm install
-```
-
-Install the Playwright browser binaries (one-time, machine-local; not committed):
-
-```bash
-npx playwright install
 ```
 
 Set up the Python token service (one-time):
@@ -103,12 +97,11 @@ Server running on http://localhost:3000
 
 ## Required Environment Variables
 
-| Variable                    | Notes                                                                                                                                 |
-| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| `MONGODB_CONNECTION_STRING` | MongoDB connection URI; checked at startup and before every DB call                                                                   |
-| `OPENAI_API_KEY`            | Picked up automatically by the OpenAI SDK — no explicit reference in source                                                           |
-| `PYTHON`                    | Optional. Overrides Python binary resolution for the token service subprocess                                                         |
-| `PLAYWRIGHT_HEADLESS`       | Optional. Set to `false` to run the LinkedIn scraper's Chromium browser with a visible window instead of headless (default: headless) |
+| Variable                    | Notes                                                                         |
+| --------------------------- | ----------------------------------------------------------------------------- |
+| `MONGODB_CONNECTION_STRING` | MongoDB connection URI; checked at startup and before every DB call           |
+| `OPENAI_API_KEY`            | Picked up automatically by the OpenAI SDK — no explicit reference in source   |
+| `PYTHON`                    | Optional. Overrides Python binary resolution for the token service subprocess |
 
 No `.env` file or dotenv library is used. Set variables in the shell or a process manager.
 
@@ -118,19 +111,19 @@ No `.env` file or dotenv library is used. Set variables in the shell or a proces
 
 Lightweight process health check. Returns `{ "status": "ok" }`.
 
-### `POST /scrape/linkedin/playwright`
+### `POST /scrape/linkedin`
 
-Scrapes LinkedIn job search results with Playwright.
+Scrapes LinkedIn job search results.
 
 Body:
 
 ```json
 {
-  "keywords": "software engineer",
-  "location": "Berlin",
-  "distance": 25,
-  "datePosted": "604800",
-  "maxPages": 3
+    "keywords": "software engineer",
+    "location": "Berlin",
+    "distance": 25,
+    "datePosted": "604800",
+    "maxPages": 3
 }
 ```
 
@@ -190,27 +183,27 @@ Stored jobs use a normalized format so downstream applications don't need to und
 
 ```ts
 type CompanyAddress = {
-  streetAddress: string;
-  city: string;
-  postalCode: string;
-  countryCode: string;
+    streetAddress: string;
+    city: string;
+    postalCode: string;
+    countryCode: string;
 };
 
 type ScrapedJob = {
-  sourceHostname: string;
-  sourceJobId?: string;
-  sourceUrl: string;
-  title: string;
-  company: string;
-  location?: string;
-  descriptionText?: string;
-  postedAt?: string;
-  scrapedAt: string;
-  tags?: string[];
-  duplicateKey: string;
-  companyAddresses: CompanyAddress[];
-  embedding: number[];
-  match?: number;
+    sourceHostname: string;
+    sourceJobId?: string;
+    sourceUrl: string;
+    title: string;
+    company: string;
+    location?: string;
+    descriptionText?: string;
+    postedAt?: string;
+    scrapedAt: string;
+    tags?: string[];
+    duplicateKey: string;
+    companyAddresses: CompanyAddress[];
+    embedding: number[];
+    match?: number;
 };
 ```
 
