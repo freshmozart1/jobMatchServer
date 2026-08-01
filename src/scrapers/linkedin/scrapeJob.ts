@@ -14,7 +14,13 @@ import {
 import { createErrorMessage } from '../../errors/createErrorMessage.js';
 import { createJobEmbedding } from '../../embeddings/jobEmbedding.js';
 import { getLinkedInJobScraperSearchParamsFromBody } from '#utils/getLinkedInJobScraperSearchParamsFromBody.js';
+import { computeJobMatch } from './linkedInJobSimilarity.js';
 import { normalizeLinkedInJobPageUrl } from './linkedInJobPageUrl.js';
+import {
+    coalesceText,
+    extractJobTitle,
+    normalizeDescription,
+} from './linkedInTextUtils.js';
 
 async function isJobAlreadyStored(
     client: MongoClient,
@@ -37,14 +43,16 @@ function buildRawJob(
     result: SuccessfulJobResult,
     duplicateKey: string,
 ): Omit<ScrapedJob, 'embedding'> {
+    const descriptionText = normalizeDescription(result.descriptionText);
+
     return {
         sourceHostname: result.sourceHostname,
         sourceJobId: result.sourceJobId,
         sourceUrl: result.sourceUrl,
-        title: result.title,
-        company: result.company,
+        title: coalesceText(extractJobTitle(result.title)),
+        company: coalesceText(result.company),
         location: result.location,
-        descriptionText: result.descriptionText,
+        ...(descriptionText ? { descriptionText } : {}),
         postedAt: result.postedAt,
         scrapedAt: result.scrapedAt,
         tags: result.tags,
@@ -71,10 +79,13 @@ async function forwardJobIfNew(
     }
 
     const rawJob = buildRawJob(result, duplicateKey);
+    const embedding = await createJobEmbedding(rawJob);
+    const match = await computeJobMatch(client, embedding);
     res.write(
         `data: ${JSON.stringify({
             ...rawJob,
-            embedding: await createJobEmbedding(rawJob),
+            embedding,
+            ...(match !== undefined ? { match } : {}),
         })}\n\n`,
     );
 }
