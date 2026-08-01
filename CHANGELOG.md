@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented in this file.
 
+## v3.0.1
+
+### Fixed
+
+- `scrapeJob.ts` now calls `computeJobMatch` (`linkedInJobSimilarity.ts`) when building each streamed job, restoring the `match` similarity score against previously liked/disliked jobs that was dropped when the scraper was rewritten around `linkedin-job-scraper` (#85/#86) — every job streamed from `POST /scrape/linkedin` had `match: undefined` since then. `title`/`company`/`descriptionText` are also run back through `linkedInTextUtils.ts`'s `extractJobTitle`/`coalesceText`/`normalizeDescription` helpers, matching the old Playwright-based scraper's normalization (closes #93).
+
 ## v3.0.0
 
 ### Breaking

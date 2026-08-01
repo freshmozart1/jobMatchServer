@@ -22,6 +22,8 @@ type MockRunScrapeOptions = {
 const mockRunScrape =
     jest.fn<(options: MockRunScrapeOptions) => Promise<unknown>>();
 const mockCreateJobEmbedding = jest.fn<() => Promise<number[]>>();
+const mockComputeJobMatch =
+    jest.fn<(...args: unknown[]) => Promise<number | undefined>>();
 const findOne = jest.fn<(...args: unknown[]) => Promise<unknown>>();
 
 jest.unstable_mockModule('linkedin-job-scraper', () => ({
@@ -29,6 +31,9 @@ jest.unstable_mockModule('linkedin-job-scraper', () => ({
 }));
 jest.unstable_mockModule('../../embeddings/jobEmbedding.js', () => ({
     createJobEmbedding: mockCreateJobEmbedding,
+}));
+jest.unstable_mockModule('./linkedInJobSimilarity.js', () => ({
+    computeJobMatch: mockComputeJobMatch,
 }));
 
 mockMongoDbModule();
@@ -121,6 +126,7 @@ describe('scrapeJob', () => {
         connectionStringConfigured.mockReturnValue(true);
         getCollection.mockReturnValue({ findOne });
         mockCreateJobEmbedding.mockResolvedValue([0.1, 0.2, 0.3]);
+        mockComputeJobMatch.mockResolvedValue(undefined);
     });
 
     it('computes duplicateKey from sourceJobId and streams new jobs', async () => {
@@ -154,7 +160,24 @@ describe('scrapeJob', () => {
         await scrapeJob(createRequest(validBody), response);
 
         expect(mockCreateJobEmbedding).not.toHaveBeenCalled();
+        expect(mockComputeJobMatch).not.toHaveBeenCalled();
         expect(jobDataWrites(write)).toHaveLength(0);
+    });
+
+    it('includes a match score computed from the job embedding', async () => {
+        findOne.mockResolvedValue(null);
+        runScrapeWithResult(successfulResult());
+        const { response, write } = createSseResponse();
+        mockComputeJobMatch.mockResolvedValue(0.82);
+
+        await scrapeJob(createRequest(validBody), response);
+
+        expect(mockComputeJobMatch).toHaveBeenCalledWith(
+            expect.anything(),
+            [0.1, 0.2, 0.3],
+        );
+        const jobWrites = jobDataWrites(write);
+        expect(jobWrites[0]).toContain('"match":0.82');
     });
 
     it('falls back to the normalized source URL when sourceJobId is missing', async () => {
