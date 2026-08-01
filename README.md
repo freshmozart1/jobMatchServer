@@ -40,7 +40,7 @@ Not yet implemented:
 - Node.js, TypeScript (`nodenext` module resolution, strict mode)
 - Express 5
 - MongoDB (official `mongodb` driver)
-- Playwright (LinkedIn scraping)
+- `linkedin-job-scraper` (LinkedIn scraping)
 - Puppeteer (cover letter HTML → PDF rendering)
 - `pdf-lib` (merging cover letter, CV, and certificate PDFs)
 - OpenAI SDK (`text-embedding-3-small` embeddings, `gpt-5.5` generation)
@@ -119,11 +119,11 @@ Body:
 
 ```json
 {
-    "keywords": "software engineer",
-    "location": "Berlin",
-    "distance": 25,
-    "datePosted": "604800",
-    "maxPages": 3
+  "keywords": "software engineer",
+  "location": "Berlin",
+  "distance": 25,
+  "datePosted": "604800",
+  "maxPages": 3
 }
 ```
 
@@ -183,27 +183,27 @@ Stored jobs use a normalized format so downstream applications don't need to und
 
 ```ts
 type CompanyAddress = {
-    streetAddress: string;
-    city: string;
-    postalCode: string;
-    countryCode: string;
+  streetAddress: string;
+  city: string;
+  postalCode: string;
+  countryCode: string;
 };
 
 type ScrapedJob = {
-    sourceHostname: string;
-    sourceJobId?: string;
-    sourceUrl: string;
-    title: string;
-    company: string;
-    location?: string;
-    descriptionText?: string;
-    postedAt?: string;
-    scrapedAt: string;
-    tags?: string[];
-    duplicateKey: string;
-    companyAddresses: CompanyAddress[];
-    embedding: number[];
-    match?: number;
+  sourceHostname: string;
+  sourceJobId?: string;
+  sourceUrl: string;
+  title: string;
+  company: string;
+  location?: string;
+  descriptionText?: string;
+  postedAt?: string;
+  scrapedAt: string;
+  tags?: string[];
+  duplicateKey: string;
+  companyAddresses: CompanyAddress[];
+  embedding: number[];
+  match?: number;
 };
 ```
 
