@@ -2,6 +2,23 @@
 
 All notable changes to this project are documented in this file.
 
+## v3.0.0
+
+### Breaking
+
+- `POST /scrape/linkedin/playwright` is renamed to `POST /scrape/linkedin` — it hasn't scraped via a local Playwright implementation since the `linkedin-job-scraper` package migration, so the old path was misleading. Update any client hardcoding it (closes #87).
+
+### Removed
+
+- Deleted `src/scrapers/linkedin/playwright/` (`scrapeJobs.ts`, `extractLinkedInJobSearchResults.ts`, `waitForLinkedInPage.ts`, `extractCompanyAddress.ts`, and their tests) — dead code left over from the switch to the `linkedin-job-scraper` package; nothing outside the folder imported from it.
+- Removed `extractLinkedInJobId` (`linkedInJobPageUrl.ts`) and the `ScrapeJobResponseBody`/`ExtractedLinkedInJobPage` types, orphaned once the playwright folder was gone — `linkedin-job-scraper` provides `sourceJobId` directly, and the SSE-streaming response replaced the old batched-JSON shape these types described.
+- Dropped the `npx playwright install` setup step and the `PLAYWRIGHT_HEADLESS` env var doc entry from CLAUDE.md/README.md — nothing production-reachable needs real browser binaries anymore.
+
+### Fixed
+
+- README.md's Technology Stack section still listed Playwright for LinkedIn scraping, contradicting its own Architecture section.
+- The Postman collection request for this route still pointed at the old `/scrape/linkedin/playwright` URL.
+
 ## v2.0.1
 
 ### Fixed
