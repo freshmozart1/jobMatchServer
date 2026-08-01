@@ -1,8 +1,104 @@
-import type { ScrapedJob } from '#types';
+import type { ScrapedJob, StoredScrapedJob } from '#types';
 import type { Request, Response } from 'express';
+import type {
+    ScrapeProgressEvent,
+    SuccessfulJobResult,
+} from 'linkedin-job-scraper';
 import { runScrape } from 'linkedin-job-scraper';
+import { MongoClient } from 'mongodb';
+import {
+    connectionStringConfigured,
+    getCollection,
+    MONGODB_CONNECTION,
+} from '#database/database.js';
+import { createErrorMessage } from '../../errors/createErrorMessage.js';
 import { createJobEmbedding } from '../../embeddings/jobEmbedding.js';
 import { getLinkedInJobScraperSearchParamsFromBody } from '#utils/getLinkedInJobScraperSearchParamsFromBody.js';
+import { normalizeLinkedInJobPageUrl } from './linkedInJobPageUrl.js';
+
+async function isJobAlreadyStored(
+    client: MongoClient,
+    duplicateKey: string,
+): Promise<boolean> {
+    const existingJob = await getCollection<StoredScrapedJob>(
+        client,
+        'jobs',
+    ).findOne({ duplicateKey }, { projection: { _id: 1 } });
+    return existingJob !== null;
+}
+
+function computeDuplicateKey(result: SuccessfulJobResult): string {
+    return result.sourceJobId
+        ? `linkedin:${result.sourceJobId}`
+        : (normalizeLinkedInJobPageUrl(result.sourceUrl) ?? result.sourceUrl);
+}
+
+function buildRawJob(
+    result: SuccessfulJobResult,
+    duplicateKey: string,
+): Omit<ScrapedJob, 'embedding'> {
+    return {
+        sourceHostname: result.sourceHostname,
+        sourceJobId: result.sourceJobId,
+        sourceUrl: result.sourceUrl,
+        title: result.title,
+        company: result.company,
+        location: result.location,
+        descriptionText: result.descriptionText,
+        postedAt: result.postedAt,
+        scrapedAt: result.scrapedAt,
+        tags: result.tags,
+        duplicateKey,
+        companyAddresses: (result.companyAddresses ?? []).map((address) => ({
+            streetAddress: address.streetAddress ?? '',
+            city: address.city ?? '',
+            postalCode: address.postalCode ?? '',
+            countryCode: address.countryCode ?? '',
+        })),
+    };
+}
+
+async function forwardJobIfNew(
+    client: MongoClient,
+    res: Response,
+    result: SuccessfulJobResult,
+): Promise<void> {
+    const duplicateKey = computeDuplicateKey(result);
+
+    if (await isJobAlreadyStored(client, duplicateKey)) {
+        console.log(`Skipping already-stored job ${duplicateKey}.`);
+        return;
+    }
+
+    const rawJob = buildRawJob(result, duplicateKey);
+    res.write(
+        `data: ${JSON.stringify({
+            ...rawJob,
+            embedding: await createJobEmbedding(rawJob),
+        })}\n\n`,
+    );
+}
+
+function handleProgressEvent(
+    client: MongoClient,
+    res: Response,
+    pendingJobWrites: Promise<void>[],
+    event: ScrapeProgressEvent,
+): void {
+    if (event.type === 'job:done') {
+        if (event.result.status !== 'success') {
+            console.error(
+                `LinkedIn scrape failed for job index ${event.result.index}: ${event.result.error}`,
+            );
+            return;
+        }
+        pendingJobWrites.push(forwardJobIfNew(client, res, event.result));
+    } else if (event.type === 'job:stale') {
+        console.warn(
+            `LinkedIn scrape result for job index ${event.result.index} is suspect (companyMismatch=${event.result.companyMismatch}, sourceJobIdMismatch=${event.result.sourceJobIdMismatch}, lateOverlayDetected=${event.result.lateOverlayDetected}); not forwarding it.`,
+        );
+    }
+}
 
 export async function scrapeJob(req: Request, res: Response): Promise<void> {
     const searchParams = getLinkedInJobScraperSearchParamsFromBody(req.body);
@@ -10,7 +106,19 @@ export async function scrapeJob(req: Request, res: Response): Promise<void> {
         res.status(400).json({ error: 'Invalid request body' });
         return;
     }
+    if (!connectionStringConfigured(res)) return;
+
     const { keywords, location, distance, datePosted } = searchParams;
+    const client = new MongoClient(MONGODB_CONNECTION!);
+
+    try {
+        await client.connect();
+    } catch (error) {
+        createErrorMessage(res, error, 'Failed to connect to MongoDB.');
+        await client.close();
+        return;
+    }
+
     res.writeHead(200, {
         'content-type': 'text/event-stream',
         'cache-control': 'no-cache',
@@ -18,66 +126,35 @@ export async function scrapeJob(req: Request, res: Response): Promise<void> {
         'transfer-encoding': 'chunked',
     });
     res.write('ping\n\n');
-    const settledScrapes = await Promise.allSettled(
-        keywords.map((keyword) =>
-            runScrape({
-                onProgress: async (e) => {
-                    if (e.type === 'job:done') {
-                        if (e.result.status !== 'success') {
-                            console.error(
-                                `LinkedIn scrape failed for job index ${e.result.index}: ${e.result.error}`,
-                            );
-                            return;
-                        }
-                        const rawJob: Omit<ScrapedJob, 'embedding'> = {
-                            sourceHostname: e.result.sourceHostname,
-                            sourceJobId: e.result.sourceJobId,
-                            sourceUrl: e.result.sourceUrl,
-                            title: e.result.title,
-                            company: e.result.company,
-                            location: e.result.location,
-                            descriptionText: e.result.descriptionText,
-                            postedAt: e.result.postedAt,
-                            scrapedAt: e.result.scrapedAt,
-                            tags: e.result.tags,
-                            duplicateKey: '',
-                            companyAddresses: (
-                                e.result.companyAddresses ?? []
-                            ).map((address) => ({
-                                streetAddress: address.streetAddress ?? '',
-                                city: address.city ?? '',
-                                postalCode: address.postalCode ?? '',
-                                countryCode: address.countryCode ?? '',
-                            })),
-                        };
-                        res.write(
-                            `data: ${JSON.stringify({
-                                ...rawJob,
-                                embedding: await createJobEmbedding(rawJob),
-                            })}\n\n`,
-                        );
-                    } else if (e.type === 'job:stale') {
-                        console.warn(
-                            `LinkedIn scrape result for job index ${e.result.index} is suspect (companyMismatch=${e.result.companyMismatch}, sourceJobIdMismatch=${e.result.sourceJobIdMismatch}, lateOverlayDetected=${e.result.lateOverlayDetected}); not forwarding it.`,
-                        );
-                    }
-                },
-                searchParams: {
-                    keyword,
-                    datePosted,
-                    location,
-                    distanceMiles: distance,
-                },
-            }),
-        ),
-    );
-    settledScrapes.forEach((settledScrape) => {
-        if (settledScrape.status === 'rejected') {
-            console.error('Scrape failed:', settledScrape.reason);
-            res.write(
-                `data: ${JSON.stringify({ error: 'Scrape failed', reason: settledScrape.reason })}\n\n`,
-            );
-        }
-    });
+
+    const pendingJobWrites: Promise<void>[] = [];
+
+    try {
+        const settledScrapes = await Promise.allSettled(
+            keywords.map((keyword) =>
+                runScrape({
+                    onProgress: (e) =>
+                        handleProgressEvent(client, res, pendingJobWrites, e),
+                    searchParams: {
+                        keyword,
+                        datePosted,
+                        location,
+                        distanceMiles: distance,
+                    },
+                }),
+            ),
+        );
+        await Promise.allSettled(pendingJobWrites);
+        settledScrapes.forEach((settledScrape) => {
+            if (settledScrape.status === 'rejected') {
+                console.error('Scrape failed:', settledScrape.reason);
+                res.write(
+                    `data: ${JSON.stringify({ error: 'Scrape failed', reason: settledScrape.reason })}\n\n`,
+                );
+            }
+        });
+    } finally {
+        await client.close();
+    }
     res.end();
 }
