@@ -2,6 +2,17 @@
 
 All notable changes to this project are documented in this file.
 
+## v2.0.1
+
+### Fixed
+
+- `scrapeJob.ts` computes a real `duplicateKey` (`linkedin:${sourceJobId}`, with a normalized-URL fallback) instead of hardcoding it to `''`, and skips streaming a job over SSE when its `duplicateKey` is already stored in MongoDB — restoring the old Playwright-based scraper's dedupe behavior that was lost when the scraper was rewritten around `linkedin-job-scraper` (closes #86).
+- The `MongoClient` opened for `POST /scrape/linkedin/playwright` is now closed even when the initial `connect()` call fails, instead of leaking the connection.
+
+### Changed
+
+- Extracted `scrapeJob.ts`'s per-job dedupe/embed/stream logic into smaller top-level functions (`computeDuplicateKey`, `buildRawJob`, `forwardJobIfNew`, `handleProgressEvent`) — no behavior change, resolves a CRAP-threshold complexity finding flagged by `fallow audit`.
+
 ## v2.0.0
 
 ### Breaking
