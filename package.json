@@ -64,7 +64,7 @@
   },
   "dependencies": {
     "express": "^5.2.1",
-    "linkedin-job-scraper": "github:freshmozart1/linkedin-job-scraper#v0.4.3",
+    "linkedin-job-scraper": "github:freshmozart1/linkedin-job-scraper#v0.7.1",
     "mongodb": "^7.5.0",
     "multer": "^2.2.0",
     "openai": "^6.49.0",
@@ -72,6 +72,6 @@
     "puppeteer": "^25.4.0"
   },
   "allowScripts": {
-    "github:freshmozart1/linkedin-job-scraper#df7cdde52bc584aa0462d15b5e14fdea3aca2f0e": true
+    "github:freshmozart1/linkedin-job-scraper#b0099614396501a996e12d713b0fb66d12b60f38": true
   }
 }

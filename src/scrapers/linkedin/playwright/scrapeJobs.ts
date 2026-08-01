@@ -97,7 +97,7 @@ async function buildScrapedJob(
       ? { tags: result.extracted.tags }
       : {}),
     duplicateKey: sourceJobId ? `linkedin:${sourceJobId}` : normalizedUrl,
-    companyAddress,
+    companyAddresses: [companyAddress],
   };
 
   const embedding = await createJobEmbedding(jobFields);

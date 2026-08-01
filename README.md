@@ -208,7 +208,7 @@ type ScrapedJob = {
   scrapedAt: string;
   tags?: string[];
   duplicateKey: string;
-  companyAddress: CompanyAddress;
+  companyAddresses: CompanyAddress[];
   embedding: number[];
   match?: number;
 };

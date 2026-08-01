@@ -393,12 +393,12 @@ describe('scrapeJob', () => {
       { jobs: Record<string, unknown>[] }
     >;
     expect(body['TypeScript']?.jobs).toHaveLength(2);
-    expect(body['TypeScript']?.jobs[0]?.['companyAddress']).toEqual(
+    expect(body['TypeScript']?.jobs[0]?.['companyAddresses']).toEqual([
       sampleAddress,
-    );
-    expect(body['TypeScript']?.jobs[1]?.['companyAddress']).toEqual(
+    ]);
+    expect(body['TypeScript']?.jobs[1]?.['companyAddresses']).toEqual([
       sampleAddress,
-    );
+    ]);
   });
 
   it('dedupes a failed-then-retried company address across two jobs from the same company', async () => {

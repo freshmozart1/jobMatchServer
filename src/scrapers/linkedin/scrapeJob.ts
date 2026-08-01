@@ -84,30 +84,42 @@ export async function scrapeJob(req: Request, res: Response): Promise<void> {
             runScrape({
                 onProgress: async (e) => {
                     if (e.type === 'job:done') {
+                        if (e.result.status !== 'success') {
+                            console.error(
+                                `LinkedIn scrape failed for job index ${e.result.index}: ${e.result.error}`,
+                            );
+                            return;
+                        }
                         const rawJob: Omit<ScrapedJob, 'embedding'> = {
-                            sourceHostname: e.result.sourceHostname || '',
-                            sourceJobId: e.result.sourceJobId || '',
-                            sourceUrl: e.result.sourceUrl || '',
-                            title: e.result.title || '',
-                            company: e.result.company || '',
-                            location: e.result.location || '',
-                            descriptionText: e.result.descriptionText || '',
-                            postedAt: e.result.postedAt || '',
+                            sourceHostname: e.result.sourceHostname,
+                            sourceJobId: e.result.sourceJobId,
+                            sourceUrl: e.result.sourceUrl,
+                            title: e.result.title,
+                            company: e.result.company,
+                            location: e.result.location,
+                            descriptionText: e.result.descriptionText,
+                            postedAt: e.result.postedAt,
                             scrapedAt: e.result.scrapedAt,
-                            tags: e.result.tags || [],
+                            tags: e.result.tags,
                             duplicateKey: '',
-                            companyAddress: {
-                                city: '',
-                                countryCode: '',
-                                postalCode: '',
-                                streetAddress: '',
-                            },
+                            companyAddresses: (
+                                e.result.companyAddresses ?? []
+                            ).map((address) => ({
+                                streetAddress: address.streetAddress ?? '',
+                                city: address.city ?? '',
+                                postalCode: address.postalCode ?? '',
+                                countryCode: address.countryCode ?? '',
+                            })),
                         };
                         res.write(
                             `data: ${JSON.stringify({
                                 ...rawJob,
                                 embedding: await createJobEmbedding(rawJob),
                             })}\n\n`,
+                        );
+                    } else if (e.type === 'job:stale') {
+                        console.warn(
+                            `LinkedIn scrape result for job index ${e.result.index} is suspect (companyMismatch=${e.result.companyMismatch}, sourceJobIdMismatch=${e.result.sourceJobIdMismatch}, lateOverlayDetected=${e.result.lateOverlayDetected}); not forwarding it.`,
                         );
                     }
                 },
