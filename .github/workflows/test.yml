@@ -24,6 +24,11 @@ jobs:
           node-version: '24'
           cache: 'npm'
 
+      - name: Authenticate git for private linkedin-job-scraper dependency
+        run: |
+          git config --local --unset-all http.https://github.com/.extraheader || true
+          git config --global url."https://x-access-token:${{ secrets.LINKEDIN_SCRAPER_PAT }}@github.com/".insteadOf "ssh://git@github.com/"
+
       - run: npm install
 
       - run: npm run test:once

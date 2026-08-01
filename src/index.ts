@@ -10,10 +10,10 @@
 //   request.
 import { spawn, type ChildProcessByStdio } from 'node:child_process';
 import {
-  accessSync,
-  constants as fsConstants,
-  existsSync,
-  readFileSync,
+    accessSync,
+    constants as fsConstants,
+    existsSync,
+    readFileSync,
 } from 'node:fs';
 import type { Server } from 'node:http';
 import { delimiter, join } from 'node:path';
@@ -21,7 +21,7 @@ import type { Readable } from 'node:stream';
 
 import express, { type Request, type Response } from 'express';
 
-import { scrapeJob } from '#scrapers/linkedin/playwright/scrapeJobs.js';
+import { scrapeJob } from '#scrapers/linkedin/scrapeJob.js';
 import createJobInDatabase from '#database/createJobInDatabase.js';
 import getTopXSimilarCoverLetters from '#database/getTopXSimilarCoverLetters.js';
 import uploadCoverLetterAsText from '#database/uploadCoverLetterAsText.js';
@@ -41,25 +41,25 @@ export const app = express();
 
 const START_PORT = 3000;
 const ALLOWED_ORIGINS = new Set([
-  'http://localhost:5173',
-  'http://127.0.0.1:5173',
+    'http://localhost:5173',
+    'http://127.0.0.1:5173',
 ]);
 const LAN_ORIGIN_PATTERN = /^http:\/\/192\.168\.\d+\.\d+:5173$/;
 const TOKEN_SERVICE_URL_ENV = 'TOKEN_SERVICE_URL';
 const TOKEN_SERVICE_READY_PREFIX = `${TOKEN_SERVICE_URL_ENV}=`;
 const TOKEN_SERVICE_SCRIPT = join(
-  process.cwd(),
-  'src',
-  'tokenService',
-  'tokenService.py',
+    process.cwd(),
+    'src',
+    'tokenService',
+    'tokenService.py',
 );
 const TOKEN_SERVICE_START_TIMEOUT_MS = 10_000;
 const LOCAL_PYTHON_BINARY = join(process.cwd(), '.venv', 'bin', 'python');
 const PYTHON_BINARY = resolvePythonBinary();
 
 type TokenServiceStart = {
-  url: string;
-  childProcess: TokenServiceProcess;
+    url: string;
+    childProcess: TokenServiceProcess;
 };
 
 type TokenServiceProcess = ChildProcessByStdio<null, Readable, Readable>;
@@ -71,87 +71,87 @@ let shutdownHandlersRegistered = false;
 let isShuttingDown = false;
 
 function findExecutable(command: string): string | undefined {
-  const pathDirectories = process.env['PATH']?.split(delimiter) ?? [];
+    const pathDirectories = process.env['PATH']?.split(delimiter) ?? [];
 
-  for (const directory of pathDirectories) {
-    const executablePath = join(directory, command);
+    for (const directory of pathDirectories) {
+        const executablePath = join(directory, command);
 
-    try {
-      accessSync(executablePath, fsConstants.X_OK);
-      return executablePath;
-    } catch {
-      continue;
+        try {
+            accessSync(executablePath, fsConstants.X_OK);
+            return executablePath;
+        } catch {
+            continue;
+        }
     }
-  }
 
-  return undefined;
+    return undefined;
 }
 
 function resolvePythonBinaryFromPip(command: string): string | undefined {
-  const pipPath = findExecutable(command);
+    const pipPath = findExecutable(command);
 
-  if (!pipPath) {
-    return undefined;
-  }
+    if (!pipPath) {
+        return undefined;
+    }
 
-  const [firstLine] = readFileSync(pipPath, 'utf8').split('\n');
-  const shebang = firstLine?.startsWith('#!')
-    ? firstLine.slice(2).trim()
-    : undefined;
+    const [firstLine] = readFileSync(pipPath, 'utf8').split('\n');
+    const shebang = firstLine?.startsWith('#!')
+        ? firstLine.slice(2).trim()
+        : undefined;
 
-  if (!shebang) {
-    return undefined;
-  }
+    if (!shebang) {
+        return undefined;
+    }
 
-  const [executable, ...args] = shebang.split(/\s+/);
+    const [executable, ...args] = shebang.split(/\s+/);
 
-  if (!executable) {
-    return undefined;
-  }
+    if (!executable) {
+        return undefined;
+    }
 
-  if (executable.endsWith('/env')) {
-    return args[0];
-  }
+    if (executable.endsWith('/env')) {
+        return args[0];
+    }
 
-  return executable;
+    return executable;
 }
 
 function resolvePythonBinary(): string {
-  return (
-    process.env['PYTHON'] ??
-    (existsSync(LOCAL_PYTHON_BINARY) ? LOCAL_PYTHON_BINARY : undefined) ??
-    resolvePythonBinaryFromPip('pip') ??
-    resolvePythonBinaryFromPip('pip3') ??
-    'python3'
-  );
+    return (
+        process.env['PYTHON'] ??
+        (existsSync(LOCAL_PYTHON_BINARY) ? LOCAL_PYTHON_BINARY : undefined) ??
+        resolvePythonBinaryFromPip('pip') ??
+        resolvePythonBinaryFromPip('pip3') ??
+        'python3'
+    );
 }
 
 app.use((request: Request, response: Response, next): void => {
-  const origin = request.get('origin');
+    const origin = request.get('origin');
 
-  if (
-    origin &&
-    (ALLOWED_ORIGINS.has(origin) || LAN_ORIGIN_PATTERN.test(origin))
-  ) {
-    response.setHeader('Access-Control-Allow-Origin', origin);
-    response.setHeader('Vary', 'Origin');
-  }
+    if (
+        origin &&
+        (ALLOWED_ORIGINS.has(origin) || LAN_ORIGIN_PATTERN.test(origin))
+    ) {
+        response.setHeader('Access-Control-Allow-Origin', origin);
+        response.setHeader('Vary', 'Origin');
+    }
 
-  response.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
-  response.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    response.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+    response.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
-  if (request.method === 'OPTIONS') {
-    response.sendStatus(204);
-    return;
-  }
+    if (request.method === 'OPTIONS') {
+        response.sendStatus(204);
+        return;
+    }
 
-  next();
+    next();
 });
 
 app.use(express.json({ limit: '64kb' }));
 
 app.get('/health', (_request: Request, response: Response): void => {
-  response.status(200).json({ status: 'ok' });
+    response.status(200).json({ status: 'ok' });
 });
 
 app.post('/scrape/linkedin/playwright', scrapeJob);
@@ -176,13 +176,13 @@ app.get('/certificates/:jobDuplicateKey/status', getCertificatesStatus);
 
 //TODO #29
 const uploadCertificateFiles = multer({
-  dest: 'uploads/certificates',
-  limits: { fileSize: 10 * 1024 * 1024 },
+    dest: 'uploads/certificates',
+    limits: { fileSize: 10 * 1024 * 1024 },
 });
 app.post(
-  '/certificates/upload',
-  uploadCertificateFiles.array('files', 10),
-  uploadCertificates,
+    '/certificates/upload',
+    uploadCertificateFiles.array('files', 10),
+    uploadCertificates,
 );
 
 app.post('/cover-letters/create/text', generateCoverLetterAsText);
@@ -192,261 +192,267 @@ app.post('/tokens/count', countTokens);
 app.get('/application/:jobDuplicateKey', getApplication);
 
 function appendChunkAndFlushLines(
-  bufferedText: string,
-  chunk: Buffer,
-  handleLine: (line: string) => void,
+    bufferedText: string,
+    chunk: Buffer,
+    handleLine: (line: string) => void,
 ): string {
-  let nextBufferedText = bufferedText + chunk.toString();
-  let newlineIndex = nextBufferedText.indexOf('\n');
+    let nextBufferedText = bufferedText + chunk.toString();
+    let newlineIndex = nextBufferedText.indexOf('\n');
 
-  while (newlineIndex !== -1) {
-    const line = nextBufferedText.slice(0, newlineIndex).trim();
-    nextBufferedText = nextBufferedText.slice(newlineIndex + 1);
+    while (newlineIndex !== -1) {
+        const line = nextBufferedText.slice(0, newlineIndex).trim();
+        nextBufferedText = nextBufferedText.slice(newlineIndex + 1);
 
-    if (line.length > 0) {
-      handleLine(line);
+        if (line.length > 0) {
+            handleLine(line);
+        }
+
+        newlineIndex = nextBufferedText.indexOf('\n');
     }
 
-    newlineIndex = nextBufferedText.indexOf('\n');
-  }
-
-  return nextBufferedText;
+    return nextBufferedText;
 }
 
 function startTokenService(): Promise<TokenServiceStart> {
-  const childProcess = spawn(PYTHON_BINARY, [TOKEN_SERVICE_SCRIPT], {
-    cwd: process.cwd(),
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
-
-  tokenServiceProcess = childProcess;
-
-  return new Promise((resolve, reject) => {
-    let stdoutBuffer = '';
-    let stderrBuffer = '';
-    let isSettled = false;
-
-    const startupTimeout = setTimeout(() => {
-      fail(
-        new Error(
-          `Token service did not report ${TOKEN_SERVICE_URL_ENV} within ${TOKEN_SERVICE_START_TIMEOUT_MS}ms`,
-        ),
-      );
-    }, TOKEN_SERVICE_START_TIMEOUT_MS);
-
-    function succeed(url: string): void {
-      if (isSettled) {
-        return;
-      }
-
-      isSettled = true;
-      clearTimeout(startupTimeout);
-      resolve({ url, childProcess });
-    }
-
-    function fail(error: Error): void {
-      if (isSettled) {
-        return;
-      }
-
-      isSettled = true;
-      clearTimeout(startupTimeout);
-
-      if (tokenServiceProcess === childProcess) {
-        tokenServiceProcess = undefined;
-      }
-
-      childProcess.kill();
-      reject(error);
-    }
-
-    function handleStdoutLine(line: string): void {
-      console.log(`[tokenService] ${line}`);
-
-      if (!line.startsWith(TOKEN_SERVICE_READY_PREFIX)) {
-        return;
-      }
-
-      const url = line.slice(TOKEN_SERVICE_READY_PREFIX.length).trim();
-
-      if (!url) {
-        fail(
-          new Error(`Token service reported an empty ${TOKEN_SERVICE_URL_ENV}`),
-        );
-        return;
-      }
-
-      succeed(url);
-    }
-
-    function handleStderrLine(line: string): void {
-      console.error(`[tokenService] ${line}`);
-    }
-
-    childProcess.stdout.on('data', (chunk: Buffer) => {
-      stdoutBuffer = appendChunkAndFlushLines(
-        stdoutBuffer,
-        chunk,
-        handleStdoutLine,
-      );
+    const childProcess = spawn(PYTHON_BINARY, [TOKEN_SERVICE_SCRIPT], {
+        cwd: process.cwd(),
+        stdio: ['ignore', 'pipe', 'pipe'],
     });
 
-    childProcess.stderr.on('data', (chunk: Buffer) => {
-      stderrBuffer = appendChunkAndFlushLines(
-        stderrBuffer,
-        chunk,
-        handleStderrLine,
-      );
+    tokenServiceProcess = childProcess;
+
+    return new Promise((resolve, reject) => {
+        let stdoutBuffer = '';
+        let stderrBuffer = '';
+        let isSettled = false;
+
+        const startupTimeout = setTimeout(() => {
+            fail(
+                new Error(
+                    `Token service did not report ${TOKEN_SERVICE_URL_ENV} within ${TOKEN_SERVICE_START_TIMEOUT_MS}ms`,
+                ),
+            );
+        }, TOKEN_SERVICE_START_TIMEOUT_MS);
+
+        function succeed(url: string): void {
+            if (isSettled) {
+                return;
+            }
+
+            isSettled = true;
+            clearTimeout(startupTimeout);
+            resolve({ url, childProcess });
+        }
+
+        function fail(error: Error): void {
+            if (isSettled) {
+                return;
+            }
+
+            isSettled = true;
+            clearTimeout(startupTimeout);
+
+            if (tokenServiceProcess === childProcess) {
+                tokenServiceProcess = undefined;
+            }
+
+            childProcess.kill();
+            reject(error);
+        }
+
+        function handleStdoutLine(line: string): void {
+            console.log(`[tokenService] ${line}`);
+
+            if (!line.startsWith(TOKEN_SERVICE_READY_PREFIX)) {
+                return;
+            }
+
+            const url = line.slice(TOKEN_SERVICE_READY_PREFIX.length).trim();
+
+            if (!url) {
+                fail(
+                    new Error(
+                        `Token service reported an empty ${TOKEN_SERVICE_URL_ENV}`,
+                    ),
+                );
+                return;
+            }
+
+            succeed(url);
+        }
+
+        function handleStderrLine(line: string): void {
+            console.error(`[tokenService] ${line}`);
+        }
+
+        childProcess.stdout.on('data', (chunk: Buffer) => {
+            stdoutBuffer = appendChunkAndFlushLines(
+                stdoutBuffer,
+                chunk,
+                handleStdoutLine,
+            );
+        });
+
+        childProcess.stderr.on('data', (chunk: Buffer) => {
+            stderrBuffer = appendChunkAndFlushLines(
+                stderrBuffer,
+                chunk,
+                handleStderrLine,
+            );
+        });
+
+        childProcess.on('error', fail);
+
+        childProcess.on('exit', (code, signal) => {
+            if (tokenServiceProcess === childProcess) {
+                tokenServiceProcess = undefined;
+            }
+
+            if (!isSettled) {
+                fail(
+                    new Error(
+                        `Token service exited before reporting ${TOKEN_SERVICE_URL_ENV}; code=${code ?? 'null'}, signal=${signal ?? 'null'}`,
+                    ),
+                );
+                return;
+            }
+
+            if (code !== 0 && signal !== 'SIGTERM' && signal !== 'SIGINT') {
+                console.error(
+                    `Token service exited unexpectedly; code=${code ?? 'null'}, signal=${signal ?? 'null'}`,
+                );
+            }
+        });
     });
-
-    childProcess.on('error', fail);
-
-    childProcess.on('exit', (code, signal) => {
-      if (tokenServiceProcess === childProcess) {
-        tokenServiceProcess = undefined;
-      }
-
-      if (!isSettled) {
-        fail(
-          new Error(
-            `Token service exited before reporting ${TOKEN_SERVICE_URL_ENV}; code=${code ?? 'null'}, signal=${signal ?? 'null'}`,
-          ),
-        );
-        return;
-      }
-
-      if (code !== 0 && signal !== 'SIGTERM' && signal !== 'SIGINT') {
-        console.error(
-          `Token service exited unexpectedly; code=${code ?? 'null'}, signal=${signal ?? 'null'}`,
-        );
-      }
-    });
-  });
 }
 
 function ensureTokenServiceStarted(): Promise<TokenServiceStart> {
-  if (!tokenServiceStartPromise) {
-    tokenServiceStartPromise = startTokenService().catch((error: unknown) => {
-      tokenServiceStartPromise = undefined;
-      throw error;
-    });
-  }
+    if (!tokenServiceStartPromise) {
+        tokenServiceStartPromise = startTokenService().catch(
+            (error: unknown) => {
+                tokenServiceStartPromise = undefined;
+                throw error;
+            },
+        );
+    }
 
-  return tokenServiceStartPromise;
+    return tokenServiceStartPromise;
 }
 
 function hasErrorCode(error: unknown, code: string): boolean {
-  return (
-    typeof error === 'object' &&
-    error !== null &&
-    'code' in error &&
-    (error as { code?: unknown }).code === code
-  );
+    return (
+        typeof error === 'object' &&
+        error !== null &&
+        'code' in error &&
+        (error as { code?: unknown }).code === code
+    );
 }
 
 function registerShutdownHandlers(): void {
-  if (shutdownHandlersRegistered) {
-    return;
-  }
-
-  shutdownHandlersRegistered = true;
-
-  const shutdown = (signal: NodeJS.Signals): void => {
-    // SIGINT/SIGTERM/SIGUSR2 are all registered with `on` (not `once`) so a
-    // second signal arriving mid-shutdown (e.g. a slow-draining server, or two
-    // rapid nodemon restarts) still finds a listener instead of falling
-    // through to Node's default disposition, which would terminate the
-    // process immediately and skip cleanup below. This guard makes that
-    // re-entrant case a deliberate, logged force-exit instead.
-    if (isShuttingDown) {
-      console.log(`Received ${signal} during shutdown, forcing exit...`);
-      process.exit(1);
+    if (shutdownHandlersRegistered) {
+        return;
     }
 
-    isShuttingDown = true;
-    console.log(`Received ${signal}, shutting down...`);
+    shutdownHandlersRegistered = true;
 
-    void closeAllTrackedBrowserServers().finally(() => {
-      tokenServiceProcess?.kill();
-
-      if (!activeServer) {
-        process.exit(0);
-      }
-
-      activeServer.close((error?: Error) => {
-        if (error) {
-          console.error(error);
-          process.exit(1);
+    const shutdown = (signal: NodeJS.Signals): void => {
+        // SIGINT/SIGTERM/SIGUSR2 are all registered with `on` (not `once`) so a
+        // second signal arriving mid-shutdown (e.g. a slow-draining server, or two
+        // rapid nodemon restarts) still finds a listener instead of falling
+        // through to Node's default disposition, which would terminate the
+        // process immediately and skip cleanup below. This guard makes that
+        // re-entrant case a deliberate, logged force-exit instead.
+        if (isShuttingDown) {
+            console.log(`Received ${signal} during shutdown, forcing exit...`);
+            process.exit(1);
         }
 
-        process.exit(0);
-      });
+        isShuttingDown = true;
+        console.log(`Received ${signal}, shutting down...`);
+
+        void closeAllTrackedBrowserServers().finally(() => {
+            tokenServiceProcess?.kill();
+
+            if (!activeServer) {
+                process.exit(0);
+            }
+
+            activeServer.close((error?: Error) => {
+                if (error) {
+                    console.error(error);
+                    process.exit(1);
+                }
+
+                process.exit(0);
+            });
+        });
+    };
+
+    process.on('SIGINT', shutdown);
+    process.on('SIGTERM', shutdown);
+    process.once('exit', () => {
+        tokenServiceProcess?.kill();
     });
-  };
 
-  process.on('SIGINT', shutdown);
-  process.on('SIGTERM', shutdown);
-  process.once('exit', () => {
-    tokenServiceProcess?.kill();
-  });
-
-  // nodemon restarts by sending SIGUSR2 (its default restart signal, see its
-  // README's "graceful reload" section), not SIGINT/SIGTERM, so without this
-  // handler every dev-loop restart bypasses `shutdown` above entirely and kills
-  // the process with no cleanup, orphaning any in-flight Playwright browser.
-  // Clean up, then re-signal SIGTERM (already handled by `shutdown`) so
-  // nodemon's restart proceeds. This assumes a nodemon-managed local dev
-  // process — this project currently has no other deployment/process-manager
-  // path, so no environment gating is added here.
-  process.on('SIGUSR2', () => {
-    closeAllTrackedBrowserServers()
-      .catch(() => undefined)
-      .finally(() => {
-        process.kill(process.pid, 'SIGTERM');
-      });
-  });
+    // nodemon restarts by sending SIGUSR2 (its default restart signal, see its
+    // README's "graceful reload" section), not SIGINT/SIGTERM, so without this
+    // handler every dev-loop restart bypasses `shutdown` above entirely and kills
+    // the process with no cleanup, orphaning any in-flight Playwright browser.
+    // Clean up, then re-signal SIGTERM (already handled by `shutdown`) so
+    // nodemon's restart proceeds. This assumes a nodemon-managed local dev
+    // process — this project currently has no other deployment/process-manager
+    // path, so no environment gating is added here.
+    process.on('SIGUSR2', () => {
+        closeAllTrackedBrowserServers()
+            .catch(() => undefined)
+            .finally(() => {
+                process.kill(process.pid, 'SIGTERM');
+            });
+    });
 }
 
 async function listenWithFallback(
-  port: number,
-  tokenServiceUrl?: string,
+    port: number,
+    tokenServiceUrl?: string,
 ): Promise<Server> {
-  const resolvedTokenServiceUrl =
-    tokenServiceUrl ?? (await ensureTokenServiceStarted()).url;
-  process.env[TOKEN_SERVICE_URL_ENV] = resolvedTokenServiceUrl;
-  registerShutdownHandlers();
+    const resolvedTokenServiceUrl =
+        tokenServiceUrl ?? (await ensureTokenServiceStarted()).url;
+    process.env[TOKEN_SERVICE_URL_ENV] = resolvedTokenServiceUrl;
+    registerShutdownHandlers();
 
-  return new Promise((resolve, reject) => {
-    const server = app
-      .listen(port)
-      .on('listening', () => {
-        activeServer = server;
-        console.log(`Token service running on ${resolvedTokenServiceUrl}`);
-        console.log(`Server running on http://localhost:${port}`);
-        resolve(server);
-      })
-      .on('error', (err: unknown) => {
-        if (hasErrorCode(err, 'EADDRINUSE')) {
-          console.log(`Port ${port} in use, trying ${port + 1}...`);
-          listenWithFallback(port + 1, resolvedTokenServiceUrl).then(
-            resolve,
-            reject,
-          );
-          return;
-        }
+    return new Promise((resolve, reject) => {
+        const server = app
+            .listen(port)
+            .on('listening', () => {
+                activeServer = server;
+                console.log(
+                    `Token service running on ${resolvedTokenServiceUrl}`,
+                );
+                console.log(`Server running on http://localhost:${port}`);
+                resolve(server);
+            })
+            .on('error', (err: unknown) => {
+                if (hasErrorCode(err, 'EADDRINUSE')) {
+                    console.log(`Port ${port} in use, trying ${port + 1}...`);
+                    listenWithFallback(port + 1, resolvedTokenServiceUrl).then(
+                        resolve,
+                        reject,
+                    );
+                    return;
+                }
 
-        reject(err);
-      });
-  });
+                reject(err);
+            });
+    });
 }
 
 console.log(
-  'MongoDB connection string:',
-  process.env['MONGODB_CONNECTION_STRING'],
+    'MongoDB connection string:',
+    process.env['MONGODB_CONNECTION_STRING'],
 );
 
 void listenWithFallback(START_PORT).catch((error: unknown) => {
-  console.error(error);
-  tokenServiceProcess?.kill();
-  process.exit(1);
+    console.error(error);
+    tokenServiceProcess?.kill();
+    process.exit(1);
 });

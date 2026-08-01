@@ -58,12 +58,14 @@ export function coverLetterToHtml(
     .replace(/\{\{userEmail\}\}/g, () => escapeHtml(user.email))
     .replace(/\{\{jobCompany\}\}/g, () => escapeHtml(job.company))
     .replace(/\{\{jobStreetAddress\}\}/g, () =>
-      escapeHtml(job.companyAddress.streetAddress),
+      escapeHtml(job.companyAddresses[0]?.streetAddress ?? ''),
     )
     .replace(/\{\{jobPostalCode\}\}/g, () =>
-      escapeHtml(job.companyAddress.postalCode),
+      escapeHtml(job.companyAddresses[0]?.postalCode ?? ''),
     )
-    .replace(/\{\{jobCity\}\}/g, () => escapeHtml(job.companyAddress.city))
+    .replace(/\{\{jobCity\}\}/g, () =>
+      escapeHtml(job.companyAddresses[0]?.city ?? ''),
+    )
     .replace(/\{\{date\}\}/g, () => escapeHtml(date))
     .replace(/\{\{subject\}\}/g, () => escapeHtml(coverLetter.subject.text))
     .replace(/\{\{bodyParas\}\}/g, () => bodyParas);
