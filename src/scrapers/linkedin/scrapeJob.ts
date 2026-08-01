@@ -39,6 +39,7 @@ export async function scrapeJob(req: Request, res: Response): Promise<void> {
         await client.connect();
     } catch (error) {
         createErrorMessage(res, error, 'Failed to connect to MongoDB.');
+        await client.close();
         return;
     }
 

@@ -193,4 +193,20 @@ describe('scrapeJob', () => {
         expect(connect).not.toHaveBeenCalled();
         expect(mockRunScrape).not.toHaveBeenCalled();
     });
+
+    it('closes the MongoDB client when the initial connection fails', async () => {
+        connect.mockRejectedValueOnce(new Error('connection refused'));
+        const { response, writeHead, status, json } = createSseResponse();
+
+        await scrapeJob(createRequest(validBody), response);
+
+        expect(close).toHaveBeenCalledTimes(1);
+        expect(writeHead).not.toHaveBeenCalled();
+        expect(status).toHaveBeenCalledWith(500);
+        expect(json).toHaveBeenCalledWith(
+            expect.objectContaining({
+                message: 'Failed to connect to MongoDB.',
+            }),
+        );
+    });
 });
