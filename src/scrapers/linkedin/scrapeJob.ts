@@ -2,71 +2,10 @@ import type { ScrapedJob } from '#types';
 import type { Request, Response } from 'express';
 import { runScrape } from 'linkedin-job-scraper';
 import { createJobEmbedding } from '../../embeddings/jobEmbedding.js';
-
-function getSearchParamsFromRequest(req: Request): {
-    keywords: string[];
-    location: string;
-    datePosted: 'day' | 'month' | 'week';
-    distance: number;
-} | null {
-    if (
-        !req.body ||
-        typeof req.body !== 'object' ||
-        !('keywords' in req.body) ||
-        !('location' in req.body) ||
-        !('distance' in req.body) ||
-        !('datePosted' in req.body)
-    ) {
-        return null;
-    }
-    const keywords = req.body.keywords;
-    const location = req.body.location;
-    const distance = req.body.distance;
-    const datePosted = req.body.datePosted;
-    const keywordValues = typeof keywords === 'string' ? [keywords] : keywords;
-    const trimmedLocation = typeof location === 'string' ? location.trim() : '';
-
-    if (
-        !Array.isArray(keywordValues) ||
-        keywordValues.length === 0 ||
-        trimmedLocation.length === 0 ||
-        typeof distance !== 'number' ||
-        !Number.isFinite(distance) ||
-        !Number.isInteger(distance) ||
-        distance <= 0 ||
-        typeof datePosted !== 'string' ||
-        !['day', 'month', 'week'].includes(datePosted)
-    ) {
-        return null;
-    }
-
-    const trimmedKeywords: string[] = [];
-    for (const keywordValue of keywordValues) {
-        if (typeof keywordValue !== 'string') {
-            return null;
-        }
-
-        const trimmedKeyword = keywordValue.trim();
-
-        if (trimmedKeyword.length === 0) {
-            return null;
-        }
-
-        if (!trimmedKeywords.includes(trimmedKeyword)) {
-            trimmedKeywords.push(trimmedKeyword);
-        }
-    }
-
-    return {
-        keywords: trimmedKeywords,
-        location: trimmedLocation,
-        distance,
-        datePosted: datePosted as 'day' | 'month' | 'week',
-    };
-}
+import { getLinkedInJobScraperSearchParamsFromBody } from '#utils/getLinkedInJobScraperSearchParamsFromBody.js';
 
 export async function scrapeJob(req: Request, res: Response): Promise<void> {
-    const searchParams = getSearchParamsFromRequest(req);
+    const searchParams = getLinkedInJobScraperSearchParamsFromBody(req.body);
     if (!searchParams) {
         res.status(400).json({ error: 'Invalid request body' });
         return;
