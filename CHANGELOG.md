@@ -2,11 +2,17 @@
 
 All notable changes to this project are documented in this file.
 
-## v3.0.2
+## v3.0.3
 
 ### Changed
 
 - Split `src/index.ts` (459 lines mixing Express app/route wiring, CORS origin-checking, Python binary resolution, the token-service subprocess manager, and process shutdown/signal handling) into `src/app.ts` (Express instance, CORS/JSON middleware, route registrations), `src/server/listen.ts` (`listenWithFallback`, the port-binding/`EADDRINUSE`-retry logic), `src/server/shutdown.ts` (`registerShutdownHandlers`, graceful shutdown/signal handling), and `src/tokenService/resolvePythonBinary.ts` / `src/tokenService/startTokenService.ts` (Python binary resolution and the token-service subprocess manager), leaving `src/index.ts` a thin entrypoint. Purely structural — no runtime behavior change (closes #92).
+
+## v3.0.2
+
+### Removed
+
+- Deleted `src/utils/getScrapeJobRequestParamsFromBody.ts` and `src/utils/getLinkedInJobLinkSearchParamsFromBody.ts` (and their tests), and removed the `ScrapeJobRequestParams`/`LinkedInJobLinkSearchParams` type exports from `src/types.ts` — dead code that was never wired to any route; no behavior change (closes #95).
 
 ## v3.0.1
 
