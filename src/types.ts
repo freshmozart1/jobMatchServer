@@ -1,16 +1,5 @@
 export type LinkedInUrlVariant = 'jobPage' | 'jobSearchPage';
 
-export type LinkedInJobLinkSearchParams = {
-    keywords: string[];
-    location: string;
-    distance: number;
-    datePosted: string;
-};
-
-export type ScrapeJobRequestParams = LinkedInJobLinkSearchParams & {
-    maxPages: number;
-};
-
 export type CompanyAddress = {
     streetAddress: string;
     city: string;
