@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented in this file.
 
+## v3.0.2
+
+### Changed
+
+- Split `src/index.ts` (459 lines mixing Express app/route wiring, CORS origin-checking, Python binary resolution, the token-service subprocess manager, and process shutdown/signal handling) into `src/app.ts` (Express instance, CORS/JSON middleware, route registrations), `src/server/listen.ts` (`listenWithFallback`, the port-binding/`EADDRINUSE`-retry logic), `src/server/shutdown.ts` (`registerShutdownHandlers`, graceful shutdown/signal handling), and `src/tokenService/resolvePythonBinary.ts` / `src/tokenService/startTokenService.ts` (Python binary resolution and the token-service subprocess manager), leaving `src/index.ts` a thin entrypoint. Purely structural — no runtime behavior change (closes #92).
+
 ## v3.0.1
 
 ### Fixed
