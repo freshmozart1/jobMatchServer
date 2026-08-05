@@ -35,7 +35,7 @@ export function killTokenServiceProcess(): void {
     tokenServiceProcess?.kill();
 }
 
-export function appendChunkAndFlushLines(
+function appendChunkAndFlushLines(
     bufferedText: string,
     chunk: Buffer,
     handleLine: (line: string) => void,
@@ -57,7 +57,7 @@ export function appendChunkAndFlushLines(
     return nextBufferedText;
 }
 
-export function startTokenService(): Promise<TokenServiceStart> {
+function startTokenService(): Promise<TokenServiceStart> {
     const childProcess = spawn(PYTHON_BINARY, [TOKEN_SERVICE_SCRIPT], {
         cwd: process.cwd(),
         stdio: ['ignore', 'pipe', 'pipe'],

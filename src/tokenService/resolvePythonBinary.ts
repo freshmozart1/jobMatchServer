@@ -8,7 +8,7 @@ import { delimiter, join } from 'node:path';
 
 const LOCAL_PYTHON_BINARY = join(process.cwd(), '.venv', 'bin', 'python');
 
-export function findExecutable(command: string): string | undefined {
+function findExecutable(command: string): string | undefined {
     const pathDirectories = process.env['PATH']?.split(delimiter) ?? [];
 
     for (const directory of pathDirectories) {
@@ -25,9 +25,7 @@ export function findExecutable(command: string): string | undefined {
     return undefined;
 }
 
-export function resolvePythonBinaryFromPip(
-    command: string,
-): string | undefined {
+function resolvePythonBinaryFromPip(command: string): string | undefined {
     const pipPath = findExecutable(command);
 
     if (!pipPath) {
