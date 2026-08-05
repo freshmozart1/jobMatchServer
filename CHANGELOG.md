@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented in this file.
 
+## v3.0.2
+
+### Removed
+
+- Deleted `src/utils/getScrapeJobRequestParamsFromBody.ts` and `src/utils/getLinkedInJobLinkSearchParamsFromBody.ts` (and their tests), and removed the `ScrapeJobRequestParams`/`LinkedInJobLinkSearchParams` type exports from `src/types.ts` — dead code that was never wired to any route; no behavior change (closes #95).
+
 ## v3.0.1
 
 ### Fixed
