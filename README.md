@@ -26,7 +26,7 @@ Not yet implemented:
 
 ## Architecture
 
-1. **Express server** (`src/index.ts`) exposes all HTTP endpoints, handles CORS for a local frontend, and manages graceful shutdown of the Playwright browser and token service.
+1. **Express server** (`src/app.ts`) exposes all HTTP endpoints and handles CORS for a local frontend; `src/server/listen.ts` and `src/server/shutdown.ts` handle port-binding fallback and graceful shutdown of the Playwright browser and token service; `src/index.ts` is the thin entrypoint that wires them together.
 2. **LinkedIn scraping layer** (`src/scrapers/linkedin/scrapeJob.ts`) invokes the `linkedin-job-scraper` package to gather job search results and extracts job postings and company addresses.
 3. **Embeddings layer** (`src/embeddings/`) computes OpenAI embeddings for jobs and compares a new job's embedding against the average embedding of previously liked/disliked jobs to produce a match score.
 4. **MongoDB storage layer** (`src/database/`) persists jobs (deduplicated by `duplicateKey`), cover letters (with per-segment embeddings), CVs, certificates, and users.
@@ -119,11 +119,11 @@ Body:
 
 ```json
 {
-  "keywords": "software engineer",
-  "location": "Berlin",
-  "distance": 25,
-  "datePosted": "604800",
-  "maxPages": 3
+    "keywords": "software engineer",
+    "location": "Berlin",
+    "distance": 25,
+    "datePosted": "604800",
+    "maxPages": 3
 }
 ```
 
@@ -183,27 +183,27 @@ Stored jobs use a normalized format so downstream applications don't need to und
 
 ```ts
 type CompanyAddress = {
-  streetAddress: string;
-  city: string;
-  postalCode: string;
-  countryCode: string;
+    streetAddress: string;
+    city: string;
+    postalCode: string;
+    countryCode: string;
 };
 
 type ScrapedJob = {
-  sourceHostname: string;
-  sourceJobId?: string;
-  sourceUrl: string;
-  title: string;
-  company: string;
-  location?: string;
-  descriptionText?: string;
-  postedAt?: string;
-  scrapedAt: string;
-  tags?: string[];
-  duplicateKey: string;
-  companyAddresses: CompanyAddress[];
-  embedding: number[];
-  match?: number;
+    sourceHostname: string;
+    sourceJobId?: string;
+    sourceUrl: string;
+    title: string;
+    company: string;
+    location?: string;
+    descriptionText?: string;
+    postedAt?: string;
+    scrapedAt: string;
+    tags?: string[];
+    duplicateKey: string;
+    companyAddresses: CompanyAddress[];
+    embedding: number[];
+    match?: number;
 };
 ```
 
