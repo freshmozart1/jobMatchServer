@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, jest } from '@jest/globals';
+import { EventEmitter } from 'node:events';
 import type { Request, Response } from 'express';
 import type {
+    ScrapeOutcome,
     ScrapeProgressEvent,
     SuccessfulJobResult,
 } from 'linkedin-job-scraper';
@@ -17,6 +19,7 @@ import {
 
 type MockRunScrapeOptions = {
     onProgress?: (event: ScrapeProgressEvent) => void;
+    signal?: AbortSignal;
 };
 
 const mockRunScrape =
@@ -26,8 +29,18 @@ const mockComputeJobMatch =
     jest.fn<(...args: unknown[]) => Promise<number | undefined>>();
 const findOne = jest.fn<(...args: unknown[]) => Promise<unknown>>();
 
+class ScrapeAbortedError extends Error {
+    override readonly name = 'AbortError';
+    readonly partial: ScrapeOutcome;
+    constructor(partial: ScrapeOutcome) {
+        super('Scrape aborted');
+        this.partial = partial;
+    }
+}
+
 jest.unstable_mockModule('linkedin-job-scraper', () => ({
     runScrape: mockRunScrape,
+    ScrapeAbortedError,
 }));
 jest.unstable_mockModule('../../embeddings/jobEmbedding.js', () => ({
     createJobEmbedding: mockCreateJobEmbedding,
@@ -42,7 +55,12 @@ mockLocalDatabaseModule();
 const { scrapeJob } = await import('./scrapeJob.js');
 
 function createRequest(body: unknown): Request {
-    return { body } as Request;
+    const emitter = new EventEmitter();
+    return Object.assign(emitter, { body }) as unknown as Request;
+}
+
+function emitClose(request: Request): void {
+    (request as unknown as EventEmitter).emit('close');
 }
 
 function createSseResponse(): {
@@ -231,5 +249,58 @@ describe('scrapeJob', () => {
                 message: 'Failed to connect to MongoDB.',
             }),
         );
+    });
+
+    it("aborts every keyword's runScrape when the client disconnects", async () => {
+        findOne.mockResolvedValue(null);
+        const request = createRequest(validBody);
+        const capturedSignals: (AbortSignal | undefined)[] = [];
+        mockRunScrape.mockImplementation(async ({ signal }) => {
+            capturedSignals.push(signal);
+            return { results: [], url: '' };
+        });
+        const { response } = createSseResponse();
+
+        const scrapePromise = scrapeJob(request, response);
+        emitClose(request);
+        await scrapePromise;
+
+        expect(capturedSignals.length).toBeGreaterThan(0);
+        expect(
+            capturedSignals.every((signal) => signal?.aborted === true),
+        ).toBe(true);
+    });
+
+    it('does not write an error chunk when a scrape is aborted by disconnect', async () => {
+        findOne.mockResolvedValue(null);
+        const request = createRequest(validBody);
+        mockRunScrape.mockImplementation(async () => {
+            throw new ScrapeAbortedError({ results: [], url: '' });
+        });
+        const { response, write } = createSseResponse();
+
+        const scrapePromise = scrapeJob(request, response);
+        emitClose(request);
+        await scrapePromise;
+
+        const errorWrites = write.mock.calls.filter(([chunk]) =>
+            String(chunk).includes('Scrape failed'),
+        );
+        expect(errorWrites).toHaveLength(0);
+    });
+
+    it('stops forwarding job writes queued before disconnect', async () => {
+        findOne.mockResolvedValue(null);
+        const request = createRequest(validBody);
+        mockRunScrape.mockImplementation(async ({ onProgress }) => {
+            emitClose(request);
+            onProgress?.({ type: 'job:done', result: successfulResult() });
+            return { results: [], url: '' };
+        });
+        const { response, write } = createSseResponse();
+
+        await scrapeJob(request, response);
+
+        expect(jobDataWrites(write)).toHaveLength(0);
     });
 });
