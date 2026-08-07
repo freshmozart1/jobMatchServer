@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented in this file.
 
+## v3.0.4
+
+### Fixed
+
+- `POST /scrape/linkedin` (`scrapeJob.ts`) now aborts the in-progress `runScrape` call(s) when the client disconnects mid-stream (e.g. the MatchPage is reloaded while a scrape is running), instead of letting them run to completion orphaned in the background. An `AbortController` is created per request and aborted from a `req.on('close', ...)` listener; its signal is passed into every `runScrape` call, which already supported cooperative cancellation via `RunScrapeOptions.signal` and rejects with `ScrapeAbortedError` when aborted. Writes to the response (streamed job data, error chunks, the final `res.end()`) are also skipped once the client has disconnected, since the socket is already gone by then (closes #100).
+
 ## v3.0.3
 
 ### Changed
