@@ -4,7 +4,7 @@ import type {
     ScrapeProgressEvent,
     SuccessfulJobResult,
 } from 'linkedin-job-scraper';
-import { runScrape } from 'linkedin-job-scraper';
+import { runScrape, ScrapeAbortedError } from 'linkedin-job-scraper';
 import { MongoClient } from 'mongodb';
 import {
     connectionStringConfigured,
@@ -21,6 +21,17 @@ import {
     extractJobTitle,
     normalizeDescription,
 } from './linkedInTextUtils.js';
+
+type DisconnectState = { disconnected: boolean };
+
+function writeIfConnected(
+    res: Response,
+    disconnectState: DisconnectState,
+    chunk: string,
+): void {
+    if (disconnectState.disconnected) return;
+    res.write(chunk);
+}
 
 async function isJobAlreadyStored(
     client: MongoClient,
@@ -69,6 +80,7 @@ function buildRawJob(
 async function forwardJobIfNew(
     client: MongoClient,
     res: Response,
+    disconnectState: DisconnectState,
     result: SuccessfulJobResult,
 ): Promise<void> {
     const duplicateKey = computeDuplicateKey(result);
@@ -81,7 +93,9 @@ async function forwardJobIfNew(
     const rawJob = buildRawJob(result, duplicateKey);
     const embedding = await createJobEmbedding(rawJob);
     const match = await computeJobMatch(client, embedding);
-    res.write(
+    writeIfConnected(
+        res,
+        disconnectState,
         `data: ${JSON.stringify({
             ...rawJob,
             embedding,
@@ -93,6 +107,7 @@ async function forwardJobIfNew(
 function handleProgressEvent(
     client: MongoClient,
     res: Response,
+    disconnectState: DisconnectState,
     pendingJobWrites: Promise<void>[],
     event: ScrapeProgressEvent,
 ): void {
@@ -103,7 +118,9 @@ function handleProgressEvent(
             );
             return;
         }
-        pendingJobWrites.push(forwardJobIfNew(client, res, event.result));
+        pendingJobWrites.push(
+            forwardJobIfNew(client, res, disconnectState, event.result),
+        );
     } else if (event.type === 'job:stale') {
         console.warn(
             `LinkedIn scrape result for job index ${event.result.index} is suspect (companyMismatch=${event.result.companyMismatch}, sourceJobIdMismatch=${event.result.sourceJobIdMismatch}, lateOverlayDetected=${event.result.lateOverlayDetected}); not forwarding it.`,
@@ -118,6 +135,13 @@ export async function scrapeJob(req: Request, res: Response): Promise<void> {
         return;
     }
     if (!connectionStringConfigured(res)) return;
+
+    const controller = new AbortController();
+    const disconnectState: DisconnectState = { disconnected: false };
+    req.on('close', () => {
+        disconnectState.disconnected = true;
+        controller.abort();
+    });
 
     const { keywords, location, distance, datePosted } = searchParams;
     const client = new MongoClient(MONGODB_CONNECTION!);
@@ -145,27 +169,39 @@ export async function scrapeJob(req: Request, res: Response): Promise<void> {
             keywords.map((keyword) =>
                 runScrape({
                     onProgress: (e) =>
-                        handleProgressEvent(client, res, pendingJobWrites, e),
+                        handleProgressEvent(
+                            client,
+                            res,
+                            disconnectState,
+                            pendingJobWrites,
+                            e,
+                        ),
                     searchParams: {
                         keyword,
                         datePosted,
                         location,
                         distanceMiles: distance,
                     },
+                    signal: controller.signal,
                 }),
             ),
         );
         await Promise.allSettled(pendingJobWrites);
         settledScrapes.forEach((settledScrape) => {
-            if (settledScrape.status === 'rejected') {
-                console.error('Scrape failed:', settledScrape.reason);
-                res.write(
-                    `data: ${JSON.stringify({ error: 'Scrape failed', reason: settledScrape.reason })}\n\n`,
-                );
+            if (settledScrape.status !== 'rejected') return;
+            if (settledScrape.reason instanceof ScrapeAbortedError) {
+                console.log('LinkedIn scrape aborted: client disconnected.');
+                return;
             }
+            console.error('Scrape failed:', settledScrape.reason);
+            writeIfConnected(
+                res,
+                disconnectState,
+                `data: ${JSON.stringify({ error: 'Scrape failed', reason: settledScrape.reason })}\n\n`,
+            );
         });
     } finally {
         await client.close();
     }
-    res.end();
+    if (!disconnectState.disconnected) res.end();
 }
