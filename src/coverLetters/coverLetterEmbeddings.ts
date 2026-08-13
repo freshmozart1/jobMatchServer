@@ -1,11 +1,13 @@
 import type {
   CoverLetterSegmentName,
-  CoverLetterTextSegments,
   StoredCoverLetter,
   TextEmbedding,
 } from '#types';
 import { embedMany } from '../embeddings/embeddings.js';
-import { COVER_LETTER_SEGMENT_NAMES } from './coverLetterSegmentation.js';
+import {
+  COVER_LETTER_SEGMENT_NAMES,
+  type CoverLetterSegments,
+} from 'cover-letter-generator';
 
 function createStoredCoverLetterSegment(
   text: string,
@@ -15,7 +17,7 @@ function createStoredCoverLetterSegment(
 }
 
 export async function createStoredCoverLetterFromTextSegments(
-  segments: CoverLetterTextSegments,
+  segments: CoverLetterSegments,
 ): Promise<Omit<StoredCoverLetter, 'jobDuplicateKey'>> {
   const segmentNamesWithText = COVER_LETTER_SEGMENT_NAMES.filter(
     (segmentName) => segments[segmentName].trim().length > 0,

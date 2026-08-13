@@ -1,5 +1,5 @@
 import type { Request, Response } from 'express';
-import { segmentCoverLetter } from '../coverLetters/coverLetterSegmentation.js';
+import { segmentCoverLetter } from 'cover-letter-generator';
 import { createStoredCoverLetterFromTextSegments } from '../coverLetters/coverLetterEmbeddings.js';
 import { MongoClient } from 'mongodb';
 import {

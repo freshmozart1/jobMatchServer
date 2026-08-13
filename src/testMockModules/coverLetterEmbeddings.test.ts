@@ -1,8 +1,9 @@
 import { jest } from '@jest/globals';
-import type { CoverLetterTextSegments, StoredCoverLetter } from '#types';
+import type { StoredCoverLetter } from '#types';
+import type { CoverLetterSegments } from 'cover-letter-generator';
 
 export const createStoredCoverLetterFromTextSegments =
-  jest.fn<(segments: CoverLetterTextSegments) => Promise<StoredCoverLetter>>();
+  jest.fn<(segments: CoverLetterSegments) => Promise<StoredCoverLetter>>();
 
 export function mockCoverLetterEmbeddingsModule() {
   return jest.unstable_mockModule(

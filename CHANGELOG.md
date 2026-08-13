@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file.
 
+## v3.0.6
+
+### Changed
+
+- Replaced the local cover-letter segmentation implementation (`src/coverLetters/coverLetterPreprocessing.ts`, `coverLetterSegmentation.ts`, `coverLetterSegmentationFallback.ts`, and their tests, all deleted) with `segmentCoverLetter`/`COVER_LETTER_SEGMENT_NAMES`/`CoverLetterSegments` imported directly from the `cover-letter-generator` package (installed as a dependency by #102). The two small jobMatchServer-specific functions the package doesn't provide — `getCoverLetterTextSegments`/`reconstructCoverLetterText`, which convert to/from this repo's Mongo `StoredCoverLetter` shape — now live in a new `src/coverLetters/coverLetterAdapters.ts` (with its own tests), and `coverLetterEmbeddings.ts`, `generateCoverLettersAsText.ts`, and `uploadCoverLetterAsText.ts` were repointed at the package accordingly. The now-redundant local `CoverLetterTextSegments` type was removed from `src/types.ts` in favor of the package's structurally identical `CoverLetterSegments`. A new shared `src/testMockModules/coverLetterGenerator.test.ts` mock factory (mirroring the existing `mongodb.test.ts` one) replaces the deleted per-file segmentation mocks. Segmentation output, confidence scoring, and heuristic-vs-LLM-fallback behavior are all unchanged — this is a drop-in swap of an already-extracted implementation, not a behavior change (closes #103).
+- Fixed a regression surfaced by the swap above: `cover-letter-generator`'s `dist/llm.js` constructs `new OpenAI()` at module import time (unlike the deleted local code, which only built the client lazily inside the LLM-fallback function), so merely importing the package — even just for `COVER_LETTER_SEGMENT_NAMES` or types — started throwing `Missing credentials...` without `OPENAI_API_KEY` set, crashing 3 test suites that previously never needed a real key since they mock segmentation/embeddings and never call the real OpenAI API. Added `jest.setup.mjs` (wired via a new `setupFiles` entry in `jest.config.mjs`) that sets a placeholder `process.env.OPENAI_API_KEY ??= 'test-key'`, matching the convention `cover-letter-generator`'s own test script already uses. Also dropped the now-stale `cover-letter-generator` entry from `.fallowrc.json`'s `ignoreDependencies` (added by #102 when the package was install-only; it's genuinely used from `src/` now, so the suppression no longer applies) and added an ESLint config block granting `.mjs`/`.cjs` files the `process` global, needed for the new setup file to pass lint.
+
 ## v3.0.5
 
 ### Added
