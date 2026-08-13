@@ -1,4 +1,4 @@
 {
   "entry": ["src/**/*.test.ts"],
-  "ignoreDependencies": ["@jest/globals", "cover-letter-generator"]
+  "ignoreDependencies": ["@jest/globals"]
 }

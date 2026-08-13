@@ -6,7 +6,7 @@ import OpenAI from 'openai';
 import {
   getCoverLetterTextSegments,
   reconstructCoverLetterText,
-} from './coverLetterSegmentation.js';
+} from './coverLetterAdapters.js';
 import {
   connectionStringConfigured,
   getCollection,
