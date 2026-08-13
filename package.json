@@ -63,6 +63,7 @@
     "wait-on": "^9.1.0"
   },
   "dependencies": {
+    "cover-letter-generator": "github:freshmozart1/cover-letter-generator#v0.9.1",
     "express": "^5.2.1",
     "linkedin-job-scraper": "github:freshmozart1/linkedin-job-scraper#v0.7.1",
     "mongodb": "^7.5.0",
@@ -72,6 +73,7 @@
     "puppeteer": "^25.4.0"
   },
   "allowScripts": {
+    "github:freshmozart1/cover-letter-generator#30658619b9919ae059f33603c62ce4144fe72bcd": true,
     "github:freshmozart1/linkedin-job-scraper#b0099614396501a996e12d713b0fb66d12b60f38": true
   }
 }
