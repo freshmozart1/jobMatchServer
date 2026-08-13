@@ -52,11 +52,11 @@ node --experimental-vm-modules --localstorage-file=/tmp/jest-localstorage.json .
 
 ## Required environment variables
 
-| Variable                    | Notes                                                                         |
-| --------------------------- | ----------------------------------------------------------------------------- |
-| `MONGODB_CONNECTION_STRING` | MongoDB connection URI; checked at startup and before every DB call           |
-| `OPENAI_API_KEY`            | Picked up automatically by the OpenAI SDK — no explicit reference in source   |
-| `PYTHON`                    | Optional; overrides Python binary resolution for the token-service subprocess |
+| Variable                    | Notes                                                                                                                                                                                                                                                            |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `MONGODB_CONNECTION_STRING` | MongoDB connection URI; checked at startup and before every DB call                                                                                                                                                                                              |
+| `OPENAI_API_KEY`            | Picked up automatically by the OpenAI SDK; no explicit reference in source. Also now required at process startup, not just call time — `cover-letter-generator`'s `dist/llm.js` constructs an OpenAI client at import time, and `src/app.ts` imports it eagerly. |
+| `PYTHON`                    | Optional; overrides Python binary resolution for the token-service subprocess                                                                                                                                                                                    |
 
 No `.env` file or dotenv library is used. Set variables in the shell or a process manager.
 
