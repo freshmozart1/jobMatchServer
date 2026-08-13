@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented in this file.
 
+## v3.0.6
+
+### Changed
+
+- `POST /cover-letters/upload/text` (`uploadCoverLetterAsText.ts`) now embeds cover letter segments with `embedCoverLetterSegments` from the `cover-letter-generator` package (installed in #102) instead of the locally-implemented `createStoredCoverLetterFromTextSegments`, which is deleted along with its file (`src/coverLetters/coverLetterEmbeddings.ts`) and test — the package now owns this segmentation/embedding logic per #96's migration plan. Since the package's `CoverLetter` segments carry an optional `embedding` (`embedding?: TextEmbedding`) while jobMatchServer's `StoredCoverLetter`/`CoverLetterSegment` shape expects it nullable, new `toStoredCoverLetter`/`toStoredCoverLetterSegment` adapters in `uploadCoverLetterAsText.ts` translate between the two (`embedding: segment.embedding ?? null`). `cover-letter-generator` is imported dynamically (`await import('cover-letter-generator')`) inside the request handler rather than statically at module scope, because the package eagerly constructs an `OpenAI` client at its own module scope (`node_modules/cover-letter-generator/dist/llm.js`); a static top-level import would have made the whole server crash at startup whenever `OPENAI_API_KEY` is unset, instead of only failing this one endpoint per-request. `COVER_LETTER_SEGMENT_NAMES` (`coverLetterSegmentation.ts`) and `embedMany` (`embeddings.ts`) are de-exported (now file-local) since their only external consumer was the deleted file. Drop-in replacement — stored `coverLetters` documents are equivalent to before for the same input, no observable behavior change (closes #104).
+
 ## v3.0.5
 
 ### Added
