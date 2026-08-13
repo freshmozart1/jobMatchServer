@@ -34,8 +34,6 @@ export type CoverLetterSegmentName =
     | 'conclusion'
     | 'greetings';
 
-export type CoverLetterTextSegments = Record<CoverLetterSegmentName, string>;
-
 export type CoverLetterSegment = {
     text: string;
     embedding: TextEmbedding | null;

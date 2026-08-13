@@ -1,19 +1,16 @@
 import { beforeEach, describe, expect, it, jest } from '@jest/globals';
 import type { Request } from 'express';
-import type {
-  CoverLetterTextSegments,
-  StoredCoverLetter,
-  CoverLetterAsTextRequestBody,
-} from '#types';
+import type { StoredCoverLetter, CoverLetterAsTextRequestBody } from '#types';
+import type { CoverLetterSegments } from 'cover-letter-generator';
 import {
   mockLocalDatabaseModule,
   getCollection,
 } from '../testMockModules/localDatabase.test.js';
 import { mockMongoDbModule, connect } from '../testMockModules/mongodb.test.js';
 import {
-  mockCoverLetterSegmentationModule,
+  mockCoverLetterGeneratorModule,
   segmentCoverLetter,
-} from '../testMockModules/coverLetterSegmentation.test.js';
+} from '../testMockModules/coverLetterGenerator.test.js';
 import {
   mockCoverLetterEmbeddingsModule,
   createStoredCoverLetterFromTextSegments,
@@ -49,7 +46,7 @@ const segments = {
   mainBody: 'I build software.',
   conclusion: 'I look forward to speaking with you.',
   greetings: 'Best regards\nOle',
-} satisfies CoverLetterTextSegments;
+} satisfies CoverLetterSegments;
 
 const storedCoverLetter = {
   subject: { text: segments.subject, embedding: [0.1] },
@@ -69,7 +66,7 @@ const invalidRequestBodyError = {
 
 mockMongoDbModule();
 mockLocalDatabaseModule();
-mockCoverLetterSegmentationModule();
+mockCoverLetterGeneratorModule();
 mockCoverLetterEmbeddingsModule();
 
 // The module under test is imported after the mocks to ensure the mocks are used
