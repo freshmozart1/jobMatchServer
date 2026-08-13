@@ -1,14 +1,32 @@
 import type { Request, Response } from 'express';
-import { segmentCoverLetter } from 'cover-letter-generator';
-import { createStoredCoverLetterFromTextSegments } from '../coverLetters/coverLetterEmbeddings.js';
+import type { CoverLetter } from 'cover-letter-generator';
 import { MongoClient } from 'mongodb';
 import {
   connectionStringConfigured,
   getCollection,
   MONGODB_CONNECTION,
 } from './database.js';
-import type { StoredCoverLetter } from '#types';
+import type { CoverLetterSegment, StoredCoverLetter } from '#types';
 import { createErrorMessage } from '../errors/createErrorMessage.js';
+
+function toStoredCoverLetterSegment(
+  segment: CoverLetter[keyof CoverLetter],
+): CoverLetterSegment {
+  return { text: segment.text, embedding: segment.embedding ?? null };
+}
+
+function toStoredCoverLetter(
+  coverLetter: CoverLetter,
+): Omit<StoredCoverLetter, 'jobDuplicateKey'> {
+  return {
+    subject: toStoredCoverLetterSegment(coverLetter.subject),
+    salutation: toStoredCoverLetterSegment(coverLetter.salutation),
+    introduction: toStoredCoverLetterSegment(coverLetter.introduction),
+    mainBody: toStoredCoverLetterSegment(coverLetter.mainBody),
+    conclusion: toStoredCoverLetterSegment(coverLetter.conclusion),
+    greetings: toStoredCoverLetterSegment(coverLetter.greetings),
+  };
+}
 
 type CoverLetterAsTextRequestBody = {
   coverLetterText: string;
@@ -62,8 +80,15 @@ export default async function uploadCoverLetterAsText(
       client,
       'coverLetters',
     );
+    // Dynamic import so the package's eager `new OpenAI()` at module scope
+    // (cover-letter-generator/dist/llm.js) only runs -- and can only throw --
+    // when this endpoint is actually hit, not at server startup.
+    const { segmentCoverLetter, embedCoverLetterSegments } =
+      await import('cover-letter-generator');
     const { segments } = await segmentCoverLetter(coverLetterText);
-    const coverLetter = await createStoredCoverLetterFromTextSegments(segments);
+    const coverLetter = toStoredCoverLetter(
+      await embedCoverLetterSegments(segments),
+    );
 
     if (jobDuplicateKey) {
       const upserted = await coverLettersCollection.findOneAndReplace(

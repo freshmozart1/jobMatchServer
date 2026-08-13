@@ -3,7 +3,7 @@ import { OpenAI } from 'openai';
 
 const EMBEDDING_MODEL = 'text-embedding-3-small';
 
-export async function embedMany(inputs: string[]): Promise<TextEmbedding[]> {
+async function embedMany(inputs: string[]): Promise<TextEmbedding[]> {
   const client = new OpenAI();
   const response = await client.embeddings.create({
     model: EMBEDDING_MODEL,

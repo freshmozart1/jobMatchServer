@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, jest } from '@jest/globals';
 import type { Request } from 'express';
 import type { StoredCoverLetter, CoverLetterAsTextRequestBody } from '#types';
-import type { CoverLetterSegments } from 'cover-letter-generator';
+import type { CoverLetter, CoverLetterSegments } from 'cover-letter-generator';
 import {
   mockLocalDatabaseModule,
   getCollection,
@@ -10,11 +10,8 @@ import { mockMongoDbModule, connect } from '../testMockModules/mongodb.test.js';
 import {
   mockCoverLetterGeneratorModule,
   segmentCoverLetter,
+  embedCoverLetterSegments,
 } from '../testMockModules/coverLetterGenerator.test.js';
-import {
-  mockCoverLetterEmbeddingsModule,
-  createStoredCoverLetterFromTextSegments,
-} from '../testMockModules/coverLetterEmbeddings.test.js';
 import createResponse from '../testHelpers/createResponse.test.js';
 
 type InsertOneResult = {
@@ -48,14 +45,22 @@ const segments = {
   greetings: 'Best regards\nOle',
 } satisfies CoverLetterSegments;
 
+const coverLetterFromPackage = {
+  subject: { text: segments.subject, embedding: [0.1] },
+  salutation: { text: segments.salutation, embedding: [0.2] },
+  introduction: { text: segments.introduction, embedding: [0.3] },
+  mainBody: { text: segments.mainBody, embedding: [0.4] },
+  conclusion: { text: segments.conclusion, embedding: [0.5] },
+  greetings: { text: segments.greetings },
+} satisfies CoverLetter;
+
 const storedCoverLetter = {
   subject: { text: segments.subject, embedding: [0.1] },
   salutation: { text: segments.salutation, embedding: [0.2] },
   introduction: { text: segments.introduction, embedding: [0.3] },
   mainBody: { text: segments.mainBody, embedding: [0.4] },
   conclusion: { text: segments.conclusion, embedding: [0.5] },
-  greetings: { text: segments.greetings, embedding: [0.6] },
-  jobDuplicateKey: 'test-key-1',
+  greetings: { text: segments.greetings, embedding: null },
 } satisfies StoredCoverLetter;
 
 const invalidRequestBodyError = {
@@ -67,7 +72,6 @@ const invalidRequestBodyError = {
 mockMongoDbModule();
 mockLocalDatabaseModule();
 mockCoverLetterGeneratorModule();
-mockCoverLetterEmbeddingsModule();
 
 // The module under test is imported after the mocks to ensure the mocks are used
 const { default: uploadCoverLetterAsText } =
@@ -87,9 +91,7 @@ describe('uploadCoverLetterAsText', () => {
     insertOne.mockResolvedValue({ insertedId: insertedCoverLetterId });
     findOneAndReplace.mockResolvedValue({ _id: upsertedCoverLetterId });
     segmentCoverLetter.mockResolvedValue({ segments });
-    createStoredCoverLetterFromTextSegments.mockResolvedValue(
-      storedCoverLetter,
-    );
+    embedCoverLetterSegments.mockResolvedValue(coverLetterFromPackage);
     getCollection.mockReturnValue({ insertOne, findOneAndReplace });
   });
 
@@ -102,9 +104,7 @@ describe('uploadCoverLetterAsText', () => {
     await uploadCoverLetterAsText(request, response);
 
     expect(segmentCoverLetter).toHaveBeenCalledWith(coverLetterText);
-    expect(createStoredCoverLetterFromTextSegments).toHaveBeenCalledWith(
-      segments,
-    );
+    expect(embedCoverLetterSegments).toHaveBeenCalledWith(segments);
     expect(insertOne).toHaveBeenCalledWith(storedCoverLetter);
     expect(findOneAndReplace).not.toHaveBeenCalled();
     expect(status).toHaveBeenCalledWith(201);
@@ -125,9 +125,7 @@ describe('uploadCoverLetterAsText', () => {
     await uploadCoverLetterAsText(request, response);
 
     expect(segmentCoverLetter).toHaveBeenCalledWith(coverLetterText);
-    expect(createStoredCoverLetterFromTextSegments).toHaveBeenCalledWith(
-      segments,
-    );
+    expect(embedCoverLetterSegments).toHaveBeenCalledWith(segments);
     expect(findOneAndReplace).toHaveBeenCalledWith(
       { jobDuplicateKey },
       { ...storedCoverLetter, jobDuplicateKey },
@@ -154,7 +152,7 @@ describe('uploadCoverLetterAsText', () => {
     expect(status).toHaveBeenCalledWith(400);
     expect(json).toHaveBeenCalledWith(invalidRequestBodyError);
     expect(segmentCoverLetter).not.toHaveBeenCalled();
-    expect(createStoredCoverLetterFromTextSegments).not.toHaveBeenCalled();
+    expect(embedCoverLetterSegments).not.toHaveBeenCalled();
     expect(insertOne).not.toHaveBeenCalled();
     expect(findOneAndReplace).not.toHaveBeenCalled();
     expect(connect).not.toHaveBeenCalled();
@@ -169,7 +167,7 @@ describe('uploadCoverLetterAsText', () => {
     expect(status).toHaveBeenCalledWith(400);
     expect(json).toHaveBeenCalledWith(invalidRequestBodyError);
     expect(segmentCoverLetter).not.toHaveBeenCalled();
-    expect(createStoredCoverLetterFromTextSegments).not.toHaveBeenCalled();
+    expect(embedCoverLetterSegments).not.toHaveBeenCalled();
     expect(insertOne).not.toHaveBeenCalled();
     expect(findOneAndReplace).not.toHaveBeenCalled();
     expect(connect).not.toHaveBeenCalled();
