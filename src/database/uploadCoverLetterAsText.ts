@@ -1,6 +1,7 @@
 import type { Request, Response } from 'express';
 import { segmentCoverLetter } from '../coverLetters/coverLetterSegmentation.js';
-import { createStoredCoverLetterFromTextSegments } from '../coverLetters/coverLetterEmbeddings.js';
+import { embedCoverLetterSegments } from 'cover-letter-generator';
+import type { CoverLetter } from 'cover-letter-generator';
 import { MongoClient } from 'mongodb';
 import {
   connectionStringConfigured,
@@ -9,6 +10,37 @@ import {
 } from './database.js';
 import type { StoredCoverLetter } from '#types';
 import { createErrorMessage } from '../errors/createErrorMessage.js';
+
+function toStoredCoverLetter(
+  coverLetter: CoverLetter,
+): Omit<StoredCoverLetter, 'jobDuplicateKey'> {
+  return {
+    subject: {
+      text: coverLetter.subject.text,
+      embedding: coverLetter.subject.embedding ?? null,
+    },
+    salutation: {
+      text: coverLetter.salutation.text,
+      embedding: coverLetter.salutation.embedding ?? null,
+    },
+    introduction: {
+      text: coverLetter.introduction.text,
+      embedding: coverLetter.introduction.embedding ?? null,
+    },
+    mainBody: {
+      text: coverLetter.mainBody.text,
+      embedding: coverLetter.mainBody.embedding ?? null,
+    },
+    conclusion: {
+      text: coverLetter.conclusion.text,
+      embedding: coverLetter.conclusion.embedding ?? null,
+    },
+    greetings: {
+      text: coverLetter.greetings.text,
+      embedding: coverLetter.greetings.embedding ?? null,
+    },
+  };
+}
 
 type CoverLetterAsTextRequestBody = {
   coverLetterText: string;
@@ -63,7 +95,9 @@ export default async function uploadCoverLetterAsText(
       'coverLetters',
     );
     const { segments } = await segmentCoverLetter(coverLetterText);
-    const coverLetter = await createStoredCoverLetterFromTextSegments(segments);
+    const coverLetter = toStoredCoverLetter(
+      await embedCoverLetterSegments(segments),
+    );
 
     if (jobDuplicateKey) {
       const upserted = await coverLettersCollection.findOneAndReplace(
