@@ -8,6 +8,14 @@ export default [
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
+    files: ['**/*.mjs', '**/*.cjs'],
+    languageOptions: {
+      globals: {
+        process: 'readonly',
+      },
+    },
+  },
+  {
     files: ['**/*.ts'],
     languageOptions: {
       parserOptions: {
