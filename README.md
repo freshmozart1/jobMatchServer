@@ -133,10 +133,6 @@ Body:
 
 Body: `{ "job": ScrapedJob, "like": boolean }`. Upserts the job into MongoDB keyed by `duplicateKey`, recording whether it was liked or disliked (used to rank future scrapes). Returns `{ "message": "Job created", "jobId": "..." }`.
 
-### `POST /jobs/top-x-similar-cover-letters`
-
-Body: a job (with its `embedding`) plus `{ "x": number }`. Ranks stored cover letters by weighted cosine similarity of their segment embeddings against the job embedding and returns the top `x` cover letter IDs.
-
 ### `POST /cover-letters/upload/text`
 
 Body: `{ "coverLetterText": string, "jobDuplicateKey"?: string }`. Segments the text into salutation/introduction/main body/conclusion/greetings (heuristic, with an LLM fallback), embeds each segment, and stores it — upserted against the given job if `jobDuplicateKey` is provided.
@@ -167,7 +163,7 @@ Returns whether certificates have been uploaded for the given job.
 
 ### `POST /cover-letters/create/text`
 
-Body: a job plus `{ "coverLetterIds": string[] }`. Builds a prompt from the job description and the selected past cover letters, and generates a new cover letter with `gpt-5.5`. Returns `{ "coverLetter": string, "inputTokenCount": number }`.
+Body: a job plus `{ "x"?: number }` (default `3`). Ranks all stored cover letters against the job using the [`cover-letter-generator`](https://www.npmjs.com/package/cover-letter-generator) package's `embedJob` and `getTopXSimilarCoverLetters`, then generates a new cover letter from the top `x` matches via the package's `generateCoverLetter`. Generation itself is delegated to that package, so the exact model it uses internally isn't documented here. Returns `{ "coverLetter": string }`.
 
 ### `POST /tokens/count`
 

@@ -9,7 +9,6 @@ import multer from 'multer';
 
 import { scrapeJob } from '#scrapers/linkedin/scrapeJob.js';
 import createJobInDatabase from '#database/createJobInDatabase.js';
-import getTopXSimilarCoverLetters from '#database/getTopXSimilarCoverLetters.js';
 import uploadCoverLetterAsText from '#database/uploadCoverLetterAsText.js';
 import generateCoverLetterAsText from './coverLetters/generateCoverLettersAsText.js';
 import countTokens from './tokens/calculateTokens.js';
@@ -60,8 +59,6 @@ app.get('/health', (_request: Request, response: Response): void => {
 app.post('/scrape/linkedin', scrapeJob);
 
 app.post('/jobs/create', createJobInDatabase);
-
-app.post('/jobs/top-x-similar-cover-letters', getTopXSimilarCoverLetters);
 
 app.post('/cover-letters/upload/text', uploadCoverLetterAsText);
 
