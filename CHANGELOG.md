@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented in this file.
 
+## v3.0.5
+
+### Added
+
+- Added `cover-letter-generator` (`github:freshmozart1/cover-letter-generator#v0.9.1`) as an installed dependency, in preparation for replacing the logic in `src/coverLetters/` (tracked separately in #96) — no `src/` code imports it yet, so this is install-only with no behavior change. `.npmrc` now sets `allow-git=all` instead of the default, since `cover-letter-generator` itself pulls in `cosine-similarity` via a git tag, a transitive (non-root) git dependency that `allow-git=root` doesn't cover. `.fallowrc.json`'s `ignoreDependencies` was updated so the `fallow` static analyzer doesn't flag the new package as unused, which is expected until #96 wires it in (closes #102).
+
 ## v3.0.4
 
 ### Fixed
