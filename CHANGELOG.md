@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented in this file.
 
+## v3.0.8
+
+### Changed
+
+- `uploadCoverLetterAsText.ts` now imports `segmentCoverLetter` and `embedCoverLetterSegments` from `cover-letter-generator` statically at module scope again, instead of the `await import('cover-letter-generator')` dynamic import inside the request handler added by #103/v3.0.6. `coverLetterAdapters.ts` now imports `COVER_LETTER_SEGMENT_NAMES` as a value from the package too, instead of hardcoding its own duplicate copy of the 6 segment names — that duplication, and the comment explaining it, existed solely to avoid triggering the package's eager `new OpenAI()` client construction (`cover-letter-generator/dist/llm.js`) at module scope, and with the handler itself going back to a static import, avoiding it in the adapter file no longer accomplishes anything. **This intentionally reverses the startup-crash workaround from the v3.0.7/#103 entry below**: since `app.ts` now imports both files transitively at process startup, a missing `OPENAI_API_KEY` once again crashes the server immediately on boot instead of surfacing as a runtime 500 on the first `POST /cover-letters/upload/text` request. This is now the desired behavior rather than the bug it was treated as in #103 — it matches what CLAUDE.md's/README.md's `OPENAI_API_KEY` env-var table already documented ("required at process startup, not just call time"), a claim that was actually false from #103 until this fix. Fail-fast at startup is preferable to a deferred failure on first real request. No change to `POST /cover-letters/upload/text`'s request/response shape or happy-path behavior (closes #111).
+
 ## v3.0.7
 
 ### Changed
