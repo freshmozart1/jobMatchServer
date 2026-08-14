@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented in this file.
 
+## v4.1.0
+
+### Added
+
+- Native `.env` file support at process startup, via Node's built-in `--env-file-if-exists` flag — no dotenv dependency added. `npm run dev` (`nodemon.json`'s `exec`) and the new `npm start` script (`node --env-file-if-exists=.env dist/index.js`, the first production-run script this repo has had) both load `.env` automatically if present, and silently continue if it's absent. Variables already set in the shell or by a process manager still take precedence over `.env` values. `.env.example` is a new fill-in template for the three documented env vars (`MONGODB_CONNECTION_STRING`, `OPENAI_API_KEY`, `PYTHON`), and `.env` itself is now gitignored. `package.json` gained an `engines.node: ">=22.9.0"` floor, since `--env-file-if-exists` requires it and the repo previously documented no minimum Node version anywhere (closes #115).
+
 ## v4.0.1
 
 ### Changed

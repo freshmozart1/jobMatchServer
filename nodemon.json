@@ -2,5 +2,5 @@
   "watch": ["src"],
   "ext": "ts",
   "ignore": ["dist"],
-  "exec": "TS_NODE_TRANSPILE_ONLY=true node --conditions=development --loader ts-node/esm src/index.ts"
+  "exec": "TS_NODE_TRANSPILE_ONLY=true node --env-file-if-exists=.env --conditions=development --loader ts-node/esm src/index.ts"
 }
