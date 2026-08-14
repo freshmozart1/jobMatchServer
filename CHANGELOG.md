@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file.
 
+## v4.0.1
+
+### Changed
+
+- Fixed CLAUDE.md's and README.md's "Cover letter pipeline" descriptions, which incorrectly implied `src/coverLetters/` itself segments and embeds uploaded cover letters. That work — `segmentCoverLetter`/`embedCoverLetterSegments` from the `cover-letter-generator` package, plus this repo's own `toStoredCoverLetter`/`toStoredCoverLetterSegment` adapters — actually happens in `src/database/uploadCoverLetterAsText.ts`; `src/coverLetters/` (`generateCoverLettersAsText.ts`, using `coverLetterAdapters.ts`'s `toGeneratorCoverLetter`/`getGeneratorCoverLetterTextSegments`) only ranks stored letters against a target job and generates a new one. The description had been subtly wrong since before this issue was filed — the underlying migration (#103/#104/#105) was already correct, only the docs lagged behind it (closes #106).
+- Extracted `createDatabaseClient(response): MongoClient | undefined` (`src/database/database.ts`) from the ~41 duplicated lines `fallow dupes` flagged across `getApplication.ts`, `getCV.ts`, and `getCoverLetterPdf.ts` — each had identical boilerplate checking `MONGODB_CONNECTION` is configured (writing a 500 response if not) before constructing `new MongoClient(...)`, found on this repo's first run of the `fallow` static-analysis tool. Each handler still calls `client.connect()` and closes the client itself in its own `try`/`catch`/`finally`, so error-handling behavior is unchanged, including still closing the client if `connect()` itself rejects. The shared Mongo test mock (`src/testMockModules/localDatabase.test.ts`) now also exports a `createDatabaseClient` mock mirroring the real one.
+
 ## v4.0.0
 
 ### Breaking
