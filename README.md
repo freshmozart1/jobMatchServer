@@ -104,7 +104,7 @@ Server running on http://localhost:3000
 | `OPENAI_API_KEY`            | Picked up automatically by the OpenAI SDK; no explicit reference in source. Also now required at process startup, not just call time — `cover-letter-generator`'s `dist/llm.js` constructs an OpenAI client at import time, and `src/app.ts` imports it eagerly. |
 | `PYTHON`                    | Optional. Overrides Python binary resolution for the token service subprocess                                                                                                                                                                                    |
 
-No `.env` file or dotenv library is used. Set variables in the shell or a process manager.
+Copy `.env.example` to `.env` and fill in the values to configure these locally — `npm run dev` and `npm start` both load it automatically via Node's `--env-file-if-exists` flag if present. Variables already set in the shell or by a process manager take precedence over `.env` values.
 
 ## API Endpoints
 
