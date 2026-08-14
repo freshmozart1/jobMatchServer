@@ -12,7 +12,7 @@ This project is under active development. Implemented today:
 - MongoDB persistence for jobs, cover letters, CVs, certificates, and a user profile
 - LinkedIn scraper (via the `linkedin-job-scraper` package) that gathers job search results and extracts job + company details
 - OpenAI (`text-embedding-3-small`) embeddings for jobs and cover letters, used to rank scraped jobs by similarity to liked/disliked examples
-- OpenAI (`gpt-5.5`) cover letter generation, seeded with your most similar past cover letters
+- Cover letter ranking and generation via the [`cover-letter-generator`](https://github.com/freshmozart1/cover-letter-generator) package, seeded with your most similar past cover letters
 - CV and certificate upload endpoints (PDF/JPEG/PNG), with per-job status checks
 - Merged application PDF generation (cover letter rendered to PDF via Puppeteer, combined with the CV and certificates via `pdf-lib`)
 - A companion Python token-counting microservice (Flask + `tiktoken`), spawned automatically at server startup
@@ -30,7 +30,7 @@ Not yet implemented:
 2. **LinkedIn scraping layer** (`src/scrapers/linkedin/scrapeJob.ts`) invokes the `linkedin-job-scraper` package to gather job search results and extracts job postings and company addresses.
 3. **Embeddings layer** (`src/embeddings/`) computes OpenAI embeddings for jobs and compares a new job's embedding against the average embedding of previously liked/disliked jobs to produce a match score.
 4. **MongoDB storage layer** (`src/database/`) persists jobs (deduplicated by `duplicateKey`), cover letters (with per-segment embeddings), CVs, certificates, and users.
-5. **Cover letter pipeline** (`src/coverLetters/`) segments uploaded cover letters (heuristic first, LLM fallback), embeds each segment, ranks past cover letters by similarity to a target job, and generates new cover letters with `gpt-5.5`.
+5. **Cover letter pipeline** (`src/coverLetters/`) segments uploaded cover letters (heuristic first, LLM fallback) and embeds each segment; ranking past cover letters by similarity to a target job and generating a new cover letter from the top matches is delegated to the `cover-letter-generator` package.
 6. **Token service** (`src/tokenService/tokenService.py`) is a small Flask + `tiktoken` process spawned as a subprocess at startup, used to count prompt tokens since Node has no exact equivalent of OpenAI's tokenizer.
 7. **Application assembly** (`src/database/getApplication.ts`) renders the generated cover letter to a PDF with Puppeteer and merges it with the stored CV and any certificates into a single downloadable PDF.
 8. **Consumer applications** call these endpoints (or read MongoDB directly) to drive a job search/apply workflow.
@@ -43,7 +43,8 @@ Not yet implemented:
 - `linkedin-job-scraper` (LinkedIn scraping)
 - Puppeteer (cover letter HTML → PDF rendering)
 - `pdf-lib` (merging cover letter, CV, and certificate PDFs)
-- OpenAI SDK (`text-embedding-3-small` embeddings, `gpt-5.5` generation)
+- OpenAI SDK (`text-embedding-3-small` embeddings for job-liking ranking)
+- `cover-letter-generator` (cover letter ranking and generation)
 - Python 3 + Flask + `tiktoken` (token-counting microservice)
 - Multer (file uploads)
 - Jest (tests), ESLint and Prettier
@@ -133,10 +134,6 @@ Body:
 
 Body: `{ "job": ScrapedJob, "like": boolean }`. Upserts the job into MongoDB keyed by `duplicateKey`, recording whether it was liked or disliked (used to rank future scrapes). Returns `{ "message": "Job created", "jobId": "..." }`.
 
-### `POST /jobs/top-x-similar-cover-letters`
-
-Body: a job (with its `embedding`) plus `{ "x": number }`. Ranks stored cover letters by weighted cosine similarity of their segment embeddings against the job embedding and returns the top `x` cover letter IDs.
-
 ### `POST /cover-letters/upload/text`
 
 Body: `{ "coverLetterText": string, "jobDuplicateKey"?: string }`. Segments the text into salutation/introduction/main body/conclusion/greetings (heuristic, with an LLM fallback), embeds each segment, and stores it — upserted against the given job if `jobDuplicateKey` is provided.
@@ -167,7 +164,7 @@ Returns whether certificates have been uploaded for the given job.
 
 ### `POST /cover-letters/create/text`
 
-Body: a job plus `{ "coverLetterIds": string[] }`. Builds a prompt from the job description and the selected past cover letters, and generates a new cover letter with `gpt-5.5`. Returns `{ "coverLetter": string, "inputTokenCount": number }`.
+Body: a job plus `{ "x"?: number }` (default `3`). Ranks all stored cover letters against the job using the [`cover-letter-generator`](https://github.com/freshmozart1/cover-letter-generator) package's `embedJob` and `getTopXSimilarCoverLetters`, then generates a new cover letter from the top `x` matches via the package's `generateCoverLetter`. Generation itself is delegated to that package, so the exact model it uses internally isn't documented here. Returns `{ "coverLetter": string }`.
 
 ### `POST /tokens/count`
 

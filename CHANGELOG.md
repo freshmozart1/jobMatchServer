@@ -2,6 +2,23 @@
 
 All notable changes to this project are documented in this file.
 
+## v4.0.0
+
+### Breaking
+
+- `POST /jobs/top-x-similar-cover-letters` (`src/database/getTopXSimilarCoverLetters.ts`, its route registration in `app.ts`, and its test) is deleted. Ranking past cover letters against a job is no longer a separate call a client makes before picking IDs to generate from — it's folded into `POST /cover-letters/create/text`, which now ranks and generates in a single round trip. Any caller still hitting the old route now gets a 404 (closes #105).
+- `POST /cover-letters/create/text`'s request/response shape changed accordingly. The request body no longer takes `coverLetterIds: string[]` (the caller no longer picks which past cover letters to use); it now takes an optional `x?: number`, defaulting to `3`, the number of top-ranked past cover letters to generate from. The response no longer includes `inputTokenCount` — that field reported token usage from the handler's own direct token-service call, which is gone along with the direct OpenAI call it measured. The response is now just `{ coverLetter: string }`.
+
+### Changed
+
+- `generateCoverLettersAsText.ts` now fetches every stored cover letter and hands both ranking and generation to the `cover-letter-generator` package, instead of doing a targeted Mongo lookup by `coverLetterIds` plus a direct `OpenAI().responses.create({ model: 'gpt-5.5', ... })` call built from a hand-assembled prompt: the package's `embedJob` embeds the target job, `getTopXSimilarCoverLetters` ranks the fetched letters against that embedding by weighted per-segment cosine similarity (`mainBody` dominant), and `generateCoverLetter` writes the new letter from the top `x` matches. This replaces the local `getTopXSimilarCoverLetters.ts`/`SEGMENT_SIMILARITY_WEIGHTS` ranking logic entirely, and drops the handler's own `jobToText` prompt-building and `fetchTokens` token-counting call. `generateCoverLettersAsText.ts` now also imports `embedJob`/`getTopXSimilarCoverLetters`/`generateCoverLetter` from `cover-letter-generator` statically at module scope, on the same reasoning as the v3.0.8/#111 entry below.
+- Two new adapters in `coverLetterAdapters.ts` bridge this repo's stored representation and the package's `CoverLetter` type: `toGeneratorCoverLetter` converts a `StoredCoverLetter` (`embedding: TextEmbedding | null` per segment) to the package's `CoverLetter` (`embedding?: TextEmbedding`), the inverse of the existing `toStoredCoverLetter`/`toStoredCoverLetterSegment` adapters in `uploadCoverLetterAsText.ts`. `getGeneratorCoverLetterTextSegments` extracts plain text segments from a package `CoverLetter`, mirroring the (now-removed) `getCoverLetterTextSegments` but for the package's shape instead of `StoredCoverLetter`.
+- Added `hasOptionalPositiveIntegerProp` (`requestBodyValidators.ts`) to validate the new `x` field: valid when absent, `undefined`, or a positive integer. Its first version returned `false` whenever the key was absent from the request body at all (as opposed to present with an explicit `undefined` value) — which would have 400'd the expected common case, a real JSON body simply omitting `x` to take its default of `3`. Fixed to return `true` when the key is absent, matching the field's optionality.
+
+### Removed
+
+- `getCoverLetterTextSegments` (`coverLetterAdapters.ts`) — the ranking/generation fusion left it with no remaining callers, since `generateCoverLettersAsText.ts` now works with the package's `CoverLetter` type via `getGeneratorCoverLetterTextSegments` instead of `StoredCoverLetter` directly.
+
 ## v3.0.8
 
 ### Changed
