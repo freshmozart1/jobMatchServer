@@ -24,7 +24,7 @@ export function hasOptionalPositiveIntegerProp(
     obj: object,
     key: string,
 ): boolean {
-    if (!(key in obj)) return false;
+    if (!(key in obj)) return true;
     const value = (obj as Record<string, unknown>)[key];
     return (
         value === undefined ||

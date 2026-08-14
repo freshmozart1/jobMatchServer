@@ -2,7 +2,6 @@ import { describe, expect, it } from '@jest/globals';
 import type { CoverLetter, CoverLetterSegments } from 'cover-letter-generator';
 import type { StoredCoverLetter } from '#types';
 import {
-    getCoverLetterTextSegments,
     getGeneratorCoverLetterTextSegments,
     reconstructCoverLetterText,
     toGeneratorCoverLetter,
@@ -20,19 +19,6 @@ const storedCoverLetter = {
     greetings: { text: 'Best regards\nOle', embedding: [0.6] },
     jobDuplicateKey: 'test-key-1',
 } satisfies StoredCoverLetter;
-
-describe('getCoverLetterTextSegments', () => {
-    it('extracts the text of each segment from a StoredCoverLetter', () => {
-        expect(getCoverLetterTextSegments(storedCoverLetter)).toEqual({
-            subject: 'Subject: Application',
-            salutation: 'Dear Hiring Manager,',
-            introduction: 'I am excited to apply.',
-            mainBody: 'I build software.',
-            conclusion: 'I look forward to speaking with you.',
-            greetings: 'Best regards\nOle',
-        });
-    });
-});
 
 describe('reconstructCoverLetterText', () => {
     it('joins non-empty segments in order with blank lines between them', () => {

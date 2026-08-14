@@ -25,19 +25,6 @@ export function reconstructCoverLetterText(
         .join('\n\n');
 }
 
-export function getCoverLetterTextSegments(
-    coverLetter: StoredCoverLetter,
-): CoverLetterSegments {
-    return {
-        subject: coverLetter.subject.text,
-        salutation: coverLetter.salutation.text,
-        introduction: coverLetter.introduction.text,
-        mainBody: coverLetter.mainBody.text,
-        conclusion: coverLetter.conclusion.text,
-        greetings: coverLetter.greetings.text,
-    };
-}
-
 function toGeneratorCoverLetterSegment(
     segment: CoverLetterSegment,
 ): CoverLetter[keyof CoverLetter] {

@@ -78,7 +78,7 @@ describe('isValidGenerateCoverLetterAsTextRequestBody', () => {
         ).toBe(true);
     });
 
-    it('accepts missing x', () => {
+    it('accepts x explicitly set to undefined', () => {
         const { x, ...rest } = validBase;
         void x;
         expect(
@@ -87,6 +87,12 @@ describe('isValidGenerateCoverLetterAsTextRequestBody', () => {
                 x: undefined,
             }),
         ).toBe(true);
+    });
+
+    it('accepts a body where the x key is absent entirely (the realistic shape of a JSON request that omits it)', () => {
+        const { x, ...rest } = validBase;
+        void x;
+        expect(isValidGenerateCoverLetterAsTextRequestBody(rest)).toBe(true);
     });
 
     it('accepts a positive integer x', () => {
@@ -273,9 +279,9 @@ describe('generateCoverLetterAsText', () => {
         expect(close).toHaveBeenCalledTimes(1);
     });
 
-    it('defaults x to 3 when it is omitted from the request body', async () => {
+    it('defaults x to 3 when the x key is absent entirely from the request body', async () => {
         const request = createRequest<ScrapedJob & { x?: number }>({
-            body: { ...createJob<ScrapedJob>(), x: undefined },
+            body: createJob<ScrapedJob & { x?: number }>(),
         });
         const { response } = createResponse();
 
