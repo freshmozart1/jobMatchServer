@@ -59,8 +59,8 @@ function createRequest(body: unknown): Request {
     return Object.assign(emitter, { body }) as unknown as Request;
 }
 
-function emitClose(request: Request): void {
-    (request as unknown as EventEmitter).emit('close');
+function emitClose(target: Request | Response): void {
+    (target as unknown as EventEmitter).emit('close');
 }
 
 function createSseResponse(): {
@@ -76,13 +76,13 @@ function createSseResponse(): {
     const end = jest.fn();
     const status = jest.fn<(statusCode: number) => Response>();
     const json = jest.fn<(body: unknown) => Response>();
-    const response = {
+    const response = Object.assign(new EventEmitter(), {
         writeHead,
         write,
         end,
         status,
         json,
-    } as unknown as Response;
+    }) as unknown as Response;
 
     status.mockReturnValue(response);
     json.mockReturnValue(response);
@@ -262,7 +262,7 @@ describe('scrapeJob', () => {
         const { response } = createSseResponse();
 
         const scrapePromise = scrapeJob(request, response);
-        emitClose(request);
+        emitClose(response);
         await scrapePromise;
 
         expect(capturedSignals.length).toBeGreaterThan(0);
@@ -280,7 +280,7 @@ describe('scrapeJob', () => {
         const { response, write } = createSseResponse();
 
         const scrapePromise = scrapeJob(request, response);
-        emitClose(request);
+        emitClose(response);
         await scrapePromise;
 
         const errorWrites = write.mock.calls.filter(([chunk]) =>
@@ -292,15 +292,38 @@ describe('scrapeJob', () => {
     it('stops forwarding job writes queued before disconnect', async () => {
         findOne.mockResolvedValue(null);
         const request = createRequest(validBody);
+        const { response, write } = createSseResponse();
         mockRunScrape.mockImplementation(async ({ onProgress }) => {
-            emitClose(request);
+            emitClose(response);
             onProgress?.({ type: 'job:done', result: successfulResult() });
             return { results: [], url: '' };
         });
-        const { response, write } = createSseResponse();
 
         await scrapeJob(request, response);
 
         expect(jobDataWrites(write)).toHaveLength(0);
+    });
+
+    it('does not abort the scrape when the request emits close (only the response controls disconnect detection)', async () => {
+        findOne.mockResolvedValue(null);
+        const request = createRequest(validBody);
+        const capturedSignals: (AbortSignal | undefined)[] = [];
+        mockRunScrape.mockImplementation(async ({ onProgress, signal }) => {
+            capturedSignals.push(signal);
+            onProgress?.({ type: 'job:done', result: successfulResult() });
+            return { results: [], url: '' };
+        });
+        const { response, write, end } = createSseResponse();
+
+        const scrapePromise = scrapeJob(request, response);
+        emitClose(request);
+        await scrapePromise;
+
+        expect(capturedSignals.length).toBeGreaterThan(0);
+        expect(
+            capturedSignals.every((signal) => signal?.aborted === false),
+        ).toBe(true);
+        expect(jobDataWrites(write)).toHaveLength(1);
+        expect(end).toHaveBeenCalledTimes(1);
     });
 });

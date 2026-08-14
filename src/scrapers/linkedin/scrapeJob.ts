@@ -138,7 +138,7 @@ export async function scrapeJob(req: Request, res: Response): Promise<void> {
 
     const controller = new AbortController();
     const disconnectState: DisconnectState = { disconnected: false };
-    req.on('close', () => {
+    res.on('close', () => {
         disconnectState.disconnected = true;
         controller.abort();
     });
