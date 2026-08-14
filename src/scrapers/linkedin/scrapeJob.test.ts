@@ -302,6 +302,44 @@ describe('scrapeJob', () => {
         await scrapeJob(request, response);
 
         expect(jobDataWrites(write)).toHaveLength(0);
+        expect(findOne).not.toHaveBeenCalled();
+        expect(mockCreateJobEmbedding).not.toHaveBeenCalled();
+        expect(mockComputeJobMatch).not.toHaveBeenCalled();
+    });
+
+    it("aborts every keyword's runScrape when the response emits error", async () => {
+        findOne.mockResolvedValue(null);
+        const request = createRequest(validBody);
+        const capturedSignals: (AbortSignal | undefined)[] = [];
+        mockRunScrape.mockImplementation(async ({ signal }) => {
+            capturedSignals.push(signal);
+            return { results: [], url: '' };
+        });
+        const { response } = createSseResponse();
+
+        const scrapePromise = scrapeJob(request, response);
+        (response as unknown as EventEmitter).emit(
+            'error',
+            new Error('socket hang up'),
+        );
+        await scrapePromise;
+
+        expect(capturedSignals.length).toBeGreaterThan(0);
+        expect(
+            capturedSignals.every((signal) => signal?.aborted === true),
+        ).toBe(true);
+    });
+
+    it('tolerates the response emitting close after a normal completion', async () => {
+        findOne.mockResolvedValue(null);
+        runScrapeWithResult(successfulResult());
+        const { response, write, end } = createSseResponse();
+
+        await scrapeJob(createRequest(validBody), response);
+        expect(() => emitClose(response)).not.toThrow();
+
+        expect(jobDataWrites(write)).toHaveLength(1);
+        expect(end).toHaveBeenCalledTimes(1);
     });
 
     it('does not abort the scrape when the request emits close (only the response controls disconnect detection)', async () => {

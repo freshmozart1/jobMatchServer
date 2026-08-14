@@ -83,6 +83,8 @@ async function forwardJobIfNew(
     disconnectState: DisconnectState,
     result: SuccessfulJobResult,
 ): Promise<void> {
+    if (disconnectState.disconnected) return;
+
     const duplicateKey = computeDuplicateKey(result);
 
     if (await isJobAlreadyStored(client, duplicateKey)) {
@@ -138,10 +140,17 @@ export async function scrapeJob(req: Request, res: Response): Promise<void> {
 
     const controller = new AbortController();
     const disconnectState: DisconnectState = { disconnected: false };
-    res.on('close', () => {
+    // Listen on res (the response), not req (the request): req's 'close' fires once the
+    // request body has been fully read, which happens almost immediately regardless of
+    // whether the client is still connected — that mistake (#117) aborted every scrape
+    // before it could start. res's 'close' fires only when the underlying connection
+    // actually terminates, whether from a genuine early disconnect or a normal res.end().
+    const handleDisconnect = () => {
         disconnectState.disconnected = true;
         controller.abort();
-    });
+    };
+    res.on('close', handleDisconnect);
+    res.on('error', handleDisconnect);
 
     const { keywords, location, distance, datePosted } = searchParams;
     const client = new MongoClient(MONGODB_CONNECTION!);
