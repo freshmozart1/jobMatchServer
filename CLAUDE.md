@@ -22,6 +22,7 @@ Node.js/Express backend that scrapes LinkedIn job postings, computes semantic em
 
 ```bash
 npm run build        # tsc + copies src/database/coverLetter.html → dist/
+npm start            # runs the built server (dist/index.js), loading .env if present
 npm run dev          # concurrently starts mongod, waits for it, then nodemon (ts-node ESM loader)
 npm run test:once    # build then run Jest once — use this, not `npm run test` which loops forever
 npm run lint         # eslint .

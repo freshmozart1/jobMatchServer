@@ -52,6 +52,8 @@ Not yet implemented:
 
 ## Getting Started
 
+Requires Node.js >= 22.9.0 (see `engines` in `package.json`).
+
 Install Node dependencies:
 
 ```bash
@@ -77,6 +79,12 @@ Build the TypeScript project:
 
 ```bash
 npm run build
+```
+
+Start the built server:
+
+```bash
+npm start
 ```
 
 Run the test suite (builds first, then runs Jest against `dist/`):
