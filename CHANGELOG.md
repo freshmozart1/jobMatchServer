@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented in this file.
 
+## v4.1.1
+
+### Fixed
+
+- `POST /scrape/linkedin` (`scrapeJob.ts`) never actually scraped anything: the client-disconnect `AbortController` set up by v3.0.4/#100 listened on `req.on('close', ...)`, but a request's `'close'` event fires once its body has been fully read — which `express.json()` already does before the handler runs — not when the client actually disconnects. Every request therefore aborted its own scrape within milliseconds, before Playwright/`linkedin-job-scraper` ever launched, so the endpoint had been completely broken since #100 landed: `jobMatch`'s `MatchPage` was stuck on "Loading jobs..." forever, since no job data or `res.end()` ever arrived. Swapped the listener to `res.on('close', handleDisconnect)` — a response's `'close'` fires only when the underlying connection actually terminates, whether from a genuine early disconnect or (harmlessly, since nothing reads `disconnectState` afterward) a normal `res.end()`. Also added `res.on('error', handleDisconnect)`, since an unhandled `'error'` event on an `EventEmitter` can crash the process, and genuine mid-scrape client disconnects are now reachable for the first time (previously masked by the bug above). `forwardJobIfNew` now also bails out immediately (`if (disconnectState.disconnected) return;`) once a client has disconnected, so an already-queued job result no longer pays for a Mongo dedupe lookup, an OpenAI embedding call, and a match computation before being discarded at the write step. No request/response shape changed — this restores intended behavior to a route that never worked, rather than changing a working one (closes #117).
+
 ## v4.1.0
 
 ### Added
