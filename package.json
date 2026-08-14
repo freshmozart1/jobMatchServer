@@ -6,6 +6,9 @@
     "author": "freshmozart",
     "type": "module",
     "main": "dist/index.js",
+    "engines": {
+        "node": ">=22.9.0"
+    },
     "imports": {
         "#scrapers/*": {
             "types": "./src/scrapers/*",
