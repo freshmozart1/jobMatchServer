@@ -1,5 +1,9 @@
 import type { Request, Response } from 'express';
-import type { CoverLetter } from 'cover-letter-generator';
+import {
+  segmentCoverLetter,
+  embedCoverLetterSegments,
+  type CoverLetter,
+} from 'cover-letter-generator';
 import { MongoClient } from 'mongodb';
 import {
   connectionStringConfigured,
@@ -80,11 +84,6 @@ export default async function uploadCoverLetterAsText(
       client,
       'coverLetters',
     );
-    // Dynamic import so the package's eager `new OpenAI()` at module scope
-    // (cover-letter-generator/dist/llm.js) only runs -- and can only throw --
-    // when this endpoint is actually hit, not at server startup.
-    const { segmentCoverLetter, embedCoverLetterSegments } =
-      await import('cover-letter-generator');
     const { segments } = await segmentCoverLetter(coverLetterText);
     const coverLetter = toStoredCoverLetter(
       await embedCoverLetterSegments(segments),

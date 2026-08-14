@@ -1,79 +1,79 @@
 {
-  "name": "linkedinjobscraper",
-  "version": "4.0.0",
-  "description": "A server that continously scrapes new Jobs from LinkedIn collects them in a database",
-  "license": "ISC",
-  "author": "freshmozart",
-  "type": "module",
-  "main": "dist/index.js",
-  "imports": {
-    "#scrapers/*": {
-      "types": "./src/scrapers/*",
-      "development": "./src/scrapers/*",
-      "default": "./dist/scrapers/*"
+    "name": "linkedinjobscraper",
+    "version": "4.0.0",
+    "description": "A server that continously scrapes new Jobs from LinkedIn collects them in a database",
+    "license": "ISC",
+    "author": "freshmozart",
+    "type": "module",
+    "main": "dist/index.js",
+    "imports": {
+        "#scrapers/*": {
+            "types": "./src/scrapers/*",
+            "development": "./src/scrapers/*",
+            "default": "./dist/scrapers/*"
+        },
+        "#types": {
+            "types": "./src/types.ts",
+            "development": "./src/types.ts",
+            "default": "./dist/types.js"
+        },
+        "#database/*": {
+            "types": "./src/database/*",
+            "development": "./src/database/*",
+            "default": "./dist/database/*"
+        },
+        "#index": {
+            "types": "./src/index.ts",
+            "development": "./src/index.ts",
+            "default": "./dist/index.js"
+        },
+        "#utils/*": {
+            "types": "./src/utils/*",
+            "development": "./src/utils/*",
+            "default": "./dist/utils/*"
+        }
     },
-    "#types": {
-      "types": "./src/types.ts",
-      "development": "./src/types.ts",
-      "default": "./dist/types.js"
+    "scripts": {
+        "lint": "eslint .",
+        "format": "prettier --write .",
+        "dev": "concurrently -n mongo,server -c yellow,cyan \"npm:mongo\" \"npm:dev:server\"",
+        "dev:server": "wait-on -t 30000 tcp:27017 && nodemon",
+        "build": "tsc && cp src/database/coverLetter.html dist/database/coverLetter.html",
+        "mongo": "mongod --dbpath /opt/homebrew/var/mongodb",
+        "test": "npm run test:watch",
+        "test:once": "npm run build && node --experimental-vm-modules --localstorage-file=/tmp/jest-localstorage.json ./node_modules/jest/bin/jest.js --config jest.config.mjs --runInBand",
+        "test:watch": "nodemon --watch src --watch jest.config.mjs --watch package.json --ext ts,mjs,json --exec \"npm run test:once\""
     },
-    "#database/*": {
-      "types": "./src/database/*",
-      "development": "./src/database/*",
-      "default": "./dist/database/*"
+    "devDependencies": {
+        "@eslint/js": "^10.0.1",
+        "@types/express": "^5.0.6",
+        "@types/jest": "^30.0.0",
+        "@types/multer": "^2.2.0",
+        "@types/node": "^25.9.5",
+        "concurrently": "^10.0.4",
+        "eslint": "^10.8.0",
+        "jest": "^30.4.2",
+        "nodemon": "^3.1.14",
+        "playwright": "^1.62.0",
+        "prettier": "^3.9.6",
+        "qs": "^6.15.3",
+        "ts-node": "^10.9.2",
+        "typescript": "^6.0.3",
+        "typescript-eslint": "^8.65.0",
+        "wait-on": "^9.1.0"
     },
-    "#index": {
-      "types": "./src/index.ts",
-      "development": "./src/index.ts",
-      "default": "./dist/index.js"
+    "dependencies": {
+        "cover-letter-generator": "github:freshmozart1/cover-letter-generator#v0.9.1",
+        "express": "^5.2.1",
+        "linkedin-job-scraper": "github:freshmozart1/linkedin-job-scraper#v0.7.1",
+        "mongodb": "^7.5.0",
+        "multer": "^2.2.0",
+        "openai": "^6.49.0",
+        "pdf-lib": "^1.17.1",
+        "puppeteer": "^25.4.0"
     },
-    "#utils/*": {
-      "types": "./src/utils/*",
-      "development": "./src/utils/*",
-      "default": "./dist/utils/*"
+    "allowScripts": {
+        "github:freshmozart1/cover-letter-generator#30658619b9919ae059f33603c62ce4144fe72bcd": true,
+        "github:freshmozart1/linkedin-job-scraper#b0099614396501a996e12d713b0fb66d12b60f38": true
     }
-  },
-  "scripts": {
-    "lint": "eslint .",
-    "format": "prettier --write .",
-    "dev": "concurrently -n mongo,server -c yellow,cyan \"npm:mongo\" \"npm:dev:server\"",
-    "dev:server": "wait-on -t 30000 tcp:27017 && nodemon",
-    "build": "tsc && cp src/database/coverLetter.html dist/database/coverLetter.html",
-    "mongo": "mongod --dbpath /opt/homebrew/var/mongodb",
-    "test": "npm run test:watch",
-    "test:once": "npm run build && node --experimental-vm-modules --localstorage-file=/tmp/jest-localstorage.json ./node_modules/jest/bin/jest.js --config jest.config.mjs --runInBand",
-    "test:watch": "nodemon --watch src --watch jest.config.mjs --watch package.json --ext ts,mjs,json --exec \"npm run test:once\""
-  },
-  "devDependencies": {
-    "@eslint/js": "^10.0.1",
-    "@types/express": "^5.0.6",
-    "@types/jest": "^30.0.0",
-    "@types/multer": "^2.2.0",
-    "@types/node": "^25.9.5",
-    "concurrently": "^10.0.4",
-    "eslint": "^10.8.0",
-    "jest": "^30.4.2",
-    "nodemon": "^3.1.14",
-    "playwright": "^1.62.0",
-    "prettier": "^3.9.6",
-    "qs": "^6.15.3",
-    "ts-node": "^10.9.2",
-    "typescript": "^6.0.3",
-    "typescript-eslint": "^8.65.0",
-    "wait-on": "^9.1.0"
-  },
-  "dependencies": {
-    "cover-letter-generator": "github:freshmozart1/cover-letter-generator#v0.9.1",
-    "express": "^5.2.1",
-    "linkedin-job-scraper": "github:freshmozart1/linkedin-job-scraper#v0.7.1",
-    "mongodb": "^7.5.0",
-    "multer": "^2.2.0",
-    "openai": "^6.49.0",
-    "pdf-lib": "^1.17.1",
-    "puppeteer": "^25.4.0"
-  },
-  "allowScripts": {
-    "github:freshmozart1/cover-letter-generator#30658619b9919ae059f33603c62ce4144fe72bcd": true,
-    "github:freshmozart1/linkedin-job-scraper#b0099614396501a996e12d713b0fb66d12b60f38": true
-  }
 }
