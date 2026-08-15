@@ -2,8 +2,11 @@ import { beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { EventEmitter } from 'node:events';
 import type { Request, Response } from 'express';
 import type {
+    JobCardIdentity,
     ScrapeOutcome,
+    ScraperOptions,
     ScrapeProgressEvent,
+    SkippedJobResult,
     SuccessfulJobResult,
 } from 'linkedin-job-scraper';
 import {
@@ -15,11 +18,15 @@ import {
     mockMongoDbModule,
     connect,
     close,
+    createFind,
+    createToArray,
 } from '../../testMockModules/mongodb.test.js';
+import type { StoredScrapedJob } from '#types';
 
 type MockRunScrapeOptions = {
     onProgress?: (event: ScrapeProgressEvent) => void;
     signal?: AbortSignal;
+    scraperOptions?: ScraperOptions;
 };
 
 const mockRunScrape =
@@ -28,6 +35,8 @@ const mockCreateJobEmbedding = jest.fn<() => Promise<number[]>>();
 const mockComputeJobMatch =
     jest.fn<(...args: unknown[]) => Promise<number | undefined>>();
 const findOne = jest.fn<(...args: unknown[]) => Promise<unknown>>();
+const find = createFind<StoredScrapedJob>();
+const toArray = createToArray<StoredScrapedJob>();
 
 class ScrapeAbortedError extends Error {
     override readonly name = 'AbortError';
@@ -123,6 +132,47 @@ function successfulResult(
     };
 }
 
+function skippedResult(
+    overrides: Partial<SkippedJobResult> = {},
+): SkippedJobResult {
+    return {
+        status: 'skipped',
+        index: 0,
+        companyMismatch: false,
+        sourceJobIdMismatch: false,
+        lateOverlayDetected: false,
+        duplicateOfIdx: null,
+        scrapedAt: '2026-06-02T00:00:00.000Z',
+        title: 'Software Engineer',
+        sourceJobId: '123456789',
+        sourceUrl: 'https://www.linkedin.com/jobs/view/123456789/',
+        sourceHostname: 'www.linkedin.com',
+        companyUrl: 'https://www.linkedin.com/company/acme-corp/',
+        location: 'Berlin, Germany',
+        postedAt: '2026-06-01',
+        company: null,
+        descriptionText: null,
+        companyAddresses: null,
+        tags: null,
+        ...overrides,
+    };
+}
+
+function jobCardIdentity(
+    overrides: Partial<JobCardIdentity> = {},
+): JobCardIdentity {
+    return {
+        title: 'Software Engineer',
+        sourceUrl: 'https://www.linkedin.com/jobs/view/123456789/',
+        sourceHostname: 'www.linkedin.com',
+        sourceJobId: '123456789',
+        companyUrl: 'https://www.linkedin.com/company/acme-corp/',
+        location: 'Berlin, Germany',
+        postedAt: '2026-06-01',
+        ...overrides,
+    };
+}
+
 function runScrapeWithResult(result: SuccessfulJobResult) {
     mockRunScrape.mockImplementation(async ({ onProgress }) => {
         onProgress?.({ type: 'job:done', result });
@@ -142,7 +192,9 @@ describe('scrapeJob', () => {
         connect.mockResolvedValue(undefined);
         close.mockResolvedValue(undefined);
         connectionStringConfigured.mockReturnValue(true);
-        getCollection.mockReturnValue({ findOne });
+        getCollection.mockReturnValue({ findOne, find });
+        find.mockReturnValue({ toArray });
+        toArray.mockResolvedValue([]);
         mockCreateJobEmbedding.mockResolvedValue([0.1, 0.2, 0.3]);
         mockComputeJobMatch.mockResolvedValue(undefined);
     });
@@ -220,6 +272,68 @@ describe('scrapeJob', () => {
         expect(jobWrites[0]).toContain(
             '"duplicateKey":"https://www.linkedin.com/jobs/view/987654321/"',
         );
+    });
+
+    it('passes a shouldScrapeJob predicate that skips pre-fetched sourceJobIds', async () => {
+        toArray.mockResolvedValue([
+            { sourceJobId: 'stored-1' },
+            { sourceJobId: 'stored-2' },
+        ] as StoredScrapedJob[]);
+        let capturedScraperOptions: ScraperOptions | undefined;
+        mockRunScrape.mockImplementation(async ({ scraperOptions }) => {
+            capturedScraperOptions = scraperOptions;
+            return { results: [], url: '' };
+        });
+        const { response } = createSseResponse();
+
+        await scrapeJob(createRequest(validBody), response);
+
+        expect(find).toHaveBeenCalledWith(
+            {},
+            { projection: { sourceJobId: 1 } },
+        );
+        expect(capturedScraperOptions?.shouldScrapeJob).toBeDefined();
+        expect(
+            capturedScraperOptions?.shouldScrapeJob?.(
+                jobCardIdentity({ sourceJobId: 'stored-1' }),
+            ),
+        ).toBe(false);
+        expect(
+            capturedScraperOptions?.shouldScrapeJob?.(
+                jobCardIdentity({ sourceJobId: 'not-stored' }),
+            ),
+        ).toBe(true);
+    });
+
+    it("does not forward a job:done event with status 'skipped', and never re-checks it against MongoDB", async () => {
+        mockRunScrape.mockImplementation(async ({ onProgress }) => {
+            onProgress?.({ type: 'job:done', result: skippedResult() });
+            return { results: [], url: '' };
+        });
+        const { response, write } = createSseResponse();
+
+        await scrapeJob(createRequest(validBody), response);
+
+        expect(jobDataWrites(write)).toHaveLength(0);
+        expect(mockCreateJobEmbedding).not.toHaveBeenCalled();
+        expect(mockComputeJobMatch).not.toHaveBeenCalled();
+        expect(findOne).not.toHaveBeenCalled();
+    });
+
+    it('proceeds with an empty stored-ID set when pre-fetching stored job IDs fails', async () => {
+        toArray.mockRejectedValue(new Error('find failed'));
+        findOne.mockResolvedValue(null);
+        runScrapeWithResult(successfulResult());
+        const { response, writeHead, write } = createSseResponse();
+
+        await scrapeJob(createRequest(validBody), response);
+
+        expect(mockRunScrape).toHaveBeenCalled();
+        expect(writeHead).toHaveBeenCalledWith(
+            200,
+            expect.objectContaining({ 'content-type': 'text/event-stream' }),
+        );
+        expect(jobDataWrites(write)).toHaveLength(1);
     });
 
     it('does not start the stream when MongoDB is not configured', async () => {

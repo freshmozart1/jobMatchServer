@@ -1,6 +1,7 @@
 import type { ScrapedJob, StoredScrapedJob } from '#types';
 import type { Request, Response } from 'express';
 import type {
+    JobCardIdentity,
     ScrapeProgressEvent,
     SuccessfulJobResult,
 } from 'linkedin-job-scraper';
@@ -42,6 +43,19 @@ async function isJobAlreadyStored(
         'jobs',
     ).findOne({ duplicateKey }, { projection: { _id: 1 } });
     return existingJob !== null;
+}
+
+async function getStoredSourceJobIds(
+    client: MongoClient,
+): Promise<Set<string>> {
+    const jobs = await getCollection<StoredScrapedJob>(client, 'jobs')
+        .find({}, { projection: { sourceJobId: 1 } })
+        .toArray();
+    return new Set(
+        jobs
+            .map((job) => job.sourceJobId)
+            .filter((id): id is string => Boolean(id)),
+    );
 }
 
 function computeDuplicateKey(result: SuccessfulJobResult): string {
@@ -114,9 +128,15 @@ function handleProgressEvent(
     event: ScrapeProgressEvent,
 ): void {
     if (event.type === 'job:done') {
-        if (event.result.status !== 'success') {
+        if (event.result.status === 'failed') {
             console.error(
                 `LinkedIn scrape failed for job index ${event.result.index}: ${event.result.error}`,
+            );
+            return;
+        }
+        if (event.result.status === 'skipped') {
+            console.log(
+                `Skipping already-stored job ${event.result.sourceJobId} pre-click.`,
             );
             return;
         }
@@ -163,6 +183,22 @@ export async function scrapeJob(req: Request, res: Response): Promise<void> {
         return;
     }
 
+    // Best-effort performance optimization, not correctness-critical: the post-scrape
+    // isJobAlreadyStored/duplicateKey check in forwardJobIfNew remains the safety net,
+    // so a failure here must not abort the request — just fall back to scraping everything.
+    let storedSourceJobIds: Set<string> = new Set();
+    try {
+        storedSourceJobIds = await getStoredSourceJobIds(client);
+    } catch (error) {
+        console.error(
+            'Failed to pre-fetch stored job IDs; scraping without pre-click skip.',
+            error,
+        );
+    }
+
+    const shouldScrapeJob = (identity: JobCardIdentity): boolean =>
+        !storedSourceJobIds.has(identity.sourceJobId);
+
     res.writeHead(200, {
         'content-type': 'text/event-stream',
         'cache-control': 'no-cache',
@@ -192,6 +228,7 @@ export async function scrapeJob(req: Request, res: Response): Promise<void> {
                         distanceMiles: distance,
                     },
                     signal: controller.signal,
+                    scraperOptions: { shouldScrapeJob },
                 }),
             ),
         );
