@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented in this file.
 
+## v4.2.0
+
+### Added
+
+- `POST /scrape/linkedin` (`scrapeJob.ts`) now skips already-stored jobs _before_ clicking into them, instead of only discarding them after paying the full scrape cost. Bumped `linkedin-job-scraper` from `v0.7.1` to `v0.8.0`, which adds a `shouldScrapeJob` pre-click filter callback to `ScraperOptions`. `scrapeJob.ts` pre-fetches the set of already-stored `sourceJobId`s from MongoDB once per scrape request (`getStoredSourceJobIds`) and passes a synchronous `shouldScrapeJob` predicate built from that set into each `runScrape` call, so the scraper skips the click/detail-pane-read/company-lookup entirely for jobs already known — the library now emits a `status: 'skipped'` `job:done` event for these instead of scraping and discarding them, handled by a new case in `handleProgressEvent`'s (now exhaustive) status switch. The pre-fetch is best-effort and runs after `res.writeHead`/the initial SSE ping, inside the same `try`/`finally` that closes the client, so a slow or failing fetch neither delays the stream's first byte nor leaks the `MongoClient`; on failure it falls back to an empty set (scrape everything, prior behavior). The existing post-scrape `duplicateKey` check in `forwardJobIfNew` is unchanged and remains the correctness safety net — it's still the only check for jobs with no `sourceJobId` (matched by normalized URL instead), and the one that catches jobs the pre-click filter missed because the pre-fetch itself failed. No request/response shape changed (closes #119).
+
 ## v4.1.1
 
 ### Fixed

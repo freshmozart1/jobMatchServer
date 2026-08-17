@@ -136,7 +136,7 @@ Body:
 }
 ```
 
-`keywords` may be a string or an array of strings (one scrape per keyword). `datePosted` is one of `"86400"` (24h), `"604800"` (week), or `"2592000"` (month). For each keyword, paginates search results, extracts job and company details, embeds new jobs, computes a like/dislike match score, filters out jobs already stored, and returns them grouped by keyword along with the search URL used.
+`keywords` may be a string or an array of strings (one scrape per keyword). `datePosted` is one of `"86400"` (24h), `"604800"` (week), or `"2592000"` (month). For each keyword, paginates search results, skips job cards that are already stored before clicking into them (best-effort, based on a pre-fetched set of known job IDs), extracts job and company details for the rest, embeds new jobs, computes a like/dislike match score, filters out any remaining already-stored jobs, and returns them grouped by keyword along with the search URL used.
 
 ### `POST /jobs/create`
 
