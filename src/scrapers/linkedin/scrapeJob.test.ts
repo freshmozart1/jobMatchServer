@@ -106,27 +106,45 @@ const validBody = {
     datePosted: 'day',
 };
 
+// Shared list-level identity fields, common to SuccessfulJobResult,
+// SkippedJobResult, and JobCardIdentity — kept in one place so the three
+// fixture builders below can't drift out of sync with each other.
+const baseIdentity: JobCardIdentity = {
+    title: 'Software Engineer',
+    sourceUrl: 'https://www.linkedin.com/jobs/view/123456789/',
+    sourceHostname: 'www.linkedin.com',
+    sourceJobId: '123456789',
+    companyUrl: 'https://www.linkedin.com/company/acme-corp/',
+    location: 'Berlin, Germany',
+    postedAt: '2026-06-01',
+};
+
+// Shared JobResultBase fields, common to every job result regardless of status.
+const baseResultFields = {
+    index: 0,
+    companyMismatch: false,
+    sourceJobIdMismatch: false,
+    lateOverlayDetected: false,
+    duplicateOfIdx: null,
+    scrapedAt: '2026-06-02T00:00:00.000Z',
+};
+
+function jobCardIdentity(
+    overrides: Partial<JobCardIdentity> = {},
+): JobCardIdentity {
+    return { ...baseIdentity, ...overrides };
+}
+
 function successfulResult(
     overrides: Partial<SuccessfulJobResult> = {},
 ): SuccessfulJobResult {
     return {
         status: 'success',
-        index: 0,
-        companyMismatch: false,
-        sourceJobIdMismatch: false,
-        lateOverlayDetected: false,
-        duplicateOfIdx: null,
-        scrapedAt: '2026-06-02T00:00:00.000Z',
-        title: 'Software Engineer',
+        ...baseResultFields,
+        ...baseIdentity,
         company: 'Acme Corp',
         descriptionText: 'A great job.',
-        sourceJobId: '123456789',
-        sourceUrl: 'https://www.linkedin.com/jobs/view/123456789/',
-        sourceHostname: 'www.linkedin.com',
-        companyUrl: 'https://www.linkedin.com/company/acme-corp/',
         companyAddresses: null,
-        location: 'Berlin, Germany',
-        postedAt: '2026-06-01',
         tags: [],
         ...overrides,
     };
@@ -137,38 +155,12 @@ function skippedResult(
 ): SkippedJobResult {
     return {
         status: 'skipped',
-        index: 0,
-        companyMismatch: false,
-        sourceJobIdMismatch: false,
-        lateOverlayDetected: false,
-        duplicateOfIdx: null,
-        scrapedAt: '2026-06-02T00:00:00.000Z',
-        title: 'Software Engineer',
-        sourceJobId: '123456789',
-        sourceUrl: 'https://www.linkedin.com/jobs/view/123456789/',
-        sourceHostname: 'www.linkedin.com',
-        companyUrl: 'https://www.linkedin.com/company/acme-corp/',
-        location: 'Berlin, Germany',
-        postedAt: '2026-06-01',
+        ...baseResultFields,
+        ...baseIdentity,
         company: null,
         descriptionText: null,
         companyAddresses: null,
         tags: null,
-        ...overrides,
-    };
-}
-
-function jobCardIdentity(
-    overrides: Partial<JobCardIdentity> = {},
-): JobCardIdentity {
-    return {
-        title: 'Software Engineer',
-        sourceUrl: 'https://www.linkedin.com/jobs/view/123456789/',
-        sourceHostname: 'www.linkedin.com',
-        sourceJobId: '123456789',
-        companyUrl: 'https://www.linkedin.com/company/acme-corp/',
-        location: 'Berlin, Germany',
-        postedAt: '2026-06-01',
         ...overrides,
     };
 }

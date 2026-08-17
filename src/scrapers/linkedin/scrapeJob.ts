@@ -128,21 +128,30 @@ function handleProgressEvent(
     event: ScrapeProgressEvent,
 ): void {
     if (event.type === 'job:done') {
-        if (event.result.status === 'failed') {
-            console.error(
-                `LinkedIn scrape failed for job index ${event.result.index}: ${event.result.error}`,
-            );
-            return;
+        switch (event.result.status) {
+            case 'failed':
+                console.error(
+                    `LinkedIn scrape failed for job index ${event.result.index}: ${event.result.error}`,
+                );
+                return;
+            case 'skipped':
+                console.log(
+                    `Skipping already-stored job ${event.result.sourceJobId} pre-click.`,
+                );
+                return;
+            case 'success':
+                pendingJobWrites.push(
+                    forwardJobIfNew(client, res, disconnectState, event.result),
+                );
+                return;
+            default:
+                // Exhaustiveness guard: if linkedin-job-scraper ever adds a new
+                // JobStatus member, this line fails to compile until the switch
+                // above is updated to handle it — an unrecognized status must
+                // never silently fall through to being forwarded as if successful.
+                event.result satisfies never;
+                return;
         }
-        if (event.result.status === 'skipped') {
-            console.log(
-                `Skipping already-stored job ${event.result.sourceJobId} pre-click.`,
-            );
-            return;
-        }
-        pendingJobWrites.push(
-            forwardJobIfNew(client, res, disconnectState, event.result),
-        );
     } else if (event.type === 'job:stale') {
         console.warn(
             `LinkedIn scrape result for job index ${event.result.index} is suspect (companyMismatch=${event.result.companyMismatch}, sourceJobIdMismatch=${event.result.sourceJobIdMismatch}, lateOverlayDetected=${event.result.lateOverlayDetected}); not forwarding it.`,
@@ -183,22 +192,6 @@ export async function scrapeJob(req: Request, res: Response): Promise<void> {
         return;
     }
 
-    // Best-effort performance optimization, not correctness-critical: the post-scrape
-    // isJobAlreadyStored/duplicateKey check in forwardJobIfNew remains the safety net,
-    // so a failure here must not abort the request — just fall back to scraping everything.
-    let storedSourceJobIds: Set<string> = new Set();
-    try {
-        storedSourceJobIds = await getStoredSourceJobIds(client);
-    } catch (error) {
-        console.error(
-            'Failed to pre-fetch stored job IDs; scraping without pre-click skip.',
-            error,
-        );
-    }
-
-    const shouldScrapeJob = (identity: JobCardIdentity): boolean =>
-        !storedSourceJobIds.has(identity.sourceJobId);
-
     res.writeHead(200, {
         'content-type': 'text/event-stream',
         'cache-control': 'no-cache',
@@ -210,6 +203,25 @@ export async function scrapeJob(req: Request, res: Response): Promise<void> {
     const pendingJobWrites: Promise<void>[] = [];
 
     try {
+        // Best-effort performance optimization: if this fetch fails, fall back to
+        // an empty set (scrape everything, same as before this optimization
+        // existed) rather than aborting the request. This is only a fallback for
+        // the fetch itself failing — jobs that shouldScrapeJob below actually
+        // skips are never re-checked against MongoDB, since forwardJobIfNew's
+        // isJobAlreadyStored only runs for jobs that were fully scraped.
+        let storedSourceJobIds: Set<string> = new Set();
+        try {
+            storedSourceJobIds = await getStoredSourceJobIds(client);
+        } catch (error) {
+            console.error(
+                'Failed to pre-fetch stored job IDs; scraping without pre-click skip.',
+                error,
+            );
+        }
+
+        const shouldScrapeJob = (identity: JobCardIdentity): boolean =>
+            !storedSourceJobIds.has(identity.sourceJobId);
+
         const settledScrapes = await Promise.allSettled(
             keywords.map((keyword) =>
                 runScrape({
