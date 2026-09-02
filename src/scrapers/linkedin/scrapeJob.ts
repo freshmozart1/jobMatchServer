@@ -198,7 +198,12 @@ export async function scrapeJob(req: Request, res: Response): Promise<void> {
         connection: 'keep-alive',
         'transfer-encoding': 'chunked',
     });
-    res.write('ping\n\n');
+    // Flush the headers so the client's fetch() resolves and the stream opens
+    // promptly. A leading colon makes this a valid SSE comment, which every
+    // reader — this project's `data: `-only parser included — correctly ignores;
+    // the bare 'ping' it replaced (#124) was neither valid SSE nor receivable.
+    // This fires once and is not a keepalive: #122 covers repeating it.
+    res.write(': ping\n\n');
 
     const pendingJobWrites: Promise<void>[] = [];
 
@@ -255,7 +260,18 @@ export async function scrapeJob(req: Request, res: Response): Promise<void> {
             writeIfConnected(
                 res,
                 disconnectState,
-                `data: ${JSON.stringify({ error: 'Scrape failed', reason: settledScrape.reason })}\n\n`,
+                // Send only the message, following createErrorMessage()'s
+                // convention: an Error's own fields are non-enumerable, so
+                // stringifying the error itself yields `{}` (#124), while
+                // spreading it would leak internal state — ScrapeAbortedError,
+                // for one, carries the whole partial results array.
+                `data: ${JSON.stringify({
+                    error: 'Scrape failed',
+                    reason:
+                        settledScrape.reason instanceof Error
+                            ? settledScrape.reason.message
+                            : String(settledScrape.reason),
+                })}\n\n`,
             );
         });
     } finally {

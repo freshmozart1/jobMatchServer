@@ -47,6 +47,13 @@ class ScrapeAbortedError extends Error {
     }
 }
 
+// An Error subclass whose own properties ARE enumerable, mirroring how the real
+// ScrapeAbortedError carries a partial results array. Used to prove the failure
+// frame sends the message alone and never spreads internal state onto the wire.
+class ScrapeFailureWithPartialsError extends Error {
+    readonly results = ['internal-partial-result'];
+}
+
 jest.unstable_mockModule('linkedin-job-scraper', () => ({
     runScrape: mockRunScrape,
     ScrapeAbortedError,
@@ -176,6 +183,25 @@ function jobDataWrites(write: ReturnType<typeof jest.fn>): string[] {
     return write.mock.calls
         .map(([chunk]) => String(chunk))
         .filter((chunk) => chunk.includes('duplicateKey'));
+}
+
+function failureFrames(write: ReturnType<typeof jest.fn>): string[] {
+    return write.mock.calls
+        .map(([chunk]) => String(chunk))
+        .filter((chunk) => chunk.includes('Scrape failed'));
+}
+
+function parseFailureFrame(frame: string): { error: string; reason: unknown } {
+    return JSON.parse(frame.slice('data: '.length)) as {
+        error: string;
+        reason: unknown;
+    };
+}
+
+function runScrapeRejectingWith(reason: unknown) {
+    mockRunScrape.mockImplementation(async () => {
+        throw reason;
+    });
 }
 
 describe('scrapeJob', () => {
@@ -393,6 +419,66 @@ describe('scrapeJob', () => {
             String(chunk).includes('Scrape failed'),
         );
         expect(errorWrites).toHaveLength(0);
+    });
+
+    it('writes the failing error message as the failure frame reason', async () => {
+        runScrapeRejectingWith(new Error('Blocked by LinkedIn sign-in wall'));
+        const { response, write } = createSseResponse();
+
+        await scrapeJob(createRequest(validBody), response);
+
+        const frames = failureFrames(write);
+        expect(frames).toHaveLength(1);
+        expect(parseFailureFrame(frames[0] ?? '')).toEqual({
+            error: 'Scrape failed',
+            reason: 'Blocked by LinkedIn sign-in wall',
+        });
+    });
+
+    it('stringifies a non-Error rejection into the failure frame reason', async () => {
+        runScrapeRejectingWith('boom');
+        const { response, write } = createSseResponse();
+
+        await scrapeJob(createRequest(validBody), response);
+
+        const frames = failureFrames(write);
+        expect(frames).toHaveLength(1);
+        expect(parseFailureFrame(frames[0] ?? '')).toEqual({
+            error: 'Scrape failed',
+            reason: 'boom',
+        });
+    });
+
+    it('sends only the message when the rejection carries own enumerable properties', async () => {
+        runScrapeRejectingWith(
+            new ScrapeFailureWithPartialsError('Chromium launch failed'),
+        );
+        const { response, write } = createSseResponse();
+
+        await scrapeJob(createRequest(validBody), response);
+
+        const frames = failureFrames(write);
+        expect(frames).toHaveLength(1);
+        const frame = frames[0] ?? '';
+        expect(frame).not.toContain('internal-partial-result');
+        expect(parseFailureFrame(frame)).toEqual({
+            error: 'Scrape failed',
+            reason: 'Chromium launch failed',
+        });
+    });
+
+    it('opens the stream with a valid SSE comment frame', async () => {
+        findOne.mockResolvedValue(null);
+        runScrapeWithResult(successfulResult());
+        const { response, writeHead, write } = createSseResponse();
+
+        await scrapeJob(createRequest(validBody), response);
+
+        expect(writeHead).toHaveBeenCalledWith(
+            200,
+            expect.objectContaining({ 'content-type': 'text/event-stream' }),
+        );
+        expect(write.mock.calls[0]?.[0]).toBe(': ping\n\n');
     });
 
     it('stops forwarding job writes queued before disconnect', async () => {
