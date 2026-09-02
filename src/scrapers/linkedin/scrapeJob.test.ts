@@ -207,6 +207,11 @@ function runScrapeRejectingWith(reason: unknown) {
 describe('scrapeJob', () => {
     beforeEach(() => {
         jest.clearAllMocks();
+        // clearAllMocks only clears recorded calls; implementations survive it.
+        // Every test that reaches runScrape installs its own, so drop the
+        // previous one rather than letting e.g. a rejecting scraper leak into
+        // the next test that forgets to.
+        mockRunScrape.mockReset();
         connect.mockResolvedValue(undefined);
         close.mockResolvedValue(undefined);
         connectionStringConfigured.mockReturnValue(true);
@@ -406,19 +411,16 @@ describe('scrapeJob', () => {
     it('does not write an error chunk when a scrape is aborted by disconnect', async () => {
         findOne.mockResolvedValue(null);
         const request = createRequest(validBody);
-        mockRunScrape.mockImplementation(async () => {
-            throw new ScrapeAbortedError({ results: [], url: '' });
-        });
+        runScrapeRejectingWith(
+            new ScrapeAbortedError({ results: [], url: '' }),
+        );
         const { response, write } = createSseResponse();
 
         const scrapePromise = scrapeJob(request, response);
         emitClose(response);
         await scrapePromise;
 
-        const errorWrites = write.mock.calls.filter(([chunk]) =>
-            String(chunk).includes('Scrape failed'),
-        );
-        expect(errorWrites).toHaveLength(0);
+        expect(failureFrames(write)).toHaveLength(0);
     });
 
     it('writes the failing error message as the failure frame reason', async () => {
@@ -467,17 +469,64 @@ describe('scrapeJob', () => {
         });
     });
 
-    it('opens the stream with a valid SSE comment frame', async () => {
-        findOne.mockResolvedValue(null);
-        runScrapeWithResult(successfulResult());
-        const { response, writeHead, write } = createSseResponse();
+    it('falls back to the error name when the failing error has no message', async () => {
+        runScrapeRejectingWith(new Error());
+        const { response, write } = createSseResponse();
 
         await scrapeJob(createRequest(validBody), response);
 
-        expect(writeHead).toHaveBeenCalledWith(
-            200,
-            expect.objectContaining({ 'content-type': 'text/event-stream' }),
-        );
+        const frames = failureFrames(write);
+        expect(frames).toHaveLength(1);
+        expect(parseFailureFrame(frames[0] ?? '')).toEqual({
+            error: 'Scrape failed',
+            reason: 'Error',
+        });
+    });
+
+    it('reads the message off an error-like rejection instead of flattening it', async () => {
+        runScrapeRejectingWith({
+            code: 'ENOTFOUND',
+            message: 'getaddrinfo failed for www.linkedin.com',
+        });
+        const { response, write } = createSseResponse();
+
+        await scrapeJob(createRequest(validBody), response);
+
+        const frames = failureFrames(write);
+        expect(frames).toHaveLength(1);
+        const frame = frames[0] ?? '';
+        expect(frame).not.toContain('"code"');
+        expect(parseFailureFrame(frame)).toEqual({
+            error: 'Scrape failed',
+            reason: 'getaddrinfo failed for www.linkedin.com',
+        });
+    });
+
+    it('still ends the stream when the rejection cannot be converted to a string', async () => {
+        // A null-prototype object has no toString/valueOf, so String() throws on
+        // it. That throw would escape past the res.end() below and leave the
+        // client hanging on an open stream.
+        runScrapeRejectingWith(Object.create(null));
+        const { response, write, end } = createSseResponse();
+
+        await scrapeJob(createRequest(validBody), response);
+
+        const frames = failureFrames(write);
+        expect(frames).toHaveLength(1);
+        expect(parseFailureFrame(frames[0] ?? '')).toEqual({
+            error: 'Scrape failed',
+            reason: 'Unknown scrape failure',
+        });
+        expect(end).toHaveBeenCalledTimes(1);
+    });
+
+    it('opens the stream with a valid SSE comment frame', async () => {
+        findOne.mockResolvedValue(null);
+        runScrapeWithResult(successfulResult());
+        const { response, write } = createSseResponse();
+
+        await scrapeJob(createRequest(validBody), response);
+
         expect(write.mock.calls[0]?.[0]).toBe(': ping\n\n');
     });
 

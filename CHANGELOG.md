@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file.
 
+## v4.2.1
+
+### Fixed
+
+- `POST /scrape/linkedin` (`scrapeJob.ts`) now sends the real cause of a run-level scrape failure instead of an empty object. The failure frame built `reason` from the raw rejection value, and since an `Error`'s `message`/`stack`/`name` are non-enumerable, `JSON.stringify` dropped all of them — every client received `data: {"error":"Scrape failed","reason":{}}` while `console.error` on the line above logged the actual cause. `reason` is now a `string` on the wire, produced by a new `describeFailureReason()` helper: an `Error`'s `message` (falling back to its `name`, since `new Error().message` is `''` and an empty reason is as uninformative on the client as the `{}` it replaced), an error-like object's own `message` (a `{ message, code }` rejection or a cross-realm `Error` fails `instanceof` but still carries a real message, which `String()` would flatten to `"[object Object]"`), otherwise `String(reason)`. The error object itself is deliberately never spread: any `Error` subclass with own enumerable fields would put internal state on the wire. `String()` is called inside a `try`/`catch` because it throws on a null-prototype object (or anything else with no `toString`/`valueOf`), and that throw would escape `settledScrapes.forEach` past the handler's `res.end()`, leaving the SSE stream open and the client hanging — the #117 symptom by another route. Since the endpoint has no auth, the frame now discloses raw scraper/Playwright messages to any caller; acceptable for a single-user service, and recorded as such in the code. `jobMatch`'s `MatchPage.vue` already types `reason` as `unknown` and renders `error`, so nothing on the client breaks; surfacing the cause in the UI is freshmozart1/jobMatch#71 (closes #124).
+- The frame that flushes the SSE headers is now a proper SSE comment, `: ping\n\n` instead of `ping\n\n`. Both are ignored by readers — a line with no colon is parsed as a field named `ping`, which is not one of SSE's four recognized field names — so this is a clarity fix rather than a behavior fix: a comment is the frame the format actually provides for an inert flush. The frame stays a one-shot header flush so the client's `fetch()` resolves promptly, not a keepalive; repeating it is #122.
+
 ## v4.2.0
 
 ### Added
