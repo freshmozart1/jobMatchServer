@@ -27,18 +27,27 @@ type DisconnectState = { disconnected: boolean };
 
 const UNKNOWN_FAILURE_REASON = 'Unknown scrape failure';
 
+// Reads a non-Error rejection's own `message`: a `{ message, code }` object or
+// a cross-realm Error fails `instanceof` yet still carries a real message, one
+// `String()` would flatten to "[object Object]". Only `message` is read, so no
+// other field of the rejection can reach the wire.
+function errorLikeMessage(reason: unknown): string | undefined {
+    const message = (reason as { message?: unknown } | null | undefined)
+        ?.message;
+    return typeof message === 'string' && message.length > 0
+        ? message
+        : undefined;
+}
+
 // Reduces a rejection value to the single string the failure frame carries.
 // Only a message goes on the wire, following createErrorMessage()'s convention:
 // an Error's own fields are non-enumerable, so stringifying the error itself
 // yields `{}` (#124), while spreading it would leak internal state.
 //
-// Every fallback below is load-bearing:
+// Every fallback is load-bearing:
 //   - `message || name`: `new Error().message` is `''`, and an empty reason is
 //     falsy on the client — as uninformative as the `{}` it replaced.
-//   - the error-like branch: a `{ message, code }` object or a cross-realm Error
-//     fails `instanceof` yet still carries a real message, which `String()`
-//     would flatten to "[object Object]". Only the message is read, so this
-//     still never puts an object's other fields on the wire.
+//   - `errorLikeMessage`: see above.
 //   - the try/catch: `String()` throws on a null-prototype object (or anything
 //     else lacking `toString`/`valueOf`), and a throw here would escape past
 //     scrapeJob's `res.end()` and strand the SSE stream open.
@@ -50,15 +59,8 @@ function describeFailureReason(reason: unknown): string {
     if (reason instanceof Error) {
         return reason.message || reason.name || UNKNOWN_FAILURE_REASON;
     }
-    if (
-        typeof reason === 'object' &&
-        reason !== null &&
-        'message' in reason &&
-        typeof reason.message === 'string' &&
-        reason.message.length > 0
-    ) {
-        return reason.message;
-    }
+    const errorLike = errorLikeMessage(reason);
+    if (errorLike !== undefined) return errorLike;
     try {
         return String(reason) || UNKNOWN_FAILURE_REASON;
     } catch {
