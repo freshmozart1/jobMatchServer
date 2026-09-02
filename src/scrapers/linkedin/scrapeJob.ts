@@ -25,6 +25,49 @@ import {
 
 type DisconnectState = { disconnected: boolean };
 
+const UNKNOWN_FAILURE_REASON = 'Unknown scrape failure';
+
+// Reads a non-Error rejection's own `message`: a `{ message, code }` object or
+// a cross-realm Error fails `instanceof` yet still carries a real message, one
+// `String()` would flatten to "[object Object]". Only `message` is read, so no
+// other field of the rejection can reach the wire.
+function errorLikeMessage(reason: unknown): string | undefined {
+    const message = (reason as { message?: unknown } | null | undefined)
+        ?.message;
+    return typeof message === 'string' && message.length > 0
+        ? message
+        : undefined;
+}
+
+// Reduces a rejection value to the single string the failure frame carries.
+// Only a message goes on the wire, following createErrorMessage()'s convention:
+// an Error's own fields are non-enumerable, so stringifying the error itself
+// yields `{}` (#124), while spreading it would leak internal state.
+//
+// Every fallback is load-bearing:
+//   - `message || name`: `new Error().message` is `''`, and an empty reason is
+//     falsy on the client — as uninformative as the `{}` it replaced.
+//   - `errorLikeMessage`: see above.
+//   - the try/catch: `String()` throws on a null-prototype object (or anything
+//     else lacking `toString`/`valueOf`), and a throw here would escape past
+//     scrapeJob's `res.end()` and strand the SSE stream open.
+//
+// The result is a raw scraper/Playwright message and this endpoint has no auth
+// (see CLAUDE.md), so the frame deliberately discloses internal failure detail
+// to any caller — acceptable for a single-user service, but not free.
+function describeFailureReason(reason: unknown): string {
+    if (reason instanceof Error) {
+        return reason.message || reason.name || UNKNOWN_FAILURE_REASON;
+    }
+    const errorLike = errorLikeMessage(reason);
+    if (errorLike !== undefined) return errorLike;
+    try {
+        return String(reason) || UNKNOWN_FAILURE_REASON;
+    } catch {
+        return UNKNOWN_FAILURE_REASON;
+    }
+}
+
 function writeIfConnected(
     res: Response,
     disconnectState: DisconnectState,
@@ -198,7 +241,14 @@ export async function scrapeJob(req: Request, res: Response): Promise<void> {
         connection: 'keep-alive',
         'transfer-encoding': 'chunked',
     });
-    res.write('ping\n\n');
+    // Flush the headers so the client's fetch() resolves and the stream opens
+    // promptly. The leading colon makes this an SSE comment, which every reader
+    // — this project's `data: `-only parser included — ignores. The bare 'ping'
+    // it replaced (#124) was ignored too, as a line with no colon is parsed as a
+    // field named `ping`, which is not one of SSE's four recognized field names;
+    // a comment is simply the frame the format actually provides for this.
+    // This fires once and is not a keepalive: #122 covers repeating it.
+    res.write(': ping\n\n');
 
     const pendingJobWrites: Promise<void>[] = [];
 
@@ -255,7 +305,16 @@ export async function scrapeJob(req: Request, res: Response): Promise<void> {
             writeIfConnected(
                 res,
                 disconnectState,
-                `data: ${JSON.stringify({ error: 'Scrape failed', reason: settledScrape.reason })}\n\n`,
+                // Only a message, never the error object: see
+                // describeFailureReason. Any Error subclass with own enumerable
+                // fields would otherwise put internal state on the wire —
+                // ScrapeAbortedError's partial results array is the shape to
+                // picture, though that one never reaches here, having returned
+                // above.
+                `data: ${JSON.stringify({
+                    error: 'Scrape failed',
+                    reason: describeFailureReason(settledScrape.reason),
+                })}\n\n`,
             );
         });
     } finally {
