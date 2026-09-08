@@ -24,6 +24,30 @@ export type ScrapedJob = {
     match?: number;
 };
 
+export type ScrapeStreamFrame =
+    | { type: 'job'; job: ScrapedJob }
+    | {
+          type: 'progress';
+          keyword: string;
+          stage: 'loading';
+          discovered: number;
+      }
+    | {
+          type: 'progress';
+          keyword: string;
+          stage: 'scanning';
+          current: number;
+          total: number;
+          failed: number;
+          dropped: number;
+      }
+    | {
+          type: 'error';
+          error: string;
+          reason: string;
+          keyword?: string;
+      };
+
 export type TextEmbedding = number[];
 
 export type CoverLetterSegmentName =

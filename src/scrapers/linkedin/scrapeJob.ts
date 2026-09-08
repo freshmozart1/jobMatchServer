@@ -1,4 +1,4 @@
-import type { ScrapedJob, StoredScrapedJob } from '#types';
+import type { ScrapedJob, ScrapeStreamFrame, StoredScrapedJob } from '#types';
 import type { Request, Response } from 'express';
 import type {
     JobCardIdentity,
@@ -28,8 +28,15 @@ import {
 } from './linkedInTextUtils.js';
 
 type DisconnectState = { disconnected: boolean };
+type TerminalProgressStatus = 'failed' | 'dropped';
+type KeywordProgressState = {
+    current: number;
+    total: number;
+    terminalStatuses: Map<number, TerminalProgressStatus>;
+};
 
 const UNKNOWN_FAILURE_REASON = 'Unknown scrape failure';
+const KEEPALIVE_INTERVAL_MS = 15_000;
 
 // Reads a non-Error rejection's own `message`: a `{ message, code }` object or
 // a cross-realm Error fails `instanceof` yet still carries a real message, one
@@ -79,6 +86,41 @@ function writeIfConnected(
 ): void {
     if (disconnectState.disconnected) return;
     res.write(chunk);
+}
+
+function writeSseFrame(
+    res: Response,
+    disconnectState: DisconnectState,
+    frame: ScrapeStreamFrame,
+): void {
+    writeIfConnected(
+        res,
+        disconnectState,
+        `data: ${JSON.stringify(frame)}\n\n`,
+    );
+}
+
+function writeScanningProgress(
+    res: Response,
+    disconnectState: DisconnectState,
+    keyword: string,
+    progressState: KeywordProgressState,
+): void {
+    let failed = 0;
+    let dropped = 0;
+    progressState.terminalStatuses.forEach((status) => {
+        if (status === 'failed') failed++;
+        else dropped++;
+    });
+    writeSseFrame(res, disconnectState, {
+        type: 'progress',
+        keyword,
+        stage: 'scanning',
+        current: progressState.current,
+        total: progressState.total,
+        failed,
+        dropped,
+    });
 }
 
 async function isJobAlreadyStored(
@@ -156,15 +198,14 @@ async function forwardJobIfNew(
     const rawJob = buildRawJob(result, duplicateKey);
     const embedding = await createJobEmbedding(rawJob);
     const match = await computeJobMatch(client, embedding);
-    writeIfConnected(
-        res,
-        disconnectState,
-        `data: ${JSON.stringify({
+    writeSseFrame(res, disconnectState, {
+        type: 'job',
+        job: {
             ...rawJob,
             embedding,
             ...(match !== undefined ? { match } : {}),
-        })}\n\n`,
-    );
+        },
+    });
 }
 
 function handleProgressEvent(
@@ -172,26 +213,35 @@ function handleProgressEvent(
     res: Response,
     disconnectState: DisconnectState,
     pendingJobWrites: Promise<void>[],
+    keyword: string,
+    progressState: KeywordProgressState,
     event: ScrapeProgressEvent,
 ): void {
     switch (event.type) {
         case 'job:done':
+            progressState.current = event.result.index + 1;
             switch (event.result.status) {
                 case 'failed': {
+                    progressState.terminalStatuses.set(
+                        event.result.index,
+                        'failed',
+                    );
                     const failureReason = event.result.failureReason
                         ? `, failureReason=${event.result.failureReason}`
                         : '';
                     console.error(
                         `LinkedIn scrape failed for job index ${event.result.index}${failureReason}: ${event.result.error}`,
                     );
-                    return;
+                    break;
                 }
                 case 'skipped':
+                    progressState.terminalStatuses.delete(event.result.index);
                     console.log(
                         `Skipping already-stored job ${event.result.sourceJobId} pre-click.`,
                     );
-                    return;
+                    break;
                 case 'success':
+                    progressState.terminalStatuses.delete(event.result.index);
                     pendingJobWrites.push(
                         forwardJobIfNew(
                             client,
@@ -200,7 +250,7 @@ function handleProgressEvent(
                             event.result,
                         ),
                     );
-                    return;
+                    break;
                 default:
                     // Exhaustiveness guard: if linkedin-job-scraper ever adds a new
                     // JobStatus member, this line fails to compile until the switch
@@ -209,10 +259,15 @@ function handleProgressEvent(
                     event.result satisfies never;
                     return;
             }
+            writeScanningProgress(res, disconnectState, keyword, progressState);
+            return;
         case 'job:stale':
+            progressState.current = event.result.index + 1;
+            progressState.terminalStatuses.set(event.result.index, 'dropped');
             console.warn(
                 `LinkedIn scrape result for job index ${event.result.index} is suspect (companyMismatch=${event.result.companyMismatch}, sourceJobIdMismatch=${event.result.sourceJobIdMismatch}, lateOverlayDetected=${event.result.lateOverlayDetected}); not forwarding it.`,
             );
+            writeScanningProgress(res, disconnectState, keyword, progressState);
             return;
         case 'overlay:undismissed':
             console.warn(
@@ -220,9 +275,23 @@ function handleProgressEvent(
             );
             return;
         case 'jobs:loading':
+            writeSseFrame(res, disconnectState, {
+                type: 'progress',
+                keyword,
+                stage: 'loading',
+                discovered: event.count,
+            });
+            return;
         case 'jobs:found':
+            progressState.current = 0;
+            progressState.total = event.total;
+            progressState.terminalStatuses.clear();
+            writeScanningProgress(res, disconnectState, keyword, progressState);
+            return;
         case 'job:start':
-            // Progress forwarding is tracked separately in GitHub issue #122.
+            progressState.current = event.index + 1;
+            progressState.total = event.total;
+            writeScanningProgress(res, disconnectState, keyword, progressState);
             return;
         default:
             // Keep the outer progress-event union exhaustive as the dependency evolves.
@@ -240,6 +309,12 @@ export async function scrapeJob(req: Request, res: Response): Promise<void> {
 
     const controller = new AbortController();
     const disconnectState: DisconnectState = { disconnected: false };
+    let keepaliveTimer: ReturnType<typeof setInterval> | undefined;
+    const stopKeepalive = () => {
+        if (keepaliveTimer === undefined) return;
+        clearInterval(keepaliveTimer);
+        keepaliveTimer = undefined;
+    };
     // Listen on res (the response), not req (the request): req's 'close' fires once the
     // request body has been fully read, which happens almost immediately regardless of
     // whether the client is still connected — that mistake (#117) aborted every scrape
@@ -247,6 +322,7 @@ export async function scrapeJob(req: Request, res: Response): Promise<void> {
     // actually terminates, whether from a genuine early disconnect or a normal res.end().
     const handleDisconnect = () => {
         disconnectState.disconnected = true;
+        stopKeepalive();
         controller.abort();
     };
     res.on('close', handleDisconnect);
@@ -274,9 +350,13 @@ export async function scrapeJob(req: Request, res: Response): Promise<void> {
     // — this project's `data: `-only parser included — ignores. The bare 'ping'
     // it replaced (#124) was ignored too, as a line with no colon is parsed as a
     // field named `ping`, which is not one of SSE's four recognized field names;
-    // a comment is simply the frame the format actually provides for this.
-    // This fires once and is not a keepalive: #122 covers repeating it.
-    res.write(': ping\n\n');
+    // a comment is simply the frame the format actually provides for this. A
+    // separate periodic comment below keeps the connection active afterward.
+    writeIfConnected(res, disconnectState, ': ping\n\n');
+    keepaliveTimer = setInterval(
+        () => writeIfConnected(res, disconnectState, ': keepalive\n\n'),
+        KEEPALIVE_INTERVAL_MS,
+    );
 
     const pendingJobWrites: Promise<void>[] = [];
 
@@ -301,14 +381,21 @@ export async function scrapeJob(req: Request, res: Response): Promise<void> {
             !storedSourceJobIds.has(identity.sourceJobId);
 
         const settledScrapes = await Promise.allSettled(
-            keywords.map((keyword) =>
-                runScrape({
+            keywords.map((keyword) => {
+                const progressState: KeywordProgressState = {
+                    current: 0,
+                    total: 0,
+                    terminalStatuses: new Map(),
+                };
+                return runScrape({
                     onProgress: (e) =>
                         handleProgressEvent(
                             client,
                             res,
                             disconnectState,
                             pendingJobWrites,
+                            keyword,
+                            progressState,
                             e,
                         ),
                     searchParams: {
@@ -319,18 +406,19 @@ export async function scrapeJob(req: Request, res: Response): Promise<void> {
                     },
                     signal: controller.signal,
                     scraperOptions: { shouldScrapeJob },
-                }),
-            ),
+                });
+            }),
         );
         await Promise.allSettled(pendingJobWrites);
-        settledScrapes.forEach((settledScrape) => {
+        settledScrapes.forEach((settledScrape, index) => {
             if (settledScrape.status !== 'rejected') return;
             if (settledScrape.reason instanceof ScrapeAbortedError) {
                 console.log('LinkedIn scrape aborted: client disconnected.');
                 return;
             }
             console.error('Scrape failed:', settledScrape.reason);
-            writeIfConnected(
+            const keyword = keywords[index];
+            writeSseFrame(
                 res,
                 disconnectState,
                 // Only a message, never the error object: see
@@ -339,13 +427,16 @@ export async function scrapeJob(req: Request, res: Response): Promise<void> {
                 // ScrapeAbortedError's partial results array is the shape to
                 // picture, though that one never reaches here, having returned
                 // above.
-                `data: ${JSON.stringify({
+                {
+                    type: 'error',
                     error: 'Scrape failed',
                     reason: describeFailureReason(settledScrape.reason),
-                })}\n\n`,
+                    ...(keyword !== undefined ? { keyword } : {}),
+                },
             );
         });
     } finally {
+        stopKeepalive();
         await client.close();
     }
     if (!disconnectState.disconnected) res.end();
