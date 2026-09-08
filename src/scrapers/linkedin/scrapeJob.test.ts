@@ -1,8 +1,17 @@
-import { beforeEach, describe, expect, it, jest } from '@jest/globals';
+import {
+    afterEach,
+    beforeEach,
+    describe,
+    expect,
+    it,
+    jest,
+} from '@jest/globals';
 import { EventEmitter } from 'node:events';
 import type { Request, Response } from 'express';
 import type {
+    FailedJobResult,
     JobCardIdentity,
+    OverlayDiagnostics,
     ScrapeOutcome,
     ScraperOptions,
     ScrapeProgressEvent,
@@ -31,6 +40,8 @@ type MockRunScrapeOptions = {
 
 const mockRunScrape =
     jest.fn<(options: MockRunScrapeOptions) => Promise<unknown>>();
+const mockDescribeOverlayDiagnostics =
+    jest.fn<(diagnostics: OverlayDiagnostics | null) => string>();
 const mockCreateJobEmbedding = jest.fn<() => Promise<number[]>>();
 const mockComputeJobMatch =
     jest.fn<(...args: unknown[]) => Promise<number | undefined>>();
@@ -55,6 +66,7 @@ class ScrapeFailureWithPartialsError extends Error {
 }
 
 jest.unstable_mockModule('linkedin-job-scraper', () => ({
+    describeOverlayDiagnostics: mockDescribeOverlayDiagnostics,
     runScrape: mockRunScrape,
     ScrapeAbortedError,
 }));
@@ -172,6 +184,22 @@ function skippedResult(
     };
 }
 
+function failedResult(
+    overrides: Partial<FailedJobResult> = {},
+): FailedJobResult {
+    return {
+        status: 'failed',
+        ...baseResultFields,
+        ...baseIdentity,
+        error: 'Detail pane identity could not be verified.',
+        company: null,
+        descriptionText: null,
+        companyAddresses: null,
+        tags: null,
+        ...overrides,
+    };
+}
+
 function runScrapeWithResult(result: SuccessfulJobResult) {
     mockRunScrape.mockImplementation(async ({ onProgress }) => {
         onProgress?.({ type: 'job:done', result });
@@ -220,6 +248,15 @@ describe('scrapeJob', () => {
         toArray.mockResolvedValue([]);
         mockCreateJobEmbedding.mockResolvedValue([0.1, 0.2, 0.3]);
         mockComputeJobMatch.mockResolvedValue(undefined);
+        mockDescribeOverlayDiagnostics.mockImplementation((diagnostics) =>
+            diagnostics
+                ? 'bounded overlay diagnostics'
+                : 'overlay diagnostics unavailable',
+        );
+    });
+
+    afterEach(() => {
+        jest.restoreAllMocks();
     });
 
     it('computes duplicateKey from sourceJobId and streams new jobs', async () => {
@@ -342,6 +379,147 @@ describe('scrapeJob', () => {
         expect(mockComputeJobMatch).not.toHaveBeenCalled();
         expect(findOne).not.toHaveBeenCalled();
     });
+
+    it('does not forward a stale successful result or process it as a job', async () => {
+        mockRunScrape.mockImplementation(async ({ onProgress }) => {
+            onProgress?.({
+                type: 'job:stale',
+                result: successfulResult({ sourceJobIdMismatch: true }),
+            });
+            return { results: [], url: '' };
+        });
+        const warn = jest
+            .spyOn(console, 'warn')
+            .mockImplementation(() => undefined);
+        const { response, write } = createSseResponse();
+
+        await scrapeJob(createRequest(validBody), response);
+
+        expect(warn).toHaveBeenCalledWith(
+            expect.stringContaining('sourceJobIdMismatch=true'),
+        );
+        expect(jobDataWrites(write)).toHaveLength(0);
+        expect(findOne).not.toHaveBeenCalled();
+        expect(mockCreateJobEmbedding).not.toHaveBeenCalled();
+        expect(mockComputeJobMatch).not.toHaveBeenCalled();
+    });
+
+    it('does not forward a detail-pane identity failure or process it as a job', async () => {
+        mockRunScrape.mockImplementation(async ({ onProgress }) => {
+            onProgress?.({
+                type: 'job:done',
+                result: failedResult({
+                    failureReason: 'detail-pane-identity-unverified',
+                }),
+            });
+            return { results: [], url: '' };
+        });
+        const error = jest
+            .spyOn(console, 'error')
+            .mockImplementation(() => undefined);
+        const { response, write } = createSseResponse();
+
+        await scrapeJob(createRequest(validBody), response);
+
+        expect(error).toHaveBeenCalledWith(
+            expect.stringContaining(
+                'failureReason=detail-pane-identity-unverified',
+            ),
+        );
+        expect(jobDataWrites(write)).toHaveLength(0);
+        expect(findOne).not.toHaveBeenCalled();
+        expect(mockCreateJobEmbedding).not.toHaveBeenCalled();
+        expect(mockComputeJobMatch).not.toHaveBeenCalled();
+    });
+
+    it('forwards only the successful result after a deferred identity retry', async () => {
+        findOne.mockResolvedValue(null);
+        mockRunScrape.mockImplementation(async ({ onProgress }) => {
+            onProgress?.({
+                type: 'job:done',
+                result: failedResult({
+                    failureReason: 'detail-pane-identity-unverified',
+                }),
+            });
+            onProgress?.({ type: 'job:done', result: successfulResult() });
+            return { results: [], url: '' };
+        });
+        jest.spyOn(console, 'error').mockImplementation(() => undefined);
+        const { response, write } = createSseResponse();
+
+        await scrapeJob(createRequest(validBody), response);
+
+        expect(jobDataWrites(write)).toHaveLength(1);
+        expect(findOne).toHaveBeenCalledTimes(1);
+        expect(mockCreateJobEmbedding).toHaveBeenCalledTimes(1);
+        expect(mockComputeJobMatch).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([
+        {
+            neutralized: true,
+            diagnostics: {
+                text: 'Sign in to view more jobs',
+                classes: ['modal__overlay', 'modal__overlay--visible'],
+                buttonNames: ['Dismiss', 'Sign in'],
+            },
+            expectedState: 'was neutralized',
+            expectedDescription: 'bounded overlay diagnostics',
+        },
+        {
+            neutralized: false,
+            diagnostics: {
+                text: 'Sign in to view more jobs',
+                classes: ['modal__overlay', 'modal__overlay--visible'],
+                buttonNames: ['Sign in'],
+            },
+            expectedState: 'remains blocking',
+            expectedDescription: 'bounded overlay diagnostics',
+        },
+        {
+            neutralized: false,
+            diagnostics: null,
+            expectedState: 'remains blocking',
+            expectedDescription: 'overlay diagnostics unavailable',
+        },
+    ])(
+        'logs an overlay event safely when $expectedState',
+        async ({
+            neutralized,
+            diagnostics,
+            expectedState,
+            expectedDescription,
+        }) => {
+            mockRunScrape.mockImplementation(async ({ onProgress }) => {
+                onProgress?.({
+                    type: 'overlay:undismissed',
+                    neutralized,
+                    diagnostics,
+                });
+                return { results: [], url: '' };
+            });
+            const warn = jest
+                .spyOn(console, 'warn')
+                .mockImplementation(() => undefined);
+            const { response, write } = createSseResponse();
+
+            await scrapeJob(createRequest(validBody), response);
+
+            expect(mockDescribeOverlayDiagnostics).toHaveBeenCalledWith(
+                diagnostics,
+            );
+            expect(warn).toHaveBeenCalledWith(
+                expect.stringContaining(expectedState),
+            );
+            expect(warn).toHaveBeenCalledWith(
+                expect.stringContaining(expectedDescription),
+            );
+            expect(jobDataWrites(write)).toHaveLength(0);
+            expect(findOne).not.toHaveBeenCalled();
+            expect(mockCreateJobEmbedding).not.toHaveBeenCalled();
+            expect(mockComputeJobMatch).not.toHaveBeenCalled();
+        },
+    );
 
     it('proceeds with an empty stored-ID set when pre-fetching stored job IDs fails', async () => {
         toArray.mockRejectedValue(new Error('find failed'));

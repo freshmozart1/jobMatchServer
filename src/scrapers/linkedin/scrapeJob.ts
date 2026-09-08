@@ -5,7 +5,11 @@ import type {
     ScrapeProgressEvent,
     SuccessfulJobResult,
 } from 'linkedin-job-scraper';
-import { runScrape, ScrapeAbortedError } from 'linkedin-job-scraper';
+import {
+    describeOverlayDiagnostics,
+    runScrape,
+    ScrapeAbortedError,
+} from 'linkedin-job-scraper';
 import { MongoClient } from 'mongodb';
 import {
     connectionStringConfigured,
@@ -170,35 +174,59 @@ function handleProgressEvent(
     pendingJobWrites: Promise<void>[],
     event: ScrapeProgressEvent,
 ): void {
-    if (event.type === 'job:done') {
-        switch (event.result.status) {
-            case 'failed':
-                console.error(
-                    `LinkedIn scrape failed for job index ${event.result.index}: ${event.result.error}`,
-                );
-                return;
-            case 'skipped':
-                console.log(
-                    `Skipping already-stored job ${event.result.sourceJobId} pre-click.`,
-                );
-                return;
-            case 'success':
-                pendingJobWrites.push(
-                    forwardJobIfNew(client, res, disconnectState, event.result),
-                );
-                return;
-            default:
-                // Exhaustiveness guard: if linkedin-job-scraper ever adds a new
-                // JobStatus member, this line fails to compile until the switch
-                // above is updated to handle it — an unrecognized status must
-                // never silently fall through to being forwarded as if successful.
-                event.result satisfies never;
-                return;
-        }
-    } else if (event.type === 'job:stale') {
-        console.warn(
-            `LinkedIn scrape result for job index ${event.result.index} is suspect (companyMismatch=${event.result.companyMismatch}, sourceJobIdMismatch=${event.result.sourceJobIdMismatch}, lateOverlayDetected=${event.result.lateOverlayDetected}); not forwarding it.`,
-        );
+    switch (event.type) {
+        case 'job:done':
+            switch (event.result.status) {
+                case 'failed': {
+                    const failureReason = event.result.failureReason
+                        ? `, failureReason=${event.result.failureReason}`
+                        : '';
+                    console.error(
+                        `LinkedIn scrape failed for job index ${event.result.index}${failureReason}: ${event.result.error}`,
+                    );
+                    return;
+                }
+                case 'skipped':
+                    console.log(
+                        `Skipping already-stored job ${event.result.sourceJobId} pre-click.`,
+                    );
+                    return;
+                case 'success':
+                    pendingJobWrites.push(
+                        forwardJobIfNew(
+                            client,
+                            res,
+                            disconnectState,
+                            event.result,
+                        ),
+                    );
+                    return;
+                default:
+                    // Exhaustiveness guard: if linkedin-job-scraper ever adds a new
+                    // JobStatus member, this line fails to compile until the switch
+                    // above is updated to handle it — an unrecognized status must
+                    // never silently fall through to being forwarded as if successful.
+                    event.result satisfies never;
+                    return;
+            }
+        case 'job:stale':
+            console.warn(
+                `LinkedIn scrape result for job index ${event.result.index} is suspect (companyMismatch=${event.result.companyMismatch}, sourceJobIdMismatch=${event.result.sourceJobIdMismatch}, lateOverlayDetected=${event.result.lateOverlayDetected}); not forwarding it.`,
+            );
+            return;
+        case 'overlay:undismissed':
+            console.warn(
+                `LinkedIn blocking overlay ${event.neutralized ? 'was neutralized' : 'remains blocking'}: ${describeOverlayDiagnostics(event.diagnostics)}`,
+            );
+            return;
+        case 'jobs:loading':
+        case 'jobs:found':
+        case 'job:start':
+            // Progress forwarding is tracked separately in GitHub issue #122.
+            return;
+        default:
+            // Keep the outer progress-event union exhaustive as the dependency evolves.
+            event satisfies never;
     }
 }
 
