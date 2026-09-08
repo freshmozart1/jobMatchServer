@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented in this file.
 
+## v4.2.2
+
+### Fixed
+
+- Upgraded `linkedin-job-scraper` from v0.8.0 to v0.12.0 so `POST /scrape/linkedin` benefits from the upstream overlay hardening, bounded scrape execution, stale diagnostics, and exact detail-pane identity gate. A result whose detail pane cannot be matched to the clicked card is now reported by the dependency as `failureReason: 'detail-pane-identity-unverified'`, receives the dependency's single deferred retry, and is never forwarded by this server unless that retry produces a verified success. The expanded progress-event union is handled exhaustively: stuck-overlay events are logged with bounded diagnostics, while loading/start events remain intentionally internal pending #122. The route's request/SSE contract, duplicate checks, disconnect abort, and completion behavior are unchanged (closes #126).
+
 ## v4.2.1
 
 ### Fixed
