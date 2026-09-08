@@ -2,6 +2,16 @@
 
 All notable changes to this project are documented in this file.
 
+## v5.0.0
+
+### Breaking
+
+- `POST /scrape/linkedin` now sends a discriminated SSE union: `{ type: "job", job }`, keyword-tagged `{ type: "progress", ... }`, and `{ type: "error", error, reason, keyword? }`. Unwrapped jobs and untyped error objects are no longer emitted, so clients must switch on `type` (closes #122).
+
+### Added
+
+- Scraper loading, totals, one-based job position, and retry-aware failed/dropped counts are forwarded for every keyword. The stream also sends a connection-gated `: keepalive` comment every 15 seconds until completion or disconnect.
+
 ## v4.2.2
 
 ### Fixed

@@ -128,15 +128,50 @@ Body:
 
 ```json
 {
-    "keywords": "software engineer",
+    "keywords": ["software engineer", "typescript"],
     "location": "Berlin",
     "distance": 25,
-    "datePosted": "604800",
-    "maxPages": 3
+    "datePosted": "week"
 }
 ```
 
-`keywords` may be a string or an array of strings (one scrape per keyword). `datePosted` is one of `"86400"` (24h), `"604800"` (week), or `"2592000"` (month). For each keyword, paginates search results, skips job cards that are already stored before clicking into them (best-effort, based on a pre-fetched set of known job IDs), extracts job and company details for the rest, embeds new jobs, computes a like/dislike match score, filters out any remaining already-stored jobs, and returns them grouped by keyword along with the search URL used.
+`keywords` may be a string or an array of strings (one concurrent scrape per
+keyword). `datePosted` is one of `"day"`, `"week"`, or `"month"`. The response
+is an SSE stream. It starts with a `: ping` comment, sends a `: keepalive`
+comment every 15 seconds, and carries these JSON values in `data:` frames:
+
+```ts
+type ScrapeStreamFrame =
+    | { type: 'job'; job: ScrapedJob }
+    | {
+          type: 'progress';
+          keyword: string;
+          stage: 'loading';
+          discovered: number;
+      }
+    | {
+          type: 'progress';
+          keyword: string;
+          stage: 'scanning';
+          current: number;
+          total: number;
+          failed: number;
+          dropped: number;
+      }
+    | {
+          type: 'error';
+          error: string;
+          reason: string;
+          keyword?: string;
+      };
+```
+
+`current` is one-based, or `0` after discovery and before the first job starts.
+Failed and dropped counts describe distinct job indices by their latest result,
+so a successful retry removes an earlier failure from the count. For each
+keyword, the route skips already-stored cards before clicking when possible,
+extracts and embeds new jobs, computes their like/dislike match score, and
+filters any remaining duplicates before emitting a job frame.
 
 ### `POST /jobs/create`
 

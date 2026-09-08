@@ -30,10 +30,11 @@ import {
     createFind,
     createToArray,
 } from '../../testMockModules/mongodb.test.js';
-import type { StoredScrapedJob } from '#types';
+import type { ScrapeStreamFrame, StoredScrapedJob } from '#types';
 
 type MockRunScrapeOptions = {
     onProgress?: (event: ScrapeProgressEvent) => void;
+    searchParams?: { keyword: string };
     signal?: AbortSignal;
     scraperOptions?: ScraperOptions;
 };
@@ -219,11 +220,18 @@ function failureFrames(write: ReturnType<typeof jest.fn>): string[] {
         .filter((chunk) => chunk.includes('Scrape failed'));
 }
 
-function parseFailureFrame(frame: string): { error: string; reason: unknown } {
-    return JSON.parse(frame.slice('data: '.length)) as {
-        error: string;
-        reason: unknown;
-    };
+function dataFrames(write: ReturnType<typeof jest.fn>): ScrapeStreamFrame[] {
+    return write.mock.calls
+        .map(([chunk]) => String(chunk))
+        .filter((chunk) => chunk.startsWith('data: '))
+        .map(
+            (chunk) =>
+                JSON.parse(chunk.slice('data: '.length)) as ScrapeStreamFrame,
+        );
+}
+
+function parseFailureFrame(frame: string): ScrapeStreamFrame {
+    return JSON.parse(frame.slice('data: '.length)) as ScrapeStreamFrame;
 }
 
 function runScrapeRejectingWith(reason: unknown) {
@@ -256,6 +264,7 @@ describe('scrapeJob', () => {
     });
 
     afterEach(() => {
+        jest.useRealTimers();
         jest.restoreAllMocks();
     });
 
@@ -277,6 +286,14 @@ describe('scrapeJob', () => {
         const jobWrites = jobDataWrites(write);
         expect(jobWrites).toHaveLength(1);
         expect(jobWrites[0]).toContain('"duplicateKey":"linkedin:123456789"');
+        expect(dataFrames(write).find((frame) => frame.type === 'job')).toEqual(
+            {
+                type: 'job',
+                job: expect.objectContaining({
+                    duplicateKey: 'linkedin:123456789',
+                }),
+            },
+        );
         expect(connect).toHaveBeenCalledTimes(1);
         expect(close).toHaveBeenCalledTimes(1);
         expect(end).toHaveBeenCalledTimes(1);
@@ -402,6 +419,161 @@ describe('scrapeJob', () => {
         expect(findOne).not.toHaveBeenCalled();
         expect(mockCreateJobEmbedding).not.toHaveBeenCalled();
         expect(mockComputeJobMatch).not.toHaveBeenCalled();
+    });
+
+    it('maps scraper loading, found, and start events to keyword-tagged progress frames', async () => {
+        findOne.mockResolvedValue(null);
+        mockRunScrape.mockImplementation(async ({ onProgress }) => {
+            onProgress?.({ type: 'jobs:loading', count: 12 });
+            onProgress?.({ type: 'jobs:found', total: 3 });
+            onProgress?.({ type: 'job:start', index: 0, total: 3 });
+            onProgress?.({
+                type: 'job:done',
+                result: successfulResult({ index: 0 }),
+            });
+            return { results: [], url: '' };
+        });
+        const { response, write } = createSseResponse();
+
+        await scrapeJob(createRequest(validBody), response);
+
+        expect(
+            dataFrames(write).filter((frame) => frame.type === 'progress'),
+        ).toEqual([
+            {
+                type: 'progress',
+                keyword: 'TypeScript',
+                stage: 'loading',
+                discovered: 12,
+            },
+            {
+                type: 'progress',
+                keyword: 'TypeScript',
+                stage: 'scanning',
+                current: 0,
+                total: 3,
+                failed: 0,
+                dropped: 0,
+            },
+            {
+                type: 'progress',
+                keyword: 'TypeScript',
+                stage: 'scanning',
+                current: 1,
+                total: 3,
+                failed: 0,
+                dropped: 0,
+            },
+            {
+                type: 'progress',
+                keyword: 'TypeScript',
+                stage: 'scanning',
+                current: 1,
+                total: 3,
+                failed: 0,
+                dropped: 0,
+            },
+        ]);
+    });
+
+    it('counts each latest failed or dropped index once and clears recovered outcomes', async () => {
+        findOne.mockResolvedValue(null);
+        mockRunScrape.mockImplementation(async ({ onProgress }) => {
+            onProgress?.({ type: 'jobs:found', total: 2 });
+            onProgress?.({ type: 'job:start', index: 0, total: 2 });
+            onProgress?.({
+                type: 'job:done',
+                result: failedResult({ index: 0 }),
+            });
+            onProgress?.({
+                type: 'job:done',
+                result: failedResult({ index: 0 }),
+            });
+            onProgress?.({
+                type: 'job:stale',
+                result: successfulResult({ index: 1 }),
+            });
+            onProgress?.({
+                type: 'job:done',
+                result: successfulResult({ index: 0 }),
+            });
+            onProgress?.({
+                type: 'job:done',
+                result: skippedResult({ index: 1 }),
+            });
+            return { results: [], url: '' };
+        });
+        jest.spyOn(console, 'error').mockImplementation(() => undefined);
+        jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+        const { response, write } = createSseResponse();
+
+        await scrapeJob(createRequest(validBody), response);
+
+        const scanningFrames = dataFrames(write).filter(
+            (frame) => frame.type === 'progress' && frame.stage === 'scanning',
+        );
+        expect(
+            scanningFrames.map(({ failed, dropped }) => [failed, dropped]),
+        ).toEqual([
+            [0, 0],
+            [0, 0],
+            [1, 0],
+            [1, 0],
+            [1, 1],
+            [0, 1],
+            [0, 0],
+        ]);
+    });
+
+    it('keeps progress for concurrent keyword runs independently tagged', async () => {
+        mockRunScrape.mockImplementation(
+            async ({ onProgress, searchParams }) => {
+                const keyword = searchParams?.keyword ?? '';
+                onProgress?.({
+                    type: 'jobs:loading',
+                    count: keyword === 'TypeScript' ? 4 : 7,
+                });
+                onProgress?.({
+                    type: 'jobs:found',
+                    total: keyword === 'TypeScript' ? 3 : 6,
+                });
+                return { results: [], url: '' };
+            },
+        );
+        const { response, write } = createSseResponse();
+
+        await scrapeJob(
+            createRequest({ ...validBody, keywords: ['TypeScript', 'Vue'] }),
+            response,
+        );
+
+        const progressFrames = dataFrames(write).filter(
+            (frame) => frame.type === 'progress',
+        );
+        expect(progressFrames).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    keyword: 'TypeScript',
+                    stage: 'loading',
+                    discovered: 4,
+                }),
+                expect.objectContaining({
+                    keyword: 'TypeScript',
+                    stage: 'scanning',
+                    total: 3,
+                }),
+                expect.objectContaining({
+                    keyword: 'Vue',
+                    stage: 'loading',
+                    discovered: 7,
+                }),
+                expect.objectContaining({
+                    keyword: 'Vue',
+                    stage: 'scanning',
+                    total: 6,
+                }),
+            ]),
+        );
     });
 
     it('does not forward a detail-pane identity failure or process it as a job', async () => {
@@ -610,8 +782,10 @@ describe('scrapeJob', () => {
         const frames = failureFrames(write);
         expect(frames).toHaveLength(1);
         expect(parseFailureFrame(frames[0] ?? '')).toEqual({
+            type: 'error',
             error: 'Scrape failed',
             reason: 'Blocked by LinkedIn sign-in wall',
+            keyword: 'TypeScript',
         });
     });
 
@@ -624,8 +798,10 @@ describe('scrapeJob', () => {
         const frames = failureFrames(write);
         expect(frames).toHaveLength(1);
         expect(parseFailureFrame(frames[0] ?? '')).toEqual({
+            type: 'error',
             error: 'Scrape failed',
             reason: 'boom',
+            keyword: 'TypeScript',
         });
     });
 
@@ -642,8 +818,10 @@ describe('scrapeJob', () => {
         const frame = frames[0] ?? '';
         expect(frame).not.toContain('internal-partial-result');
         expect(parseFailureFrame(frame)).toEqual({
+            type: 'error',
             error: 'Scrape failed',
             reason: 'Chromium launch failed',
+            keyword: 'TypeScript',
         });
     });
 
@@ -656,8 +834,10 @@ describe('scrapeJob', () => {
         const frames = failureFrames(write);
         expect(frames).toHaveLength(1);
         expect(parseFailureFrame(frames[0] ?? '')).toEqual({
+            type: 'error',
             error: 'Scrape failed',
             reason: 'Error',
+            keyword: 'TypeScript',
         });
     });
 
@@ -675,8 +855,10 @@ describe('scrapeJob', () => {
         const frame = frames[0] ?? '';
         expect(frame).not.toContain('"code"');
         expect(parseFailureFrame(frame)).toEqual({
+            type: 'error',
             error: 'Scrape failed',
             reason: 'getaddrinfo failed for www.linkedin.com',
+            keyword: 'TypeScript',
         });
     });
 
@@ -692,8 +874,10 @@ describe('scrapeJob', () => {
         const frames = failureFrames(write);
         expect(frames).toHaveLength(1);
         expect(parseFailureFrame(frames[0] ?? '')).toEqual({
+            type: 'error',
             error: 'Scrape failed',
             reason: 'Unknown scrape failure',
+            keyword: 'TypeScript',
         });
         expect(end).toHaveBeenCalledTimes(1);
     });
@@ -706,6 +890,68 @@ describe('scrapeJob', () => {
         await scrapeJob(createRequest(validBody), response);
 
         expect(write.mock.calls[0]?.[0]).toBe(': ping\n\n');
+    });
+
+    it('writes a keepalive every 15 seconds and stops after completion', async () => {
+        jest.useFakeTimers();
+        let finishScrape: (() => void) | undefined;
+        mockRunScrape.mockImplementation(
+            () =>
+                new Promise((resolve) => {
+                    finishScrape = () => resolve({ results: [], url: '' });
+                }),
+        );
+        const { response, write } = createSseResponse();
+
+        const scrapePromise = scrapeJob(createRequest(validBody), response);
+        await jest.advanceTimersByTimeAsync(0);
+        await jest.advanceTimersByTimeAsync(30_000);
+
+        expect(
+            write.mock.calls.filter(
+                ([chunk]) => String(chunk) === ': keepalive\n\n',
+            ),
+        ).toHaveLength(2);
+
+        finishScrape?.();
+        await scrapePromise;
+        await jest.advanceTimersByTimeAsync(15_000);
+
+        expect(
+            write.mock.calls.filter(
+                ([chunk]) => String(chunk) === ': keepalive\n\n',
+            ),
+        ).toHaveLength(2);
+    });
+
+    it('stops keepalives and data frames as soon as the client disconnects', async () => {
+        jest.useFakeTimers();
+        mockRunScrape.mockImplementation(
+            ({ onProgress, signal }) =>
+                new Promise((_resolve, reject) => {
+                    signal?.addEventListener('abort', () => {
+                        onProgress?.({ type: 'jobs:loading', count: 9 });
+                        reject(
+                            new ScrapeAbortedError({ results: [], url: '' }),
+                        );
+                    });
+                }),
+        );
+        const { response, write } = createSseResponse();
+
+        const scrapePromise = scrapeJob(createRequest(validBody), response);
+        await jest.advanceTimersByTimeAsync(0);
+        await jest.advanceTimersByTimeAsync(15_000);
+        emitClose(response);
+        await scrapePromise;
+        await jest.advanceTimersByTimeAsync(30_000);
+
+        expect(
+            write.mock.calls.filter(
+                ([chunk]) => String(chunk) === ': keepalive\n\n',
+            ),
+        ).toHaveLength(1);
+        expect(dataFrames(write)).toHaveLength(0);
     });
 
     it('stops forwarding job writes queued before disconnect', async () => {
