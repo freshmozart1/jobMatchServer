@@ -2,6 +2,32 @@
 
 All notable changes to this project are documented in this file.
 
+## v5.1.2
+
+### Changed
+
+- Upgraded `cover-letter-generator` from v0.10.0 to v0.11.0. Two effects reach
+  past the dependency boundary even though no route, request/response shape, or
+  stored document changed. First, `generateCoverLetter` and
+  `reviseCoverLetterText` now run `gpt-6-astra` at `reasoning.effort: 'high'`
+  instead of `gpt-5.6-sol`, so `POST /cover-letters/create/text` and
+  `POST /cover-letters/revise/text` return different letter text, bill reasoning
+  tokens on top of output tokens, and take noticeably longer per request —
+  including on the interactive selected-text revision path. Segmentation's LLM
+  fallback is untouched and still runs `gpt-5.6-luna`. Second, a Responses API
+  result with `status: 'incomplete'` (e.g. the model spending its whole output
+  budget on reasoning) is now rejected by the package with a descriptive error
+  naming the incomplete reason, instead of handing a truncated payload to
+  `JSON.parse` and surfacing a bare `SyntaxError`. Both routes already wrap the
+  package call in `try`/`catch`, so that error keeps arriving as a `500` —
+  `Error generating cover letter` for the create route, sanitized to
+  `Provider request failed` for the revise route. `package.json#allowScripts` is
+  re-keyed to the v0.11.0 release commit
+  (`eef3d64ff2c69e66a978c7f040de4d823619c37c`) so the package's `prepare` build
+  still runs on install. No `src/` change was needed: nothing imported the
+  now-file-local `createCoverLetterRevisionPrompt`, and the rest of the export
+  surface is unchanged (closes #133).
+
 ## v5.1.1
 
 ### Fixed
