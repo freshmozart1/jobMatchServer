@@ -107,3 +107,15 @@ export type CoverLetterAsTextRequestBody = {
     coverLetterText: string;
     jobDuplicateKey?: string;
 };
+
+export type ReviseCoverLetterAsTextRequestBody = {
+    selectedText: string;
+    instruction: string;
+    coverLetterText: string;
+    job: {
+        title: string;
+        company: string;
+        location?: string;
+        description?: string;
+    };
+};

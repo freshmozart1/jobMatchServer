@@ -209,6 +209,10 @@ Returns whether certificates have been uploaded for the given job.
 
 Body: a job plus `{ "x"?: number }` (default `3`). Ranks all stored cover letters against the job using the [`cover-letter-generator`](https://github.com/freshmozart1/cover-letter-generator) package's `embedJob` and `getTopXSimilarCoverLetters`, then generates a new cover letter from the top `x` matches via the package's `generateCoverLetter`. Generation itself is delegated to that package, so the exact model it uses internally isn't documented here. Returns `{ "coverLetter": string }`.
 
+### `POST /cover-letters/revise/text`
+
+Body: `{ "selectedText": string, "instruction": string, "coverLetterText": string, "job": { "title": string, "company": string, "location"?: string, "description"?: string } }`. Revises the selected passage using the instruction, complete draft, and job as context. Returns `{ "replacementText": string }`. The operation is stateless: the caller remains responsible for replacing the selected range and persisting the resulting draft through `POST /cover-letters/upload/text`.
+
 ### `POST /tokens/count`
 
 Body: `{ "text": string, "model"?: string }`. Proxies to the Python token service and returns the token count for the given text.

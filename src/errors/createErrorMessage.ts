@@ -5,12 +5,16 @@ export function createErrorMessage(
   error: unknown,
   customMessage: string,
   status: number = 500,
+  publicError: unknown = error,
 ) {
   console.error(customMessage, error);
   response
     .status(status)
     .json({
       message: customMessage,
-      error: error instanceof Error ? error.message : String(error),
+      error:
+        publicError instanceof Error
+          ? publicError.message
+          : String(publicError),
     });
 }
