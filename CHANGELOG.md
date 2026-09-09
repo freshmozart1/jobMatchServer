@@ -2,6 +2,16 @@
 
 All notable changes to this project are documented in this file.
 
+## v5.1.0
+
+### Added
+
+- Added stateless `POST /cover-letters/revise/text`, which revises one selected
+  cover-letter passage from an instruction, the complete draft, and job
+  context through `cover-letter-generator` v0.10.0. Invalid or absent
+  selections return `400`, provider failures are sanitized, and the endpoint
+  never reads or writes MongoDB (closes #129).
+
 ## v5.0.0
 
 ### Breaking

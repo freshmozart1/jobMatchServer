@@ -39,6 +39,16 @@ export const generateCoverLetter =
         ) => Promise<CoverLetter>
     >();
 
+export const reviseCoverLetterText =
+    jest.fn<
+        (input: {
+            selectedText: string;
+            instruction: string;
+            coverLetterText: string;
+            job: Job;
+        }) => Promise<string>
+    >();
+
 export function mockCoverLetterGeneratorModule() {
     jest.unstable_mockModule('cover-letter-generator', () => ({
         segmentCoverLetter,
@@ -46,5 +56,6 @@ export function mockCoverLetterGeneratorModule() {
         embedJob,
         getTopXSimilarCoverLetters,
         generateCoverLetter,
+        reviseCoverLetterText,
     }));
 }

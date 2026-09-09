@@ -1,0 +1,19 @@
+$kind: http-request
+name: text
+url: http://localhost:3000/cover-letters/revise/text
+method: POST
+body:
+  type: json
+  content: >-
+    {
+        "selectedText": "I am very interested in this role.",
+        "instruction": "Make this more specific and confident.",
+        "coverLetterText": "Dear Hiring Manager,\n\nI am very interested in this role.\n\nKind regards",
+        "job": {
+            "title": "Software Engineer",
+            "company": "Example Company",
+            "location": "Berlin",
+            "description": "Build reliable TypeScript services."
+        }
+    }
+order: 1780935958188

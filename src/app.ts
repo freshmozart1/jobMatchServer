@@ -11,6 +11,7 @@ import { scrapeJob } from '#scrapers/linkedin/scrapeJob.js';
 import createJobInDatabase from '#database/createJobInDatabase.js';
 import uploadCoverLetterAsText from '#database/uploadCoverLetterAsText.js';
 import generateCoverLetterAsText from './coverLetters/generateCoverLettersAsText.js';
+import reviseCoverLetterAsText from './coverLetters/reviseCoverLetterAsText.js';
 import countTokens from './tokens/calculateTokens.js';
 import uploadCV from '#database/uploadCV.js';
 import getCV from '#database/getCV.js';
@@ -86,6 +87,8 @@ app.post(
 );
 
 app.post('/cover-letters/create/text', generateCoverLetterAsText);
+
+app.post('/cover-letters/revise/text', reviseCoverLetterAsText);
 
 app.post('/tokens/count', countTokens);
 
