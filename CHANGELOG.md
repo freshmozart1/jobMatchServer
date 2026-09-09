@@ -2,6 +2,17 @@
 
 All notable changes to this project are documented in this file.
 
+## v5.1.1
+
+### Fixed
+
+- Upgraded `linkedin-job-scraper` from v0.12.0 to v0.13.0 so duplicate-only
+  LinkedIn pagination batches no longer stop loading before later batches add
+  distinct postings. `runScrape` now traverses every loaded distinct posting
+  exactly once with unique loading/found totals and contiguous logical job
+  indices. The existing SSE contract, pre-click stored-ID filter, and final
+  MongoDB `duplicateKey` guard are unchanged (closes #131).
+
 ## v5.1.0
 
 ### Added
