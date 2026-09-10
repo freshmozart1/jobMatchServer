@@ -32,9 +32,11 @@ All notable changes to this project are documented in this file.
   server configures no client-side encryption, so that path is not expected in
   practice. New tests pin that embedding settles before `connect()` and that
   the client closes after either write, that a failed segmentation or embedding
-  call answers `500` without connecting, and that a rejected connect, insert,
-  or upsert answers `500` with exactly one close. The suite now silences
-  `console.error` with a spy restored after each test.
+  call answers `500` without connecting, that a rejected connect, insert, or
+  upsert answers `500` with exactly one close, and — as v5.1.5 does for the
+  create route — that a `close()` rejection after the write answers `500`
+  rather than `201`. The suite now silences `console.error` with a spy restored
+  after each test.
 
 ## v5.1.6
 

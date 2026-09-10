@@ -122,6 +122,7 @@ describe('uploadCoverLetterAsText', () => {
     jest.spyOn(console, 'error').mockImplementation(() => {});
 
     connect.mockResolvedValue();
+    close.mockResolvedValue();
     insertOne.mockResolvedValue({ insertedId: insertedCoverLetterId });
     findOneAndReplace.mockResolvedValue({ _id: upsertedCoverLetterId });
     segmentCoverLetter.mockResolvedValue({
@@ -283,4 +284,23 @@ describe('uploadCoverLetterAsText', () => {
       expect(close).toHaveBeenCalledTimes(1);
     },
   );
+
+  it('returns 500 when closing the client fails after the write', async () => {
+    const error = new Error('close failed');
+    close.mockRejectedValue(error);
+    const request = createRequest(insertBody);
+    const { response, status, json } = createResponse();
+
+    await uploadCoverLetterAsText(request, response);
+
+    expect(insertOne).toHaveBeenCalledTimes(1);
+    expect(status).toHaveBeenCalledTimes(1);
+    expect(status).toHaveBeenCalledWith(500);
+    expect(json).toHaveBeenCalledWith(uploadFailedResponse);
+    expect(console.error).toHaveBeenCalledWith(
+      'An error occurred while uploading the cover letter',
+      error,
+    );
+    expect(close).toHaveBeenCalledTimes(1);
+  });
 });
