@@ -1,6 +1,6 @@
 import type { ScrapedJob, StoredCoverLetter } from '#types';
 import type { Request, Response } from 'express';
-import { MongoClient } from 'mongodb';
+import { MongoClient, type WithId } from 'mongodb';
 import {
     embedJob,
     generateCoverLetter,
@@ -55,6 +55,21 @@ export function isValidGenerateCoverLetterAsTextRequestBody(
     );
 }
 
+// Scoped to the one read the client serves, so the connection is released
+// before the embedding and generation round trips instead of idling (#136).
+async function findStoredCoverLetters(
+    client: MongoClient,
+): Promise<WithId<StoredCoverLetter>[]> {
+    try {
+        await client.connect();
+        return await getCollection<StoredCoverLetter>(client, 'coverLetters')
+            .find()
+            .toArray();
+    } finally {
+        await client.close();
+    }
+}
+
 export default async function generateCoverLetterAsText(
     req: Request<object, object, GenerateCoverLetterAsTextRequestBody>,
     res: Response,
@@ -76,13 +91,7 @@ export default async function generateCoverLetterAsText(
     const client = new MongoClient(MONGODB_CONNECTION!);
 
     try {
-        await client.connect();
-        const storedCoverLetters = await getCollection<StoredCoverLetter>(
-            client,
-            'coverLetters',
-        )
-            .find()
-            .toArray();
+        const storedCoverLetters = await findStoredCoverLetters(client);
 
         const packageCoverLetters = storedCoverLetters.map(
             toGeneratorCoverLetter,
@@ -116,7 +125,5 @@ export default async function generateCoverLetterAsText(
         });
     } catch (error) {
         createErrorMessage(res, error, 'Error generating cover letter', 500);
-    } finally {
-        await client.close();
     }
 }

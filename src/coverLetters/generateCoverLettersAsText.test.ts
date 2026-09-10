@@ -313,4 +313,93 @@ describe('generateCoverLetterAsText', () => {
         expect(connect).not.toHaveBeenCalled();
         expect(embedJob).not.toHaveBeenCalled();
     });
+
+    it('closes the client after reading stored cover letters and before the LLM round trips', async () => {
+        const request = createRequest<ScrapedJob & { x?: number }>({
+            body: createJob<ScrapedJob & { x?: number }>(),
+        });
+        const { response, status } = createResponse();
+        // invocationCallOrder is shared across every mock, so comparing first
+        // calls shows the order the handler ran them in (NaN if never called).
+        const firstCall = ({
+            mock,
+        }: {
+            mock: { invocationCallOrder: number[] };
+        }): number => mock.invocationCallOrder[0] ?? Number.NaN;
+
+        await generateCoverLetterAsText(request, response);
+
+        expect(status).toHaveBeenCalledWith(200);
+        expect(close).toHaveBeenCalledTimes(1);
+        expect(firstCall(toArray)).toBeLessThan(firstCall(close));
+        expect(firstCall(close)).toBeLessThan(firstCall(embedJob));
+        expect(firstCall(embedJob)).toBeLessThan(
+            firstCall(generateCoverLetter),
+        );
+    });
+
+    it('returns 500 and closes the client when connecting fails', async () => {
+        jest.spyOn(console, 'error').mockImplementation(() => {});
+        connect.mockRejectedValue(new Error('connect failed'));
+        const request = createRequest<ScrapedJob & { x?: number }>({
+            body: createJob<ScrapedJob & { x?: number }>(),
+        });
+        const { response, status, json } = createResponse();
+
+        await generateCoverLetterAsText(request, response);
+
+        expect(status).toHaveBeenCalledWith(500);
+        expect(json).toHaveBeenCalledWith({
+            message: 'Error generating cover letter',
+            error: 'connect failed',
+        });
+        expect(close).toHaveBeenCalledTimes(1);
+        expect(find).not.toHaveBeenCalled();
+        expect(embedJob).not.toHaveBeenCalled();
+    });
+
+    it('returns 500 and closes the client when reading stored cover letters fails', async () => {
+        jest.spyOn(console, 'error').mockImplementation(() => {});
+        toArray.mockRejectedValue(new Error('read failed'));
+        const request = createRequest<ScrapedJob & { x?: number }>({
+            body: createJob<ScrapedJob & { x?: number }>(),
+        });
+        const { response, status, json } = createResponse();
+
+        await generateCoverLetterAsText(request, response);
+
+        expect(status).toHaveBeenCalledWith(500);
+        expect(json).toHaveBeenCalledWith({
+            message: 'Error generating cover letter',
+            error: 'read failed',
+        });
+        expect(close).toHaveBeenCalledTimes(1);
+        expect(embedJob).not.toHaveBeenCalled();
+    });
+
+    it.each([
+        { name: 'embedJob', providerCall: embedJob },
+        { name: 'generateCoverLetter', providerCall: generateCoverLetter },
+    ])(
+        'returns 500 with the provider error and closes the client once when $name fails',
+        async ({ providerCall }) => {
+            jest.spyOn(console, 'error').mockImplementation(() => {});
+            providerCall.mockRejectedValue(
+                new Error('Provider response was incomplete'),
+            );
+            const request = createRequest<ScrapedJob & { x?: number }>({
+                body: createJob<ScrapedJob & { x?: number }>(),
+            });
+            const { response, status, json } = createResponse();
+
+            await generateCoverLetterAsText(request, response);
+
+            expect(status).toHaveBeenCalledWith(500);
+            expect(json).toHaveBeenCalledWith({
+                message: 'Error generating cover letter',
+                error: 'Provider response was incomplete',
+            });
+            expect(close).toHaveBeenCalledTimes(1);
+        },
+    );
 });
