@@ -32,25 +32,26 @@ function isValidDatePosted(
     );
 }
 
-// `location` is deliberately optional (#143), unlike every other field here:
+// Unlike every other field here, `location` is deliberately optional (#143):
 // linkedin-job-scraper declares it as `location?: string` and its `buildSearchUrl` simply
 // omits the query param when the field is `undefined`, while the jobMatch UI labels the
-// field "Location (optional)" and sends `''` when it is blank. Absent, `undefined`, and
-// blank-after-trim all mean "no location", and the key is left off the result entirely so
-// the caller can spread it straight into the scraper's search params. A non-string,
-// non-`undefined` location is still rejected, so garbage keeps producing a 400 rather than
-// being silently coerced away.
+// field "Location (optional)" and sends `''` when it is blank. So absent and `undefined`
+// are both accepted — but anything else that isn't a string is still rejected, keeping the
+// 400 for garbage input rather than silently coercing it away.
+function isValidLocation(location: unknown): location is string | undefined {
+    return location === undefined || typeof location === 'string';
+}
+
+// Absent, `undefined`, and blank-after-trim all mean "no location", and the key is then
+// left off the result entirely rather than set to `''`, so the caller can spread it
+// straight into the scraper's search params and have the query param omitted.
 function getValidatedKeywordsAndLocation(body: {
     keywords: unknown;
     location?: unknown;
 }): { keywords: string[]; location?: string } | null {
     const trimmedKeywords = getTrimmedUniqueKeywords(body.keywords);
 
-    if (!trimmedKeywords) {
-        return null;
-    }
-
-    if (body.location !== undefined && typeof body.location !== 'string') {
+    if (!trimmedKeywords || !isValidLocation(body.location)) {
         return null;
     }
 
