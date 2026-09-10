@@ -114,6 +114,11 @@ describe('getGeneratorCoverLetterTextSegments', () => {
 
 describe('shared cover-letter-generator mock', () => {
     it('mirrors the real package COVER_LETTER_SEGMENT_NAMES in the same order', () => {
+        // Distinct instances prove this suite compares against the real
+        // package rather than the mock's own array.
+        expect(MOCK_COVER_LETTER_SEGMENT_NAMES).not.toBe(
+            COVER_LETTER_SEGMENT_NAMES,
+        );
         expect(MOCK_COVER_LETTER_SEGMENT_NAMES).toEqual(
             COVER_LETTER_SEGMENT_NAMES,
         );

@@ -35,7 +35,7 @@ const {
     default: generateCoverLetterAsText,
     isValidGenerateCoverLetterAsTextRequestBody,
 } = await import('./generateCoverLettersAsText.js');
-const { getGeneratorCoverLetterTextSegments, reconstructCoverLetterText } =
+const { getGeneratorCoverLetterTextSegments } =
     await import('./coverLetterAdapters.js');
 
 const validBase = {
@@ -270,9 +270,8 @@ describe('generateCoverLetterAsText', () => {
         );
         expect(status).toHaveBeenCalledWith(200);
         expect(json).toHaveBeenCalledWith({
-            coverLetter: reconstructCoverLetterText(
-                getGeneratorCoverLetterTextSegments(generatedCoverLetter),
-            ),
+            coverLetter:
+                'Generated subject\n\nDear Hiring Manager,\n\nGenerated introduction\n\nGenerated main body\n\nGenerated conclusion\n\nBest regards\nOle',
         });
         expect(connect).toHaveBeenCalledTimes(1);
         expect(close).toHaveBeenCalledTimes(1);
