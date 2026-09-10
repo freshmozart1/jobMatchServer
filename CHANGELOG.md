@@ -2,6 +2,33 @@
 
 All notable changes to this project are documented in this file.
 
+## v5.1.5
+
+### Changed
+
+- The shared `cover-letter-generator` Jest mock factory,
+  `src/testMockModules/coverLetterGenerator.test.ts`, now also exports
+  `COVER_LETTER_SEGMENT_NAMES` — the package's only runtime value export besides
+  its six functions. `jest.unstable_mockModule` replaces the whole module, and
+  `coverLetterAdapters.ts` imports that constant, so a test that registered the
+  mock and then loaded the adapters with a dynamic `await import(...)` — the
+  ordering CLAUDE.md prescribes — failed to link with a `SyntaxError` saying the
+  module does not provide an export named `COVER_LETTER_SEGMENT_NAMES`.
+  `generateCoverLettersAsText.test.ts`, the only suite using the adapters under
+  the mock, passed by accident: it imported them statically, before the mock was
+  registered. It now imports them dynamically after the mocks, and asserts the
+  generated letter as a literal string instead of recomputing it with the
+  handler's own helpers. To keep the mock from drifting again, its returned
+  object is checked with `satisfies` against
+  `Record<Exclude<keyof typeof CoverLetterGenerator, 'default'>, unknown>`, so
+  `npm run build` fails when a package upgrade adds or removes a value export
+  the mock doesn't mirror; and a new test in `coverLetterAdapters.test.ts`, run
+  against the real package, checks that the mock's hand-copied array equals the
+  real one in contents and order, which the package's widened
+  `CoverLetterSegmentName[]` type cannot. Test infrastructure only: no runtime
+  behavior, endpoint, request/response shape, or stored document changed (#152)
+  (closes #138).
+
 ## v5.1.4
 
 ### Fixed
