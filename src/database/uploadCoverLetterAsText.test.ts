@@ -1,4 +1,11 @@
-import { beforeEach, describe, expect, it, jest } from '@jest/globals';
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  jest,
+} from '@jest/globals';
 import type { Request } from 'express';
 import type { StoredCoverLetter, CoverLetterAsTextRequestBody } from '#types';
 import type { CoverLetter, CoverLetterSegments } from 'cover-letter-generator';
@@ -6,7 +13,11 @@ import {
   mockLocalDatabaseModule,
   getCollection,
 } from '../testMockModules/localDatabase.test.js';
-import { mockMongoDbModule, connect } from '../testMockModules/mongodb.test.js';
+import {
+  mockMongoDbModule,
+  connect,
+  close,
+} from '../testMockModules/mongodb.test.js';
 import {
   mockCoverLetterGeneratorModule,
   segmentCoverLetter,
@@ -69,6 +80,18 @@ const invalidRequestBodyError = {
   message: 'An error occurred while uploading the cover letter',
 };
 
+const insertBody = {
+  coverLetterText:
+    'Dear Hiring Manager,\n\nI am excited to apply.\n\nBest regards\nOle',
+};
+const upsertBody = { ...insertBody, jobDuplicateKey: 'job-key-1' };
+
+// Only the message is pinned: the raw error still echoed in `error` is slated
+// to be sanitized (#155).
+const uploadFailedResponse = expect.objectContaining({
+  message: 'An error occurred while uploading the cover letter',
+});
+
 mockMongoDbModule();
 mockLocalDatabaseModule();
 mockCoverLetterGeneratorModule();
@@ -83,9 +106,20 @@ function createRequest(
   return { body } as Request<object, object, CoverLetterAsTextRequestBody>;
 }
 
+// invocationCallOrder is one counter shared by every mock, so comparing first
+// calls shows the order the handler ran them in (NaN if never called).
+function firstCall({
+  mock,
+}: {
+  mock: { invocationCallOrder: number[] };
+}): number {
+  return mock.invocationCallOrder[0] ?? Number.NaN;
+}
+
 describe('uploadCoverLetterAsText', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    jest.spyOn(console, 'error').mockImplementation(() => {});
 
     connect.mockResolvedValue();
     insertOne.mockResolvedValue({ insertedId: insertedCoverLetterId });
@@ -93,6 +127,10 @@ describe('uploadCoverLetterAsText', () => {
     segmentCoverLetter.mockResolvedValue({ segments });
     embedCoverLetterSegments.mockResolvedValue(coverLetterFromPackage);
     getCollection.mockReturnValue({ insertOne, findOneAndReplace });
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
   });
 
   it('segments, embeds, stores the cover letter, and responds with the inserted id', async () => {
@@ -172,4 +210,73 @@ describe('uploadCoverLetterAsText', () => {
     expect(findOneAndReplace).not.toHaveBeenCalled();
     expect(connect).not.toHaveBeenCalled();
   });
+
+  it.each([
+    { name: 'insertOne', body: insertBody, write: insertOne },
+    { name: 'findOneAndReplace', body: upsertBody, write: findOneAndReplace },
+  ])(
+    'finishes segmenting and embedding before connecting, and closes the client after $name',
+    async ({ body, write }) => {
+      const embeddingSettled = jest.fn();
+      embedCoverLetterSegments.mockImplementation(async () => {
+        // Settle on a later event-loop turn, so a handler that connected
+        // alongside the model calls would reach connect() before this marker.
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        embeddingSettled();
+        return coverLetterFromPackage;
+      });
+      const request = createRequest(body);
+      const { response, status } = createResponse();
+
+      await uploadCoverLetterAsText(request, response);
+
+      expect(status).toHaveBeenCalledWith(201);
+      // Embedding consumes segmentation's result, so it settling before
+      // connect() bounds both model round trips.
+      expect(firstCall(embeddingSettled)).toBeLessThan(firstCall(connect));
+      expect(firstCall(connect)).toBeLessThan(firstCall(write));
+      expect(firstCall(write)).toBeLessThan(firstCall(close));
+      expect(close).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it.each([
+    { name: 'segmentCoverLetter', modelCall: segmentCoverLetter },
+    { name: 'embedCoverLetterSegments', modelCall: embedCoverLetterSegments },
+  ])(
+    'returns 500 without connecting when $name rejects',
+    async ({ name, modelCall }) => {
+      modelCall.mockRejectedValue(new Error(`${name} failed`));
+      const request = createRequest(insertBody);
+      const { response, status, json } = createResponse();
+
+      await uploadCoverLetterAsText(request, response);
+
+      expect(status).toHaveBeenCalledTimes(1);
+      expect(status).toHaveBeenCalledWith(500);
+      expect(json).toHaveBeenCalledWith(uploadFailedResponse);
+      expect(connect).not.toHaveBeenCalled();
+      expect(insertOne).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    { name: 'connect', body: insertBody, dbCall: connect },
+    { name: 'insertOne', body: insertBody, dbCall: insertOne },
+    { name: 'findOneAndReplace', body: upsertBody, dbCall: findOneAndReplace },
+  ])(
+    'returns 500 and closes the client exactly once when $name rejects',
+    async ({ name, body, dbCall }) => {
+      dbCall.mockRejectedValue(new Error(`${name} failed`));
+      const request = createRequest(body);
+      const { response, status, json } = createResponse();
+
+      await uploadCoverLetterAsText(request, response);
+
+      expect(status).toHaveBeenCalledTimes(1);
+      expect(status).toHaveBeenCalledWith(500);
+      expect(json).toHaveBeenCalledWith(uploadFailedResponse);
+      expect(close).toHaveBeenCalledTimes(1);
+    },
+  );
 });
