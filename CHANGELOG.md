@@ -2,6 +2,37 @@
 
 All notable changes to this project are documented in this file.
 
+## v5.1.6
+
+### Changed
+
+- The shared `cover-letter-generator` Jest mock factory,
+  `src/testMockModules/coverLetterGenerator.test.ts`, now also exports
+  `COVER_LETTER_SEGMENT_NAMES` — the package's only runtime value export besides
+  its six functions. `jest.unstable_mockModule` replaces the whole module, and
+  `coverLetterAdapters.ts` imports that constant, so a test that registered the
+  mock and then loaded the adapters with a dynamic `await import(...)` — the
+  ordering CLAUDE.md prescribes — failed to link with a `SyntaxError` saying the
+  module does not provide an export named `COVER_LETTER_SEGMENT_NAMES`.
+  `generateCoverLettersAsText.test.ts`, the only suite using the adapters under
+  the mock, passed by accident: it imported them statically, before the mock was
+  registered. It now imports them dynamically after the mocks, and asserts the
+  generated letter as a literal string instead of recomputing it with the
+  handler's own helpers. To keep the mock from drifting again, each mocked
+  function is typed from the package's own signature
+  (`jest.fn<typeof CoverLetterGenerator.segmentCoverLetter>()` and so on) and
+  the factory's returned object
+  `satisfies Omit<typeof CoverLetterGenerator, 'default'>`, so `npm run build`
+  fails when a package upgrade adds or removes a value export or changes one's
+  parameter or return type. That also removed the mock's hand-copied signatures
+  and made `uploadCoverLetterAsText.test.ts` resolve `segmentCoverLetter` with
+  the `confidence` and `source` a `SegmentationResult` requires (#156). A new
+  test in `coverLetterAdapters.test.ts`, run against the real package, checks
+  that the mock's hand-copied array equals the real one in contents and order,
+  which the package's widened `CoverLetterSegmentName[]` type cannot. Test
+  infrastructure only: no runtime behavior, endpoint, request/response shape, or
+  stored document changed (#152) (closes #138).
+
 ## v5.1.5
 
 ### Changed

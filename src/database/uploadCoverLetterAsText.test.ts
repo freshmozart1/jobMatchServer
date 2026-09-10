@@ -90,7 +90,11 @@ describe('uploadCoverLetterAsText', () => {
     connect.mockResolvedValue();
     insertOne.mockResolvedValue({ insertedId: insertedCoverLetterId });
     findOneAndReplace.mockResolvedValue({ _id: upsertedCoverLetterId });
-    segmentCoverLetter.mockResolvedValue({ segments });
+    segmentCoverLetter.mockResolvedValue({
+      segments,
+      confidence: 0.95,
+      source: 'heuristic',
+    });
     embedCoverLetterSegments.mockResolvedValue(coverLetterFromPackage);
     getCollection.mockReturnValue({ insertOne, findOneAndReplace });
   });

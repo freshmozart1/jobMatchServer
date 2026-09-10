@@ -29,22 +29,21 @@ import {
 import createResponse from '../testHelpers/createResponse.test.js';
 import createRequest from '../testHelpers/createRequest.test.js';
 import { createJob } from '../testHelpers/createJob.test.js';
-import {
-    getGeneratorCoverLetterTextSegments,
-    reconstructCoverLetterText,
-} from './coverLetterAdapters.js';
 
 mockMongoDbModule();
 mockLocalDatabaseModule();
 mockCoverLetterGeneratorModule();
 
-// The module under test is imported after the mocks to ensure the mocks are
-// used - it statically imports 'cover-letter-generator' at module scope, so
-// that mock must be registered before this import runs.
+// The module under test and the adapters are imported after the mocks to
+// ensure the mocks are used - both statically import 'cover-letter-generator'
+// at module scope (the adapters import its COVER_LETTER_SEGMENT_NAMES value),
+// so that mock must be registered before these imports run.
 const {
     default: generateCoverLetterAsText,
     isValidGenerateCoverLetterAsTextRequestBody,
 } = await import('./generateCoverLettersAsText.js');
+const { getGeneratorCoverLetterTextSegments } =
+    await import('./coverLetterAdapters.js');
 
 const validBase = {
     sourceHostname: 'www.linkedin.com',
@@ -283,9 +282,8 @@ describe('generateCoverLetterAsText', () => {
         );
         expect(status).toHaveBeenCalledWith(200);
         expect(json).toHaveBeenCalledWith({
-            coverLetter: reconstructCoverLetterText(
-                getGeneratorCoverLetterTextSegments(generatedCoverLetter),
-            ),
+            coverLetter:
+                'Generated subject\n\nDear Hiring Manager,\n\nGenerated introduction\n\nGenerated main body\n\nGenerated conclusion\n\nBest regards\nOle',
         });
         expect(connect).toHaveBeenCalledTimes(1);
         expect(close).toHaveBeenCalledTimes(1);
