@@ -2,6 +2,30 @@
 
 All notable changes to this project are documented in this file.
 
+## v5.1.4
+
+### Changed
+
+- `POST /cover-letters/create/text` no longer holds its `MongoClient` open
+  across the LLM round trips. The handler used to connect, read every stored
+  cover letter, and then keep that idle connection until an outer `finally` ran
+  after `embedJob`, `getTopXSimilarCoverLetters`, and `generateCoverLetter` —
+  and since v5.1.2 moved generation to `gpt-6-astra` at
+  `reasoning.effort: 'high'`, every in-flight request pinned a connection for
+  the whole reasoning-model round trip. The read now runs in a local
+  `findStoredCoverLetters` helper that connects, reads, and closes in its own
+  `finally`, so the connection is released before the first LLM call. The
+  route's request/response shapes, its `200` body, and its `500` handling are
+  unchanged: a failed connect or read still closes the client and answers
+  `500`, and so does a failed embedding, ranking, or generation call, by which
+  point the client has already been closed exactly once. One edge case moves on
+  purpose: if `client.close()` rejects after a successful read, the request now
+  answers `500` before any LLM call, where previously the close only ran after
+  the `200` had already been sent. New tests pin the call order (read, close,
+  embed, generate), the `500` for a rejected connect, read, or close, and the
+  `500` plus a single close when each `cover-letter-generator` call rejects
+  (closes #136).
+
 ## v5.1.3
 
 ### Fixed
