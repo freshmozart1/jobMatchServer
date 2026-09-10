@@ -15,6 +15,25 @@ export function reconstructCoverLetterText(
         .join('\n\n');
 }
 
+function toStoredCoverLetterSegment(
+    segment: CoverLetter[keyof CoverLetter],
+): CoverLetterSegment {
+    return { text: segment.text, embedding: segment.embedding ?? null };
+}
+
+export function toStoredCoverLetter(
+    coverLetter: CoverLetter,
+): Omit<StoredCoverLetter, 'jobDuplicateKey'> {
+    return {
+        subject: toStoredCoverLetterSegment(coverLetter.subject),
+        salutation: toStoredCoverLetterSegment(coverLetter.salutation),
+        introduction: toStoredCoverLetterSegment(coverLetter.introduction),
+        mainBody: toStoredCoverLetterSegment(coverLetter.mainBody),
+        conclusion: toStoredCoverLetterSegment(coverLetter.conclusion),
+        greetings: toStoredCoverLetterSegment(coverLetter.greetings),
+    };
+}
+
 function toGeneratorCoverLetterSegment(
     segment: CoverLetterSegment,
 ): CoverLetter[keyof CoverLetter] {
@@ -24,10 +43,9 @@ function toGeneratorCoverLetterSegment(
     };
 }
 
-// The inverse of toStoredCoverLetter/toStoredCoverLetterSegment in
-// src/database/uploadCoverLetterAsText.ts: maps a StoredCoverLetter (this
-// repo's persisted shape, `embedding: TextEmbedding | null`) to the
-// package's CoverLetter (`embedding?: TextEmbedding`).
+// The inverse of toStoredCoverLetter: maps a StoredCoverLetter (this repo's
+// persisted shape, `embedding: TextEmbedding | null`) to the package's
+// CoverLetter (`embedding?: TextEmbedding`).
 export function toGeneratorCoverLetter(
     coverLetter: StoredCoverLetter,
 ): CoverLetter {

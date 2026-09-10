@@ -11,6 +11,7 @@ import {
     getGeneratorCoverLetterTextSegments,
     reconstructCoverLetterText,
     toGeneratorCoverLetter,
+    toStoredCoverLetter,
 } from './coverLetterAdapters.js';
 import {
     connectionStringConfigured,
@@ -77,10 +78,11 @@ export default async function generateCoverLetterAsText(
 
     try {
         await client.connect();
-        const storedCoverLetters = await getCollection<StoredCoverLetter>(
+        const coverLettersCollection = getCollection<StoredCoverLetter>(
             client,
             'coverLetters',
-        )
+        );
+        const storedCoverLetters = await coverLettersCollection
             .find()
             .toArray();
 
@@ -108,11 +110,21 @@ export default async function generateCoverLetterAsText(
         );
 
         const generated = await generateCoverLetter(job, exampleSegments);
+        const savedCoverLetter = await coverLettersCollection.findOneAndReplace(
+            { jobDuplicateKey: jobData.duplicateKey },
+            {
+                ...toStoredCoverLetter(generated),
+                jobDuplicateKey: jobData.duplicateKey,
+            },
+            { upsert: true, returnDocument: 'after' },
+        );
 
         res.status(200).json({
             coverLetter: reconstructCoverLetterText(
                 getGeneratorCoverLetterTextSegments(generated),
             ),
+            saved: true,
+            coverLetterId: savedCoverLetter?._id,
         });
     } catch (error) {
         createErrorMessage(res, error, 'Error generating cover letter', 500);

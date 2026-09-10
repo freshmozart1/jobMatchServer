@@ -14,6 +14,15 @@ type CoverLetterSimilarityMatch = {
     similarity: number;
 };
 
+export const COVER_LETTER_SEGMENT_NAMES = [
+    'subject',
+    'salutation',
+    'introduction',
+    'mainBody',
+    'conclusion',
+    'greetings',
+] as const;
+
 export const segmentCoverLetter =
     jest.fn<(input: string) => Promise<{ segments: CoverLetterSegments }>>();
 
@@ -51,6 +60,7 @@ export const reviseCoverLetterText =
 
 export function mockCoverLetterGeneratorModule() {
     jest.unstable_mockModule('cover-letter-generator', () => ({
+        COVER_LETTER_SEGMENT_NAMES,
         segmentCoverLetter,
         embedCoverLetterSegments,
         embedJob,

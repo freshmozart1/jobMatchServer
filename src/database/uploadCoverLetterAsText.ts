@@ -2,7 +2,6 @@ import type { Request, Response } from 'express';
 import {
   segmentCoverLetter,
   embedCoverLetterSegments,
-  type CoverLetter,
 } from 'cover-letter-generator';
 import { MongoClient } from 'mongodb';
 import {
@@ -10,27 +9,9 @@ import {
   getCollection,
   MONGODB_CONNECTION,
 } from './database.js';
-import type { CoverLetterSegment, StoredCoverLetter } from '#types';
+import type { StoredCoverLetter } from '#types';
 import { createErrorMessage } from '../errors/createErrorMessage.js';
-
-function toStoredCoverLetterSegment(
-  segment: CoverLetter[keyof CoverLetter],
-): CoverLetterSegment {
-  return { text: segment.text, embedding: segment.embedding ?? null };
-}
-
-function toStoredCoverLetter(
-  coverLetter: CoverLetter,
-): Omit<StoredCoverLetter, 'jobDuplicateKey'> {
-  return {
-    subject: toStoredCoverLetterSegment(coverLetter.subject),
-    salutation: toStoredCoverLetterSegment(coverLetter.salutation),
-    introduction: toStoredCoverLetterSegment(coverLetter.introduction),
-    mainBody: toStoredCoverLetterSegment(coverLetter.mainBody),
-    conclusion: toStoredCoverLetterSegment(coverLetter.conclusion),
-    greetings: toStoredCoverLetterSegment(coverLetter.greetings),
-  };
-}
+import { toStoredCoverLetter } from '../coverLetters/coverLetterAdapters.js';
 
 type CoverLetterAsTextRequestBody = {
   coverLetterText: string;

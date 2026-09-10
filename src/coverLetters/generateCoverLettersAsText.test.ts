@@ -18,6 +18,7 @@ import {
     embedJob,
     getTopXSimilarCoverLetters,
     generateCoverLetter,
+    segmentCoverLetter,
 } from '../testMockModules/coverLetterGenerator.test.js';
 import createResponse from '../testHelpers/createResponse.test.js';
 import createRequest from '../testHelpers/createRequest.test.js';
@@ -177,6 +178,13 @@ describe('isValidGenerateCoverLetterAsTextRequestBody', () => {
 
 const find = createFind<WithId<StoredCoverLetter>>();
 const toArray = createToArray<WithId<StoredCoverLetter>>();
+const findOneAndReplace = jest.fn<
+    (
+        filter: { jobDuplicateKey: string },
+        replacement: StoredCoverLetter,
+        options: { upsert: boolean; returnDocument: string },
+    ) => Promise<{ _id: string } | null>
+>();
 
 const storedCoverLetter: WithId<StoredCoverLetter> = {
     _id: {
@@ -215,15 +223,25 @@ const matchedCoverLetter = {
 } satisfies CoverLetter;
 
 const generatedCoverLetter = {
-    subject: { text: 'Generated subject' },
-    salutation: { text: 'Dear Hiring Manager,' },
-    introduction: { text: 'Generated introduction' },
-    mainBody: { text: 'Generated main body' },
-    conclusion: { text: 'Generated conclusion' },
-    greetings: { text: 'Best regards\nOle' },
+    subject: { text: 'Generated subject', embedding: [1.1] },
+    salutation: { text: 'Dear Hiring Manager,', embedding: [1.2] },
+    introduction: { text: 'Generated introduction', embedding: [1.3] },
+    mainBody: { text: 'Generated main body', embedding: [1.4] },
+    conclusion: { text: 'Generated conclusion', embedding: [1.5] },
+    greetings: { text: 'Best regards\nOle', embedding: [1.6] },
 } satisfies CoverLetter;
 
+const storedGeneratedCoverLetter = {
+    subject: { text: 'Generated subject', embedding: [1.1] },
+    salutation: { text: 'Dear Hiring Manager,', embedding: [1.2] },
+    introduction: { text: 'Generated introduction', embedding: [1.3] },
+    mainBody: { text: 'Generated main body', embedding: [1.4] },
+    conclusion: { text: 'Generated conclusion', embedding: [1.5] },
+    greetings: { text: 'Best regards\nOle', embedding: [1.6] },
+} satisfies StoredCoverLetter;
+
 const jobEmbedding = [0.7, 0.8, 0.9];
+const savedCoverLetterId = 'saved-cover-letter-id';
 
 describe('generateCoverLetterAsText', () => {
     beforeEach(() => {
@@ -231,9 +249,10 @@ describe('generateCoverLetterAsText', () => {
 
         connect.mockResolvedValue();
         close.mockResolvedValue();
-        getCollection.mockReturnValue({ find });
+        getCollection.mockReturnValue({ find, findOneAndReplace });
         toArray.mockResolvedValue([storedCoverLetter]);
         find.mockReturnValue({ toArray });
+        findOneAndReplace.mockResolvedValue({ _id: savedCoverLetterId });
         embedJob.mockResolvedValue(jobEmbedding);
         getTopXSimilarCoverLetters.mockResolvedValue([
             { coverLetter: matchedCoverLetter, similarity: 0.9 },
@@ -241,7 +260,7 @@ describe('generateCoverLetterAsText', () => {
         generateCoverLetter.mockResolvedValue(generatedCoverLetter);
     });
 
-    it('ranks stored cover letters against the job and returns the generated cover letter text', async () => {
+    it('ranks stored cover letters, persists the generated segments, and returns saved-state metadata', async () => {
         const request = createRequest<ScrapedJob & { x?: number }>({
             body: { ...createJob<ScrapedJob>(), x: 2 },
         });
@@ -269,11 +288,22 @@ describe('generateCoverLetterAsText', () => {
             },
             [getGeneratorCoverLetterTextSegments(matchedCoverLetter)],
         );
+        expect(findOneAndReplace).toHaveBeenCalledWith(
+            { jobDuplicateKey: 'linkedin:123456789' },
+            {
+                ...storedGeneratedCoverLetter,
+                jobDuplicateKey: 'linkedin:123456789',
+            },
+            { upsert: true, returnDocument: 'after' },
+        );
+        expect(segmentCoverLetter).not.toHaveBeenCalled();
         expect(status).toHaveBeenCalledWith(200);
         expect(json).toHaveBeenCalledWith({
             coverLetter: reconstructCoverLetterText(
                 getGeneratorCoverLetterTextSegments(generatedCoverLetter),
             ),
+            saved: true,
+            coverLetterId: savedCoverLetterId,
         });
         expect(connect).toHaveBeenCalledTimes(1);
         expect(close).toHaveBeenCalledTimes(1);
@@ -312,5 +342,27 @@ describe('generateCoverLetterAsText', () => {
         });
         expect(connect).not.toHaveBeenCalled();
         expect(embedJob).not.toHaveBeenCalled();
+    });
+
+    it('returns 500 and closes MongoDB when saving the generated cover letter fails', async () => {
+        const saveError = new Error('save failed');
+        findOneAndReplace.mockRejectedValue(saveError);
+        const consoleError = jest
+            .spyOn(console, 'error')
+            .mockImplementation(() => undefined);
+        const request = createRequest<ScrapedJob & { x?: number }>({
+            body: createJob<ScrapedJob & { x?: number }>(),
+        });
+        const { response, status, json } = createResponse();
+
+        await generateCoverLetterAsText(request, response);
+
+        expect(status).toHaveBeenCalledWith(500);
+        expect(json).toHaveBeenCalledWith({
+            message: 'Error generating cover letter',
+            error: 'save failed',
+        });
+        expect(close).toHaveBeenCalledTimes(1);
+        consoleError.mockRestore();
     });
 });
