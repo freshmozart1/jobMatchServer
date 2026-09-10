@@ -4,6 +4,7 @@ import type {
     CoverLetterSegments,
     Job,
 } from 'cover-letter-generator';
+import type * as CoverLetterGenerator from 'cover-letter-generator';
 import type { TextEmbedding } from '#types';
 
 // 'cover-letter-generator' doesn't export CoverLetterSimilarityMatch from
@@ -49,13 +50,38 @@ export const reviseCoverLetterText =
         }) => Promise<string>
     >();
 
+// The real value, in the real order the adapters depend on, copied by hand:
+// loading it from the package's index would construct an OpenAI client at
+// import time, and its dist/ internals are off-limits as noted above.
+// coverLetterAdapters.test.ts checks it against the real value at runtime.
+export const COVER_LETTER_SEGMENT_NAMES: typeof CoverLetterGenerator.COVER_LETTER_SEGMENT_NAMES =
+    [
+        'subject',
+        'salutation',
+        'introduction',
+        'mainBody',
+        'conclusion',
+        'greetings',
+    ];
+
 export function mockCoverLetterGeneratorModule() {
-    jest.unstable_mockModule('cover-letter-generator', () => ({
-        segmentCoverLetter,
-        embedCoverLetterSegments,
-        embedJob,
-        getTopXSimilarCoverLetters,
-        generateCoverLetter,
-        reviseCoverLetterText,
-    }));
+    // Build fails if these keys drift from the package's runtime value exports.
+    // 'default' is the module.exports nodenext synthesizes for this CommonJS
+    // package; nothing imports it that way, so the mock doesn't provide it.
+    jest.unstable_mockModule(
+        'cover-letter-generator',
+        () =>
+            ({
+                segmentCoverLetter,
+                embedCoverLetterSegments,
+                embedJob,
+                getTopXSimilarCoverLetters,
+                generateCoverLetter,
+                reviseCoverLetterText,
+                COVER_LETTER_SEGMENT_NAMES,
+            }) satisfies Record<
+                Exclude<keyof typeof CoverLetterGenerator, 'default'>,
+                unknown
+            >,
+    );
 }

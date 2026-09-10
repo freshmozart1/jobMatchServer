@@ -1,6 +1,11 @@
 import { describe, expect, it } from '@jest/globals';
-import type { CoverLetter, CoverLetterSegments } from 'cover-letter-generator';
+import {
+    COVER_LETTER_SEGMENT_NAMES,
+    type CoverLetter,
+    type CoverLetterSegments,
+} from 'cover-letter-generator';
 import type { StoredCoverLetter } from '#types';
+import { COVER_LETTER_SEGMENT_NAMES as MOCK_COVER_LETTER_SEGMENT_NAMES } from '../testMockModules/coverLetterGenerator.test.js';
 import {
     getGeneratorCoverLetterTextSegments,
     reconstructCoverLetterText,
@@ -104,5 +109,13 @@ describe('getGeneratorCoverLetterTextSegments', () => {
             conclusion: 'I look forward to speaking with you.',
             greetings: 'Best regards\nOle',
         });
+    });
+});
+
+describe('shared cover-letter-generator mock', () => {
+    it('mirrors the real package COVER_LETTER_SEGMENT_NAMES in the same order', () => {
+        expect(MOCK_COVER_LETTER_SEGMENT_NAMES).toEqual(
+            COVER_LETTER_SEGMENT_NAMES,
+        );
     });
 });
