@@ -12,6 +12,12 @@
 //   - the try/catch: `String()` throws on a null-prototype object (or anything
 //     else lacking `toString`/`valueOf`), and callers rely on this never
 //     throwing.
+//
+// fallow scores this at 0% estimated coverage because it doesn't treat
+// src/**/*.test.ts as tests (Jest's testMatch targets dist/), so its CRAP
+// finding is a false positive: describeErrorMessage.test.ts covers each
+// fallback. Verified 2026-09.
+// fallow-ignore-next-line complexity
 export function describeErrorMessage(error: unknown, fallback: string): string {
     if (error instanceof Error) {
         return error.message || error.name || fallback;
@@ -25,6 +31,8 @@ export function describeErrorMessage(error: unknown, fallback: string): string {
     }
 }
 
+// Same estimated-coverage false positive as describeErrorMessage above.
+// fallow-ignore-next-line complexity
 function errorLikeMessage(error: unknown): string | undefined {
     try {
         const message = (error as { message?: unknown } | null | undefined)
