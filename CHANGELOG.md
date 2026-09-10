@@ -2,6 +2,40 @@
 
 All notable changes to this project are documented in this file.
 
+## v5.1.5
+
+### Changed
+
+- `POST /cover-letters/upload/text` no longer holds its `MongoClient` open
+  across the model round trips. The handler used to connect first and then keep
+  that idle connection through `segmentCoverLetter` (heuristic, with an LLM
+  fallback) and `embedCoverLetterSegments` (an OpenAI embeddings call) before
+  its only database operation, so every concurrent upload pinned a connection
+  for both calls — the same defect #136 fixes for
+  `POST /cover-letters/create/text`. Segmentation and embedding now finish
+  before the handler connects, and the write runs in a local `storeCoverLetter`
+  helper that connects, upserts by `jobDuplicateKey` or inserts, and closes in
+  its own `finally`. The `201` bodies, the `400` validation, the stored
+  documents, and the `500` answer for a failed segmentation, embedding,
+  connect, or write are unchanged. Three edge cases move on purpose. A failed
+  segmentation or embedding call no longer opens a connection at all. If
+  MongoDB is unreachable, a request now pays for segmentation and embedding
+  before `connect()` fails, where it used to fail first; that is accepted,
+  because `connect()` already waits out server selection
+  (`serverSelectionTimeoutMS`, 30 s by default) during such an outage, while
+  the saving applies to every healthy upload. A malformed connection string
+  still fails before any model call, because the client is still constructed
+  up front and construction throws synchronously. And the `201` is now sent
+  after the client closes, so a `close()` rejection after a successful write
+  would answer `500` instead of escaping the handler after the `201`; driver
+  7.5 squashes `endSessions` failures inside `close()` and this server
+  configures no client-side encryption, so that path is not expected in
+  practice. New tests pin that embedding settles before `connect()` and that
+  the client closes after either write, that a failed segmentation or embedding
+  call answers `500` without connecting, and that a rejected connect, insert,
+  or upsert answers `500` with exactly one close. The suite now silences
+  `console.error` with a spy restored after each test.
+
 ## v5.1.4
 
 ### Fixed
