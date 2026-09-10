@@ -1,4 +1,11 @@
-import { beforeEach, describe, expect, it, jest } from '@jest/globals';
+import {
+    afterEach,
+    beforeEach,
+    describe,
+    expect,
+    it,
+    jest,
+} from '@jest/globals';
 import type { ScrapedJob, StoredCoverLetter } from '#types';
 import type { WithId } from 'mongodb';
 import type { CoverLetter } from 'cover-letter-generator';
@@ -242,6 +249,10 @@ describe('generateCoverLetterAsText', () => {
         generateCoverLetter.mockResolvedValue(generatedCoverLetter);
     });
 
+    afterEach(() => {
+        jest.restoreAllMocks();
+    });
+
     it('ranks stored cover letters against the job and returns the generated cover letter text', async () => {
         const request = createRequest<ScrapedJob & { x?: number }>({
             body: { ...createJob<ScrapedJob>(), x: 2 },
@@ -315,6 +326,57 @@ describe('generateCoverLetterAsText', () => {
         expect(embedJob).not.toHaveBeenCalled();
     });
 
+    it.each([
+        {
+            name: 'connect',
+            reject: (error: Error) => connect.mockRejectedValue(error),
+        },
+        {
+            name: 'find().toArray',
+            reject: (error: Error) => toArray.mockRejectedValue(error),
+        },
+        {
+            name: 'embedJob',
+            reject: (error: Error) => embedJob.mockRejectedValue(error),
+        },
+        {
+            name: 'getTopXSimilarCoverLetters',
+            reject: (error: Error) =>
+                getTopXSimilarCoverLetters.mockRejectedValue(error),
+        },
+        {
+            name: 'generateCoverLetter',
+            reject: (error: Error) =>
+                generateCoverLetter.mockRejectedValue(error),
+        },
+    ])('returns a sanitized 500 when $name rejects', async ({ reject }) => {
+        const sentinel = 'org-secret-135';
+        const error = new Error(
+            `429 You exceeded your current quota (${sentinel}, req_abc123)`,
+        );
+        reject(error);
+        const request = createRequest<ScrapedJob & { x?: number }>({
+            body: createJob<ScrapedJob & { x?: number }>(),
+        });
+        const { response, status, json } = createResponse();
+
+        await generateCoverLetterAsText(request, response);
+
+        expect(status).toHaveBeenCalledTimes(1);
+        expect(status).toHaveBeenCalledWith(500);
+        expect(json).toHaveBeenCalledTimes(1);
+        expect(json).toHaveBeenCalledWith({
+            message: 'Error generating cover letter',
+            error: 'Provider request failed',
+        });
+        expect(JSON.stringify(json.mock.calls)).not.toContain(sentinel);
+        expect(console.error).toHaveBeenCalledWith(
+            'Error generating cover letter',
+            error,
+        );
+        expect(close).toHaveBeenCalledTimes(1);
+    });
+
     it('closes the client after reading stored cover letters and before the LLM round trips', async () => {
         const request = createRequest<ScrapedJob & { x?: number }>({
             body: createJob<ScrapedJob & { x?: number }>(),
@@ -339,45 +401,9 @@ describe('generateCoverLetterAsText', () => {
         );
     });
 
-    it('returns 500 and closes the client when connecting fails', async () => {
-        connect.mockRejectedValue(new Error('connect failed'));
-        const request = createRequest<ScrapedJob & { x?: number }>({
-            body: createJob<ScrapedJob & { x?: number }>(),
-        });
-        const { response, status, json } = createResponse();
-
-        await generateCoverLetterAsText(request, response);
-
-        expect(status).toHaveBeenCalledWith(500);
-        expect(json).toHaveBeenCalledWith({
-            message: 'Error generating cover letter',
-            error: 'connect failed',
-        });
-        expect(close).toHaveBeenCalledTimes(1);
-        expect(find).not.toHaveBeenCalled();
-        expect(embedJob).not.toHaveBeenCalled();
-    });
-
-    it('returns 500 and closes the client when reading stored cover letters fails', async () => {
-        toArray.mockRejectedValue(new Error('read failed'));
-        const request = createRequest<ScrapedJob & { x?: number }>({
-            body: createJob<ScrapedJob & { x?: number }>(),
-        });
-        const { response, status, json } = createResponse();
-
-        await generateCoverLetterAsText(request, response);
-
-        expect(status).toHaveBeenCalledWith(500);
-        expect(json).toHaveBeenCalledWith({
-            message: 'Error generating cover letter',
-            error: 'read failed',
-        });
-        expect(close).toHaveBeenCalledTimes(1);
-        expect(embedJob).not.toHaveBeenCalled();
-    });
-
-    it('returns 500 without generating when closing the client fails after a successful read', async () => {
-        close.mockRejectedValue(new Error('close failed'));
+    it('returns a sanitized 500 without generating when closing the client fails after a successful read', async () => {
+        const error = new Error('close failed');
+        close.mockRejectedValue(error);
         const request = createRequest<ScrapedJob & { x?: number }>({
             body: createJob<ScrapedJob & { x?: number }>(),
         });
@@ -386,39 +412,17 @@ describe('generateCoverLetterAsText', () => {
         await generateCoverLetterAsText(request, response);
 
         expect(toArray).toHaveBeenCalledTimes(1);
+        expect(status).toHaveBeenCalledTimes(1);
         expect(status).toHaveBeenCalledWith(500);
         expect(json).toHaveBeenCalledWith({
             message: 'Error generating cover letter',
-            error: 'close failed',
+            error: 'Provider request failed',
         });
+        expect(console.error).toHaveBeenCalledWith(
+            'Error generating cover letter',
+            error,
+        );
         expect(close).toHaveBeenCalledTimes(1);
         expect(embedJob).not.toHaveBeenCalled();
     });
-
-    it.each([
-        { name: 'embedJob', generatorCall: embedJob },
-        {
-            name: 'getTopXSimilarCoverLetters',
-            generatorCall: getTopXSimilarCoverLetters,
-        },
-        { name: 'generateCoverLetter', generatorCall: generateCoverLetter },
-    ])(
-        'returns 500 with the cover-letter-generator error and closes the client once when $name fails',
-        async ({ name, generatorCall }) => {
-            generatorCall.mockRejectedValue(new Error(`${name} failed`));
-            const request = createRequest<ScrapedJob & { x?: number }>({
-                body: createJob<ScrapedJob & { x?: number }>(),
-            });
-            const { response, status, json } = createResponse();
-
-            await generateCoverLetterAsText(request, response);
-
-            expect(status).toHaveBeenCalledWith(500);
-            expect(json).toHaveBeenCalledWith({
-                message: 'Error generating cover letter',
-                error: `${name} failed`,
-            });
-            expect(close).toHaveBeenCalledTimes(1);
-        },
-    );
 });

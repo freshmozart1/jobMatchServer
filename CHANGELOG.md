@@ -2,7 +2,7 @@
 
 All notable changes to this project are documented in this file.
 
-## v5.1.4
+## v5.1.5
 
 ### Changed
 
@@ -15,16 +15,50 @@ All notable changes to this project are documented in this file.
   the whole reasoning-model round trip. The read now runs in a local
   `findStoredCoverLetters` helper that connects, reads, and closes in its own
   `finally`, so the connection is released before the first LLM call. The
-  route's request/response shapes, its `200` body, and its `500` handling are
-  unchanged: a failed connect or read still closes the client and answers
-  `500`, and so does a failed embedding, ranking, or generation call, by which
-  point the client has already been closed exactly once. One edge case moves on
-  purpose: if `client.close()` rejects after a successful read, the request now
-  answers `500` before any LLM call, where previously the close only ran after
-  the `200` had already been sent. New tests pin the call order (read, close,
-  embed, generate), the `500` for a rejected connect, read, or close, and the
-  `500` plus a single close when each `cover-letter-generator` call rejects
-  (closes #136).
+  route's request/response shapes, its `200` body, and v5.1.4's sanitized `500`
+  handling are unchanged: a failed connect or read still closes the client and
+  answers `500` with `Provider request failed`, and so does a failed embedding,
+  ranking, or generation call, by which point the client has already been
+  closed exactly once — v5.1.4's per-call rejection tests still pin all of
+  those. One edge case moves on purpose: if `client.close()` rejects after a
+  successful read, the request now answers that same sanitized `500` before any
+  LLM call, where previously the close only ran after the `200` had already been
+  sent. Two new tests pin the call order (read, close, embed, generate) and that
+  close-failure `500` (closes #136).
+
+## v5.1.4
+
+### Fixed
+
+- `POST /cover-letters/create/text` no longer echoes the raw error message in
+  its `500` body. Its `catch` let `createErrorMessage`'s `publicError` default
+  to the caught error, so the response's `error` field carried whatever the
+  provider said — and an `OpenAI.APIError` message can include organization or
+  project identifiers, request IDs, and quota detail, on a server with no auth.
+  The route now passes the literal `Provider request failed` as `publicError`,
+  exactly as `POST /cover-letters/revise/text` already did, and the real error
+  stays server-side in the `console.error` log. The `{ message, error }`
+  response shape is unchanged; only the content of the `error` string is. The
+  route's single `try` also wraps the MongoDB `connect()` and `find().toArray()`
+  calls, so a database failure now gets the same `Provider request failed`
+  string even though no provider was involved — accepted deliberately.
+  `createErrorMessage`'s own default is untouched, so every other `500` call
+  site that omits `publicError` still sends raw messages, most notably
+  `POST /cover-letters/upload/text`, which forwards raw OpenAI errors from
+  segmentation's LLM fallback and segment embedding; those remaining call sites
+  are tracked in #155 (closes #135).
+
+### Changed
+
+- `POST /cover-letters/create/text`'s `500` path is now covered by tests; it
+  previously had none. A new `it.each` in `generateCoverLettersAsText.test.ts`
+  rejects each awaited call in turn — `connect`, `find().toArray`, `embedJob`,
+  `getTopXSimilarCoverLetters`, and `generateCoverLetter` — and asserts that
+  each produces exactly one sanitized `500` response (`status` and `json` each
+  called once), that a sentinel secret embedded in the error never reaches the
+  body, that the real error is still logged via `console.error`, and that the
+  MongoDB client is still closed. The suite now silences `console.error` with a
+  spy that is restored after each test (closes #137).
 
 ## v5.1.3
 
