@@ -34,7 +34,7 @@ import type { ScrapeStreamFrame, StoredScrapedJob } from '#types';
 
 type MockRunScrapeOptions = {
     onProgress?: (event: ScrapeProgressEvent) => void;
-    searchParams?: { keyword: string };
+    searchParams?: { keyword: string; location?: string };
     signal?: AbortSignal;
     scraperOptions?: ScraperOptions;
 };
@@ -81,7 +81,8 @@ jest.unstable_mockModule('./linkedInJobSimilarity.js', () => ({
 mockMongoDbModule();
 mockLocalDatabaseModule();
 
-const { scrapeJob } = await import('./scrapeJob.js');
+const { scrapeJob, INVALID_BODY_ERROR_MESSAGE } =
+    await import('./scrapeJob.js');
 
 function createRequest(body: unknown): Request {
     const emitter = new EventEmitter();
@@ -238,6 +239,16 @@ function runScrapeRejectingWith(reason: unknown) {
     mockRunScrape.mockImplementation(async () => {
         throw reason;
     });
+}
+
+/** Records the search params each keyword's scrape was started with. */
+function runScrapeCapturingSearchParams(): MockRunScrapeOptions['searchParams'][] {
+    const captured: MockRunScrapeOptions['searchParams'][] = [];
+    mockRunScrape.mockImplementation(async ({ searchParams }) => {
+        captured.push(searchParams);
+        return { results: [], url: '' };
+    });
+    return captured;
 }
 
 describe('scrapeJob', () => {
@@ -1028,5 +1039,73 @@ describe('scrapeJob', () => {
         ).toBe(true);
         expect(jobDataWrites(write)).toHaveLength(1);
         expect(end).toHaveBeenCalledTimes(1);
+    });
+
+    it('omits location from searchParams when the body sends an empty location', async () => {
+        const capturedSearchParams = runScrapeCapturingSearchParams();
+        const { response, writeHead, end } = createSseResponse();
+
+        await scrapeJob(
+            createRequest({ ...validBody, location: '' }),
+            response,
+        );
+
+        expect(capturedSearchParams).toEqual([
+            { keyword: 'TypeScript', datePosted: 'day', distanceMiles: 25 },
+        ]);
+        expect(capturedSearchParams[0]).not.toHaveProperty('location');
+        expect(writeHead).toHaveBeenCalledTimes(1);
+        expect(end).toHaveBeenCalledTimes(1);
+    });
+
+    it('omits location from searchParams when the body has no location key', async () => {
+        const { location, ...bodyWithoutLocation } = validBody;
+        void location;
+        const capturedSearchParams = runScrapeCapturingSearchParams();
+        const { response, end } = createSseResponse();
+
+        await scrapeJob(createRequest(bodyWithoutLocation), response);
+
+        expect(capturedSearchParams).toEqual([
+            { keyword: 'TypeScript', datePosted: 'day', distanceMiles: 25 },
+        ]);
+        expect(capturedSearchParams[0]).not.toHaveProperty('location');
+        expect(end).toHaveBeenCalledTimes(1);
+    });
+
+    it('trims and forwards a real location to runScrape', async () => {
+        const capturedSearchParams = runScrapeCapturingSearchParams();
+        const { response } = createSseResponse();
+
+        await scrapeJob(
+            createRequest({ ...validBody, location: '  Berlin  ' }),
+            response,
+        );
+
+        expect(capturedSearchParams).toEqual([
+            {
+                keyword: 'TypeScript',
+                datePosted: 'day',
+                location: 'Berlin',
+                distanceMiles: 25,
+            },
+        ]);
+    });
+
+    it('answers 400 naming the expected fields when the body is genuinely invalid', async () => {
+        const { response, status, json, writeHead } = createSseResponse();
+
+        await scrapeJob(
+            createRequest({ ...validBody, keywords: [] }),
+            response,
+        );
+
+        expect(status).toHaveBeenCalledWith(400);
+        expect(json).toHaveBeenCalledWith({
+            error: INVALID_BODY_ERROR_MESSAGE,
+        });
+        expect(writeHead).not.toHaveBeenCalled();
+        expect(mockRunScrape).not.toHaveBeenCalled();
+        expect(connect).not.toHaveBeenCalled();
     });
 });

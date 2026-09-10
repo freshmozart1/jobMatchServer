@@ -2,6 +2,32 @@
 
 All notable changes to this project are documented in this file.
 
+## v5.1.3
+
+### Fixed
+
+- `POST /scrape/linkedin` now accepts a request whose `location` is empty or
+  absent instead of answering `400`. Location was required by this validator
+  alone: `linkedin-job-scraper` declares it as `location?: string` and omits the
+  query param when it is `undefined`, and the jobMatch UI labels the field
+  "Location (optional)" and sends `''` when it is blank — so a first-time user
+  with no saved city could not scrape at all. Blank-after-trim, `undefined`, and
+  an absent key now all mean "no location", and the field is left off the
+  scraper's search params entirely rather than sent as `''`, which would have put
+  an empty `location=` on the LinkedIn URL. A non-string, non-`undefined`
+  `location` is still rejected, so garbage input keeps producing a `400` rather
+  than being silently coerced away. `distance` remains required and is still sent
+  even with no location to centre it on (#148) (closes #143).
+
+### Changed
+
+- The `400` from `POST /scrape/linkedin` now names the fields it expects instead
+  of the bare `Invalid request body`, which told a user who left the UI's
+  "(optional)" location blank nothing at all. The response keeps its existing
+  `{ error }` shape — clients reading `.error` are unaffected — and the message
+  is exported from `scrapeJob.ts` as `INVALID_BODY_ERROR_MESSAGE` so the handler
+  and its test cannot drift apart.
+
 ## v5.1.2
 
 ### Changed
