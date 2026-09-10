@@ -228,6 +228,7 @@ const jobEmbedding = [0.7, 0.8, 0.9];
 describe('generateCoverLetterAsText', () => {
     beforeEach(() => {
         jest.clearAllMocks();
+        jest.spyOn(console, 'error').mockImplementation(() => {});
 
         connect.mockResolvedValue();
         close.mockResolvedValue();
@@ -312,5 +313,46 @@ describe('generateCoverLetterAsText', () => {
         });
         expect(connect).not.toHaveBeenCalled();
         expect(embedJob).not.toHaveBeenCalled();
+    });
+
+    it.each([
+        {
+            name: 'embedJob',
+            reject: (error: Error) => embedJob.mockRejectedValue(error),
+        },
+        {
+            name: 'getTopXSimilarCoverLetters',
+            reject: (error: Error) =>
+                getTopXSimilarCoverLetters.mockRejectedValue(error),
+        },
+        {
+            name: 'generateCoverLetter',
+            reject: (error: Error) =>
+                generateCoverLetter.mockRejectedValue(error),
+        },
+    ])('returns a sanitized 500 when $name rejects', async ({ reject }) => {
+        const sentinel = 'org-secret-135';
+        const error = new Error(
+            `429 You exceeded your current quota (${sentinel}, req_abc123)`,
+        );
+        reject(error);
+        const request = createRequest<ScrapedJob & { x?: number }>({
+            body: createJob<ScrapedJob & { x?: number }>(),
+        });
+        const { response, status, json } = createResponse();
+
+        await generateCoverLetterAsText(request, response);
+
+        expect(status).toHaveBeenCalledWith(500);
+        expect(json).toHaveBeenCalledWith({
+            message: 'Error generating cover letter',
+            error: 'Provider request failed',
+        });
+        expect(JSON.stringify(json.mock.calls)).not.toContain(sentinel);
+        expect(console.error).toHaveBeenCalledWith(
+            'Error generating cover letter',
+            error,
+        );
+        expect(close).toHaveBeenCalledTimes(1);
     });
 });
