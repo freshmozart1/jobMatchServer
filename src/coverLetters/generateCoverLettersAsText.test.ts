@@ -374,4 +374,53 @@ describe('generateCoverLetterAsText', () => {
         );
         expect(close).toHaveBeenCalledTimes(1);
     });
+
+    it('closes the client after reading stored cover letters and before the LLM round trips', async () => {
+        const request = createRequest<ScrapedJob & { x?: number }>({
+            body: createJob<ScrapedJob & { x?: number }>(),
+        });
+        const { response, status } = createResponse();
+        // invocationCallOrder is shared across every mock, so comparing first
+        // calls shows the order the handler ran them in (NaN if never called).
+        const firstCall = ({
+            mock,
+        }: {
+            mock: { invocationCallOrder: number[] };
+        }): number => mock.invocationCallOrder[0] ?? Number.NaN;
+
+        await generateCoverLetterAsText(request, response);
+
+        expect(status).toHaveBeenCalledWith(200);
+        expect(close).toHaveBeenCalledTimes(1);
+        expect(firstCall(toArray)).toBeLessThan(firstCall(close));
+        expect(firstCall(close)).toBeLessThan(firstCall(embedJob));
+        expect(firstCall(embedJob)).toBeLessThan(
+            firstCall(generateCoverLetter),
+        );
+    });
+
+    it('returns a sanitized 500 without generating when closing the client fails after a successful read', async () => {
+        const error = new Error('close failed');
+        close.mockRejectedValue(error);
+        const request = createRequest<ScrapedJob & { x?: number }>({
+            body: createJob<ScrapedJob & { x?: number }>(),
+        });
+        const { response, status, json } = createResponse();
+
+        await generateCoverLetterAsText(request, response);
+
+        expect(toArray).toHaveBeenCalledTimes(1);
+        expect(status).toHaveBeenCalledTimes(1);
+        expect(status).toHaveBeenCalledWith(500);
+        expect(json).toHaveBeenCalledWith({
+            message: 'Error generating cover letter',
+            error: 'Provider request failed',
+        });
+        expect(console.error).toHaveBeenCalledWith(
+            'Error generating cover letter',
+            error,
+        );
+        expect(close).toHaveBeenCalledTimes(1);
+        expect(embedJob).not.toHaveBeenCalled();
+    });
 });
