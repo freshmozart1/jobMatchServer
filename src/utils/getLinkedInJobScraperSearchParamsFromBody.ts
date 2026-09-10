@@ -1,10 +1,5 @@
 import { getTrimmedUniqueKeywords } from './getTrimmedUniqueKeywords.js';
 
-// `location` is deliberately NOT required (#143): linkedin-job-scraper declares it as
-// `location?: string` and its `buildSearchUrl` simply omits the query param when the field
-// is `undefined`, and the jobMatch UI labels the field "Location (optional)" and sends `''`
-// when it is blank. A non-string, non-`undefined` location is still rejected so garbage
-// input keeps producing a 400 instead of being silently coerced away.
 const REQUIRED_KEYS = ['keywords', 'distance', 'datePosted'] as const;
 
 type ValidatableBody = Record<(typeof REQUIRED_KEYS)[number], unknown> & {
@@ -37,6 +32,14 @@ function isValidDatePosted(
     );
 }
 
+// `location` is deliberately optional (#143), unlike every other field here:
+// linkedin-job-scraper declares it as `location?: string` and its `buildSearchUrl` simply
+// omits the query param when the field is `undefined`, while the jobMatch UI labels the
+// field "Location (optional)" and sends `''` when it is blank. Absent, `undefined`, and
+// blank-after-trim all mean "no location", and the key is left off the result entirely so
+// the caller can spread it straight into the scraper's search params. A non-string,
+// non-`undefined` location is still rejected, so garbage keeps producing a 400 rather than
+// being silently coerced away.
 function getValidatedKeywordsAndLocation(body: {
     keywords: unknown;
     location?: unknown;
@@ -52,14 +55,10 @@ function getValidatedKeywordsAndLocation(body: {
     }
 
     const trimmedLocation = body.location?.trim();
-    const location =
-        trimmedLocation !== undefined && trimmedLocation.length > 0
-            ? trimmedLocation
-            : undefined;
 
     return {
         keywords: trimmedKeywords,
-        ...(location !== undefined ? { location } : {}),
+        ...(trimmedLocation ? { location: trimmedLocation } : {}),
     };
 }
 

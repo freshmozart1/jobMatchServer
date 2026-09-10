@@ -37,6 +37,11 @@ type KeywordProgressState = {
 
 const UNKNOWN_FAILURE_REASON = 'Unknown scrape failure';
 const KEEPALIVE_INTERVAL_MS = 15_000;
+// Exported so the tests assert against this exact string rather than a copy of it that
+// could silently drift. It names every field because the previous bare 'Invalid request
+// body' told a user who left the UI's "(optional)" location blank nothing at all (#143).
+export const INVALID_BODY_ERROR_MESSAGE =
+    'Invalid request body. Please provide keywords as a non-empty string or array of non-empty strings, distance as a positive integer, datePosted as "day", "week", or "month", and an optional string location.';
 
 // Reads a non-Error rejection's own `message`: a `{ message, code }` object or
 // a cross-realm Error fails `instanceof` yet still carries a real message, one
@@ -302,9 +307,7 @@ function handleProgressEvent(
 export async function scrapeJob(req: Request, res: Response): Promise<void> {
     const searchParams = getLinkedInJobScraperSearchParamsFromBody(req.body);
     if (!searchParams) {
-        res.status(400).json({
-            error: 'Invalid request body. Please provide keywords as a non-empty string or array of non-empty strings, distance as a positive integer, datePosted as "day", "week", or "month", and an optional string location.',
-        });
+        res.status(400).json({ error: INVALID_BODY_ERROR_MESSAGE });
         return;
     }
     if (!connectionStringConfigured(res)) return;
