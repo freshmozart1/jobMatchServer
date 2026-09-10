@@ -1,4 +1,11 @@
-import { beforeEach, describe, expect, it, jest } from '@jest/globals';
+import {
+    afterEach,
+    beforeEach,
+    describe,
+    expect,
+    it,
+    jest,
+} from '@jest/globals';
 import type { ScrapedJob, StoredCoverLetter } from '#types';
 import type { WithId } from 'mongodb';
 import type { CoverLetter } from 'cover-letter-generator';
@@ -242,6 +249,10 @@ describe('generateCoverLetterAsText', () => {
         generateCoverLetter.mockResolvedValue(generatedCoverLetter);
     });
 
+    afterEach(() => {
+        jest.restoreAllMocks();
+    });
+
     it('ranks stored cover letters against the job and returns the generated cover letter text', async () => {
         const request = createRequest<ScrapedJob & { x?: number }>({
             body: { ...createJob<ScrapedJob>(), x: 2 },
@@ -316,6 +327,14 @@ describe('generateCoverLetterAsText', () => {
     });
 
     it.each([
+        {
+            name: 'connect',
+            reject: (error: Error) => connect.mockRejectedValue(error),
+        },
+        {
+            name: 'find().toArray',
+            reject: (error: Error) => toArray.mockRejectedValue(error),
+        },
         {
             name: 'embedJob',
             reject: (error: Error) => embedJob.mockRejectedValue(error),
