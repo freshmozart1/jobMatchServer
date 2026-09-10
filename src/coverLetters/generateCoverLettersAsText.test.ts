@@ -228,6 +228,7 @@ const jobEmbedding = [0.7, 0.8, 0.9];
 describe('generateCoverLetterAsText', () => {
     beforeEach(() => {
         jest.clearAllMocks();
+        jest.spyOn(console, 'error').mockImplementation(() => {});
 
         connect.mockResolvedValue();
         close.mockResolvedValue();
@@ -339,7 +340,6 @@ describe('generateCoverLetterAsText', () => {
     });
 
     it('returns 500 and closes the client when connecting fails', async () => {
-        jest.spyOn(console, 'error').mockImplementation(() => {});
         connect.mockRejectedValue(new Error('connect failed'));
         const request = createRequest<ScrapedJob & { x?: number }>({
             body: createJob<ScrapedJob & { x?: number }>(),
@@ -359,7 +359,6 @@ describe('generateCoverLetterAsText', () => {
     });
 
     it('returns 500 and closes the client when reading stored cover letters fails', async () => {
-        jest.spyOn(console, 'error').mockImplementation(() => {});
         toArray.mockRejectedValue(new Error('read failed'));
         const request = createRequest<ScrapedJob & { x?: number }>({
             body: createJob<ScrapedJob & { x?: number }>(),
@@ -377,16 +376,36 @@ describe('generateCoverLetterAsText', () => {
         expect(embedJob).not.toHaveBeenCalled();
     });
 
+    it('returns 500 without generating when closing the client fails after a successful read', async () => {
+        close.mockRejectedValue(new Error('close failed'));
+        const request = createRequest<ScrapedJob & { x?: number }>({
+            body: createJob<ScrapedJob & { x?: number }>(),
+        });
+        const { response, status, json } = createResponse();
+
+        await generateCoverLetterAsText(request, response);
+
+        expect(toArray).toHaveBeenCalledTimes(1);
+        expect(status).toHaveBeenCalledWith(500);
+        expect(json).toHaveBeenCalledWith({
+            message: 'Error generating cover letter',
+            error: 'close failed',
+        });
+        expect(close).toHaveBeenCalledTimes(1);
+        expect(embedJob).not.toHaveBeenCalled();
+    });
+
     it.each([
-        { name: 'embedJob', providerCall: embedJob },
-        { name: 'generateCoverLetter', providerCall: generateCoverLetter },
+        { name: 'embedJob', generatorCall: embedJob },
+        {
+            name: 'getTopXSimilarCoverLetters',
+            generatorCall: getTopXSimilarCoverLetters,
+        },
+        { name: 'generateCoverLetter', generatorCall: generateCoverLetter },
     ])(
-        'returns 500 with the provider error and closes the client once when $name fails',
-        async ({ providerCall }) => {
-            jest.spyOn(console, 'error').mockImplementation(() => {});
-            providerCall.mockRejectedValue(
-                new Error('Provider response was incomplete'),
-            );
+        'returns 500 with the cover-letter-generator error and closes the client once when $name fails',
+        async ({ name, generatorCall }) => {
+            generatorCall.mockRejectedValue(new Error(`${name} failed`));
             const request = createRequest<ScrapedJob & { x?: number }>({
                 body: createJob<ScrapedJob & { x?: number }>(),
             });
@@ -397,7 +416,7 @@ describe('generateCoverLetterAsText', () => {
             expect(status).toHaveBeenCalledWith(500);
             expect(json).toHaveBeenCalledWith({
                 message: 'Error generating cover letter',
-                error: 'Provider response was incomplete',
+                error: `${name} failed`,
             });
             expect(close).toHaveBeenCalledTimes(1);
         },
