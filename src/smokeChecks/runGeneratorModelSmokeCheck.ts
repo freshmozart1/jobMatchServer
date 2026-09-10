@@ -1,5 +1,6 @@
 import type { ResponseCreateParamsNonStreaming } from 'openai/resources/responses/responses';
 import type { ReasoningEffort } from 'openai/resources/shared';
+import { describeErrorMessage } from '../errors/describeErrorMessage.js';
 
 export type SmokeCheckOutcome = {
     status: 'passed' | 'skipped' | 'failed';
@@ -75,25 +76,6 @@ function readField(value: unknown, field: string): unknown {
     }
 }
 
-// Mirrors describeFailureReason() in src/scrapers/linkedin/scrapeJob.ts, which
-// isn't imported because that module pulls in the whole scraper stack. Each
-// fallback matters: `new Error().message` is `''`; a `{ message }` object fails
-// `instanceof` yet carries a real message; and `String()` throws on a value
-// whose `toString` throws or is missing. Only a message is ever returned, never
-// a serialized error object.
-function describeErrorMessage(error: unknown): string {
-    if (error instanceof Error) {
-        return error.message || error.name || UNKNOWN_ERROR_MESSAGE;
-    }
-    const message = readField(error, 'message');
-    if (typeof message === 'string' && message.length > 0) return message;
-    try {
-        return String(error) || UNKNOWN_ERROR_MESSAGE;
-    } catch {
-        return UNKNOWN_ERROR_MESSAGE;
-    }
-}
-
 function classifyResponse(
     response: SmokeCheckResponse,
     checked: string,
@@ -156,7 +138,7 @@ function classifyRejection(
     const detailText = details.length > 0 ? ` (${details.join(', ')})` : '';
     return {
         status: 'failed',
-        message: `Failed: the request for ${checked} errored${detailText}: ${describeErrorMessage(error)}`,
+        message: `Failed: the request for ${checked} errored${detailText}: ${describeErrorMessage(error, UNKNOWN_ERROR_MESSAGE)}`,
     };
 }
 
@@ -171,7 +153,11 @@ export async function runGeneratorModelSmokeCheck(
         createResponse,
     } = options;
     const checked = `${model} with reasoning.effort "${reasoningEffort}"`;
-    if (apiKey === undefined || apiKey.trim() === '') {
+    // Trimmed the way the SDK's own readEnv('OPENAI_API_KEY') trims it, which is
+    // how the package's `new OpenAI()` reads the key in production. Forwarding
+    // it untrimmed would fail a key with a stray newline that production accepts.
+    const trimmedApiKey = apiKey?.trim() ?? '';
+    if (trimmedApiKey === '') {
         return {
             status: 'skipped',
             message: `Skipped: OPENAI_API_KEY is not set, so ${checked} was not checked.`,
@@ -180,7 +166,7 @@ export async function runGeneratorModelSmokeCheck(
     let response: SmokeCheckResponse;
     try {
         response = await createResponse(
-            apiKey,
+            trimmedApiKey,
             buildRequest(model, reasoningEffort),
         );
     } catch (error) {

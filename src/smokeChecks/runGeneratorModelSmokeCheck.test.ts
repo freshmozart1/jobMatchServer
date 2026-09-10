@@ -225,6 +225,42 @@ describe('runGeneratorModelSmokeCheck', () => {
         expect(outcome.message).toContain('Unknown error');
         expect(outcome.message).not.toContain('toString exploded');
     });
+
+    it('hands createResponse the key trimmed, the way the SDK reads OPENAI_API_KEY', async () => {
+        const createResponse = resolvingWith({ status: 'completed' });
+
+        await runCheck(createResponse, { apiKey: `  ${API_KEY}\n` });
+
+        expect(createResponse.mock.calls[0]?.[0]).toBe(API_KEY);
+    });
+
+    it('passes an incomplete response without incomplete_details and calls the reason unknown', async () => {
+        const outcome = await runCheck(resolvingWith({ status: 'incomplete' }));
+
+        expect(outcome.status).toBe('passed');
+        expect(outcome.message).toContain('unknown reason');
+    });
+
+    it('fails a failed response that carries no error detail', async () => {
+        const outcome = await runCheck(
+            resolvingWith({ status: 'failed', error: null }),
+        );
+
+        expect(outcome.status).toBe('failed');
+        expect(outcome.message).toContain('no error code');
+        expect(outcome.message).toContain('no error message');
+    });
+
+    it('falls back to the error name when a rejection has an empty message', async () => {
+        const timeout = Object.assign(new Error(''), {
+            name: 'APIConnectionTimeoutError',
+        });
+
+        const outcome = await runCheck(rejectingWith(timeout));
+
+        expect(outcome.status).toBe('failed');
+        expect(outcome.message).toContain('APIConnectionTimeoutError');
+    });
 });
 
 describe('formatOutcome', () => {
