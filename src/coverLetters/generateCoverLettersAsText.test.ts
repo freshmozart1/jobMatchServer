@@ -362,7 +362,9 @@ describe('generateCoverLetterAsText', () => {
 
         await generateCoverLetterAsText(request, response);
 
+        expect(status).toHaveBeenCalledTimes(1);
         expect(status).toHaveBeenCalledWith(500);
+        expect(json).toHaveBeenCalledTimes(1);
         expect(json).toHaveBeenCalledWith({
             message: 'Error generating cover letter',
             error: 'Provider request failed',
