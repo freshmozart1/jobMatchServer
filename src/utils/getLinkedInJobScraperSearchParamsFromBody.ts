@@ -1,15 +1,17 @@
 import { getTrimmedUniqueKeywords } from './getTrimmedUniqueKeywords.js';
 
-const REQUIRED_KEYS = [
-    'keywords',
-    'location',
-    'distance',
-    'datePosted',
-] as const;
+// `location` is deliberately NOT required (#143): linkedin-job-scraper declares it as
+// `location?: string` and its `buildSearchUrl` simply omits the query param when the field
+// is `undefined`, and the jobMatch UI labels the field "Location (optional)" and sends `''`
+// when it is blank. A non-string, non-`undefined` location is still rejected so garbage
+// input keeps producing a 400 instead of being silently coerced away.
+const REQUIRED_KEYS = ['keywords', 'distance', 'datePosted'] as const;
 
-function hasRequiredKeys(
-    body: unknown,
-): body is Record<(typeof REQUIRED_KEYS)[number], unknown> {
+type ValidatableBody = Record<(typeof REQUIRED_KEYS)[number], unknown> & {
+    location?: unknown;
+};
+
+function hasRequiredKeys(body: unknown): body is ValidatableBody {
     return (
         typeof body === 'object' &&
         body !== null &&
@@ -37,17 +39,28 @@ function isValidDatePosted(
 
 function getValidatedKeywordsAndLocation(body: {
     keywords: unknown;
-    location: unknown;
-}): { keywords: string[]; location: string } | null {
+    location?: unknown;
+}): { keywords: string[]; location?: string } | null {
     const trimmedKeywords = getTrimmedUniqueKeywords(body.keywords);
-    const trimmedLocation =
-        typeof body.location === 'string' ? body.location.trim() : '';
 
-    if (!trimmedKeywords || trimmedLocation.length === 0) {
+    if (!trimmedKeywords) {
         return null;
     }
 
-    return { keywords: trimmedKeywords, location: trimmedLocation };
+    if (body.location !== undefined && typeof body.location !== 'string') {
+        return null;
+    }
+
+    const trimmedLocation = body.location?.trim();
+    const location =
+        trimmedLocation !== undefined && trimmedLocation.length > 0
+            ? trimmedLocation
+            : undefined;
+
+    return {
+        keywords: trimmedKeywords,
+        ...(location !== undefined ? { location } : {}),
+    };
 }
 
 function getValidatedDistanceAndDatePosted(body: {
@@ -66,7 +79,7 @@ function getValidatedDistanceAndDatePosted(body: {
 
 export function getLinkedInJobScraperSearchParamsFromBody(body: unknown): {
     keywords: string[];
-    location: string;
+    location?: string;
     datePosted: 'day' | 'month' | 'week';
     distance: number;
 } | null {

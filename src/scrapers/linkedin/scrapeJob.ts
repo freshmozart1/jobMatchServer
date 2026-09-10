@@ -302,7 +302,9 @@ function handleProgressEvent(
 export async function scrapeJob(req: Request, res: Response): Promise<void> {
     const searchParams = getLinkedInJobScraperSearchParamsFromBody(req.body);
     if (!searchParams) {
-        res.status(400).json({ error: 'Invalid request body' });
+        res.status(400).json({
+            error: 'Invalid request body. Please provide keywords as a non-empty string or array of non-empty strings, distance as a positive integer, datePosted as "day", "week", or "month", and an optional string location.',
+        });
         return;
     }
     if (!connectionStringConfigured(res)) return;
@@ -401,7 +403,7 @@ export async function scrapeJob(req: Request, res: Response): Promise<void> {
                     searchParams: {
                         keyword,
                         datePosted,
-                        location,
+                        ...(location !== undefined ? { location } : {}),
                         distanceMiles: distance,
                     },
                     signal: controller.signal,
