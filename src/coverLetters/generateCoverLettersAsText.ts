@@ -115,7 +115,13 @@ export default async function generateCoverLetterAsText(
             ),
         });
     } catch (error) {
-        createErrorMessage(res, error, 'Error generating cover letter', 500);
+        createErrorMessage(
+            res,
+            error,
+            'Error generating cover letter',
+            500,
+            'Provider request failed',
+        );
     } finally {
         await client.close();
     }
