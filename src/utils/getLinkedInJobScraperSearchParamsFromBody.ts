@@ -1,9 +1,10 @@
 import { getTrimmedUniqueKeywords } from './getTrimmedUniqueKeywords.js';
 
-const REQUIRED_KEYS = ['keywords', 'distance', 'datePosted'] as const;
+const REQUIRED_KEYS = ['keywords', 'datePosted'] as const;
 
 type ValidatableBody = Record<(typeof REQUIRED_KEYS)[number], unknown> & {
     location?: unknown;
+    distance?: unknown;
 };
 
 function hasRequiredKeys(body: unknown): body is ValidatableBody {
@@ -14,12 +15,17 @@ function hasRequiredKeys(body: unknown): body is ValidatableBody {
     );
 }
 
-function isValidDistance(distance: unknown): distance is number {
+// Unlike `location`, there's no blank/trim case for a number: absent or `undefined`
+// means "no distance" (#148, a radius is meaningless without a location to centre it
+// on — see the searchParams spread in scrapeJob.ts), but anything else must still be a
+// valid positive integer.
+function isValidDistance(distance: unknown): distance is number | undefined {
     return (
-        typeof distance === 'number' &&
-        Number.isFinite(distance) &&
-        Number.isInteger(distance) &&
-        distance > 0
+        distance === undefined ||
+        (typeof distance === 'number' &&
+            Number.isFinite(distance) &&
+            Number.isInteger(distance) &&
+            distance > 0)
     );
 }
 
@@ -64,9 +70,9 @@ function getValidatedKeywordsAndLocation(body: {
 }
 
 function getValidatedDistanceAndDatePosted(body: {
-    distance: unknown;
+    distance?: unknown;
     datePosted: unknown;
-}): { distance: number; datePosted: 'day' | 'month' | 'week' } | null {
+}): { distance?: number; datePosted: 'day' | 'month' | 'week' } | null {
     if (
         !isValidDistance(body.distance) ||
         !isValidDatePosted(body.datePosted)
@@ -74,14 +80,17 @@ function getValidatedDistanceAndDatePosted(body: {
         return null;
     }
 
-    return { distance: body.distance, datePosted: body.datePosted };
+    return {
+        ...(body.distance !== undefined ? { distance: body.distance } : {}),
+        datePosted: body.datePosted,
+    };
 }
 
 export function getLinkedInJobScraperSearchParamsFromBody(body: unknown): {
     keywords: string[];
     location?: string;
     datePosted: 'day' | 'month' | 'week';
-    distance: number;
+    distance?: number;
 } | null {
     if (!hasRequiredKeys(body)) {
         return null;

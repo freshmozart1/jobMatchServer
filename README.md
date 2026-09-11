@@ -147,7 +147,11 @@ Body:
 keyword). `datePosted` is one of `"day"`, `"week"`, or `"month"`. `location` is
 optional — omit it, or send `""`, to search without narrowing to a city, and the
 param is simply not sent to LinkedIn; any other non-string value is rejected.
-The response
+`distance` is optional too — omit it, or send a positive integer, but it is
+only forwarded to LinkedIn (as `distanceMiles`) when `location` is also
+present; a `distance` sent without a `location` is accepted but never reaches
+LinkedIn, since a radius is meaningless without a location to centre it on,
+and any other value is rejected. The response
 is an SSE stream. It starts with a `: ping` comment, sends a `: keepalive`
 comment every 15 seconds, and carries these JSON values in `data:` frames:
 
