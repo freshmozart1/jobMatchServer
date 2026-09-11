@@ -116,6 +116,32 @@ describe('getLinkedInJobScraperSearchParamsFromBody', () => {
         ).toBeNull();
     });
 
+    it('omits distance when the key is absent entirely', () => {
+        const result = getLinkedInJobScraperSearchParamsFromBody({
+            keywords: ['TypeScript'],
+            location: 'Berlin',
+            datePosted: 'day',
+        });
+
+        expect(result).not.toBeNull();
+        expect(result).not.toHaveProperty('distance');
+        expect(result).toEqual({
+            keywords: ['TypeScript'],
+            location: 'Berlin',
+            datePosted: 'day',
+        });
+    });
+
+    it('omits distance when it is explicitly undefined', () => {
+        const result = getLinkedInJobScraperSearchParamsFromBody({
+            ...validBody,
+            distance: undefined,
+        });
+
+        expect(result).not.toBeNull();
+        expect(result).not.toHaveProperty('distance');
+    });
+
     it('returns null for an invalid distance', () => {
         expect(
             getLinkedInJobScraperSearchParamsFromBody({

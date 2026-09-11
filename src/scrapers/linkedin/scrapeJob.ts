@@ -42,7 +42,7 @@ const KEEPALIVE_INTERVAL_MS = 15_000;
 // could silently drift. It names every field because the previous bare 'Invalid request
 // body' told a user who left the UI's "(optional)" location blank nothing at all (#143).
 export const INVALID_BODY_ERROR_MESSAGE =
-    'Invalid request body. Please provide keywords as a non-empty string or array of non-empty strings, distance as a positive integer, datePosted as "day", "week", or "month", and an optional string location.';
+    'Invalid request body. Please provide keywords as a non-empty string or array of non-empty strings, datePosted as "day", "week", or "month", an optional string location, and an optional positive integer distance.';
 
 // Reduces a rejection value to the single string the failure frame carries.
 // Only a message goes on the wire, following createErrorMessage()'s convention;
@@ -380,7 +380,12 @@ export async function scrapeJob(req: Request, res: Response): Promise<void> {
                         keyword,
                         datePosted,
                         ...(location !== undefined ? { location } : {}),
-                        distanceMiles: distance,
+                        // distanceMiles is meaningless to linkedin-job-scraper's
+                        // buildSearchUrl without a location to centre it on, so it's
+                        // only forwarded when both are present (#148).
+                        ...(location !== undefined && distance !== undefined
+                            ? { distanceMiles: distance }
+                            : {}),
                     },
                     signal: controller.signal,
                     scraperOptions: { shouldScrapeJob },
