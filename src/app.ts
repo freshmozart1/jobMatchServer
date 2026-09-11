@@ -4,7 +4,11 @@
 //   checked against ALLOWED_ORIGINS/LAN_ORIGIN_PATTERN before use (see the
 //   CORS middleware below) — only a fixed allowlist of values ever reaches
 //   the header.
-import express, { type Request, type Response } from 'express';
+import express, {
+    type NextFunction,
+    type Request,
+    type Response,
+} from 'express';
 import multer from 'multer';
 
 import { scrapeJob } from '#scrapers/linkedin/scrapeJob.js';
@@ -20,6 +24,9 @@ import uploadCertificates from '#database/uploadCertificates.js';
 import getCertificatesStatus from '#database/getCertificatesStatus.js';
 import getApplication from '#database/getApplication.js';
 import getCoverLetterPdf from '#database/getCoverLetterPdf.js';
+import { createErrorMessage } from './errors/createErrorMessage.js';
+import isAllowedCvMimetype from './utils/isAllowedCvMimetype.js';
+import isAllowedCertificateMimetype from './utils/isAllowedCertificateMimetype.js';
 
 export const app = express();
 
@@ -65,9 +72,37 @@ app.post('/cover-letters/upload/text', uploadCoverLetterAsText);
 
 app.get('/cover-letters/:jobDuplicateKey', getCoverLetterPdf);
 
-//TODO: #26 Check if multer allows uploading any file and if it does, restrict it to only allow PDF files. Also, check if the file is actually a PDF and not just a file with a .pdf extension.
-const upload = multer({ dest: `uploads/cv` });
-app.post('/cv/upload', upload.single('file'), uploadCV);
+function handleUploadFilterError(customMessage: string) {
+    return (
+        error: unknown,
+        _request: Request,
+        response: Response,
+        _next: NextFunction,
+    ): void => {
+        createErrorMessage(response, error, customMessage, 400);
+    };
+}
+
+const upload = multer({
+    dest: 'uploads/cv',
+    fileFilter: (
+        _request: Request,
+        file: Express.Multer.File,
+        callback: multer.FileFilterCallback,
+    ): void => {
+        if (!isAllowedCvMimetype(file.mimetype)) {
+            callback(new Error('file must be a PDF'));
+            return;
+        }
+        callback(null, true);
+    },
+});
+app.post(
+    '/cv/upload',
+    upload.single('file'),
+    handleUploadFilterError('Error uploading CV'),
+    uploadCV,
+);
 
 app.get('/cv/:jobDuplicateKey', getCV);
 
@@ -75,14 +110,29 @@ app.get('/cv/:jobDuplicateKey/status', getCVStatus);
 
 app.get('/certificates/:jobDuplicateKey/status', getCertificatesStatus);
 
-//TODO #29
 const uploadCertificateFiles = multer({
     dest: 'uploads/certificates',
     limits: { fileSize: 10 * 1024 * 1024 },
+    fileFilter: (
+        _request: Request,
+        file: Express.Multer.File,
+        callback: multer.FileFilterCallback,
+    ): void => {
+        if (!isAllowedCertificateMimetype(file.mimetype)) {
+            callback(
+                new Error(
+                    `file "${file.originalname}" is not a PDF, JPEG, or PNG`,
+                ),
+            );
+            return;
+        }
+        callback(null, true);
+    },
 });
 app.post(
     '/certificates/upload',
     uploadCertificateFiles.array('files', 10),
+    handleUploadFilterError('Error uploading certificates'),
     uploadCertificates,
 );
 
