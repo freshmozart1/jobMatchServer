@@ -2,6 +2,24 @@
 
 All notable changes to this project are documented in this file.
 
+## v5.2.1
+
+### Fixed
+
+- `POST /scrape/linkedin` now accepts a request whose `distance` is absent
+  instead of answering `400`, mirroring #143's `location` fix. `distance` was
+  the last field `getLinkedInJobScraperSearchParamsFromBody.ts` still
+  required, so a request with no location and no distance kept failing
+  validation even though neither field means anything without the other.
+  Absent and `undefined` now both mean "no distance"; any other value must
+  still be a valid positive integer, so garbage input keeps producing a `400`.
+  `scrapeJob.ts` also no longer always forwards `distanceMiles` into
+  `linkedin-job-scraper`'s search params — a radius is meaningless without a
+  location to centre it on, so it is only sent when both `location` and
+  `distance` survive validation; a `distance` supplied with no `location` is
+  accepted by the validator but silently dropped before it reaches LinkedIn
+  (closes #148).
+
 ## v5.2.0
 
 ### Added
