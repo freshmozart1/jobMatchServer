@@ -46,7 +46,6 @@
         "mongo": "mongod --dbpath /opt/homebrew/var/mongodb",
         "test": "npm run test:watch",
         "test:once": "npm run build && node --experimental-vm-modules --localstorage-file=/tmp/jest-localstorage.json ./node_modules/jest/bin/jest.js --config jest.config.mjs --runInBand",
-        "smoke:generator-model": "npm run build && node --env-file-if-exists=.env dist/smokeChecks/checkGeneratorModel.js",
         "test:watch": "nodemon --watch src --watch jest.config.mjs --watch package.json --ext ts,mjs,json --exec \"npm run test:once\""
     },
     "devDependencies": {

@@ -29,22 +29,21 @@ import {
 import createResponse from '../testHelpers/createResponse.test.js';
 import createRequest from '../testHelpers/createRequest.test.js';
 import { createJob } from '../testHelpers/createJob.test.js';
-import {
-    getGeneratorCoverLetterTextSegments,
-    reconstructCoverLetterText,
-} from './coverLetterAdapters.js';
 
 mockMongoDbModule();
 mockLocalDatabaseModule();
 mockCoverLetterGeneratorModule();
 
-// The module under test is imported after the mocks to ensure the mocks are
-// used - it statically imports 'cover-letter-generator' at module scope, so
-// that mock must be registered before this import runs.
+// The module under test and the adapters are imported after the mocks to
+// ensure the mocks are used - both statically import 'cover-letter-generator'
+// at module scope (the adapters import its COVER_LETTER_SEGMENT_NAMES value),
+// so that mock must be registered before these imports run.
 const {
     default: generateCoverLetterAsText,
     isValidGenerateCoverLetterAsTextRequestBody,
 } = await import('./generateCoverLettersAsText.js');
+const { getGeneratorCoverLetterTextSegments } =
+    await import('./coverLetterAdapters.js');
 
 const validBase = {
     sourceHostname: 'www.linkedin.com',
@@ -283,9 +282,8 @@ describe('generateCoverLetterAsText', () => {
         );
         expect(status).toHaveBeenCalledWith(200);
         expect(json).toHaveBeenCalledWith({
-            coverLetter: reconstructCoverLetterText(
-                getGeneratorCoverLetterTextSegments(generatedCoverLetter),
-            ),
+            coverLetter:
+                'Generated subject\n\nDear Hiring Manager,\n\nGenerated introduction\n\nGenerated main body\n\nGenerated conclusion\n\nBest regards\nOle',
         });
         expect(connect).toHaveBeenCalledTimes(1);
         expect(close).toHaveBeenCalledTimes(1);
@@ -375,5 +373,54 @@ describe('generateCoverLetterAsText', () => {
             error,
         );
         expect(close).toHaveBeenCalledTimes(1);
+    });
+
+    it('closes the client after reading stored cover letters and before the LLM round trips', async () => {
+        const request = createRequest<ScrapedJob & { x?: number }>({
+            body: createJob<ScrapedJob & { x?: number }>(),
+        });
+        const { response, status } = createResponse();
+        // invocationCallOrder is shared across every mock, so comparing first
+        // calls shows the order the handler ran them in (NaN if never called).
+        const firstCall = ({
+            mock,
+        }: {
+            mock: { invocationCallOrder: number[] };
+        }): number => mock.invocationCallOrder[0] ?? Number.NaN;
+
+        await generateCoverLetterAsText(request, response);
+
+        expect(status).toHaveBeenCalledWith(200);
+        expect(close).toHaveBeenCalledTimes(1);
+        expect(firstCall(toArray)).toBeLessThan(firstCall(close));
+        expect(firstCall(close)).toBeLessThan(firstCall(embedJob));
+        expect(firstCall(embedJob)).toBeLessThan(
+            firstCall(generateCoverLetter),
+        );
+    });
+
+    it('returns a sanitized 500 without generating when closing the client fails after a successful read', async () => {
+        const error = new Error('close failed');
+        close.mockRejectedValue(error);
+        const request = createRequest<ScrapedJob & { x?: number }>({
+            body: createJob<ScrapedJob & { x?: number }>(),
+        });
+        const { response, status, json } = createResponse();
+
+        await generateCoverLetterAsText(request, response);
+
+        expect(toArray).toHaveBeenCalledTimes(1);
+        expect(status).toHaveBeenCalledTimes(1);
+        expect(status).toHaveBeenCalledWith(500);
+        expect(json).toHaveBeenCalledWith({
+            message: 'Error generating cover letter',
+            error: 'Provider request failed',
+        });
+        expect(console.error).toHaveBeenCalledWith(
+            'Error generating cover letter',
+            error,
+        );
+        expect(close).toHaveBeenCalledTimes(1);
+        expect(embedJob).not.toHaveBeenCalled();
     });
 });
