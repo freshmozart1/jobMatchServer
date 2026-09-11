@@ -12,6 +12,22 @@ import type { StoredCertificate } from '#types';
 import { createErrorMessage } from '../errors/createErrorMessage.js';
 import { fileContentMatchesMimetype } from '../utils/verifyFileContentType.js';
 
+// Returns the first uploaded file whose on-disk content doesn't match its
+// declared mimetype, or undefined if every file is valid. Split out of
+// uploadCertificates so the caller's error-handling/cleanup branches don't
+// also carry this function's own branching (fallow health/#64).
+async function findInvalidCertificateFile(
+    files: Express.Multer.File[],
+): Promise<Express.Multer.File | undefined> {
+    const fileValidities = await Promise.all(
+        files.map(async (file) => ({
+            file,
+            valid: await fileContentMatchesMimetype(file.path, file.mimetype),
+        })),
+    );
+    return fileValidities.find((entry) => !entry.valid)?.file;
+}
+
 export default async function uploadCertificates(
     request: Request,
     response: Response,
@@ -44,17 +60,9 @@ export default async function uploadCertificates(
         return;
     }
 
-    let fileValidities: { file: Express.Multer.File; valid: boolean }[];
+    let invalidFile: Express.Multer.File | undefined;
     try {
-        fileValidities = await Promise.all(
-            files.map(async (file) => ({
-                file,
-                valid: await fileContentMatchesMimetype(
-                    file.path,
-                    file.mimetype,
-                ),
-            })),
-        );
+        invalidFile = await findInvalidCertificateFile(files);
     } catch (error) {
         createErrorMessage(
             response,
@@ -64,7 +72,6 @@ export default async function uploadCertificates(
         );
         return;
     }
-    const invalidFile = fileValidities.find((entry) => !entry.valid)?.file;
     if (invalidFile) {
         await Promise.all(
             files.map((file) => unlink(file.path).catch(() => {})),
