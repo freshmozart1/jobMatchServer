@@ -2,6 +2,34 @@
 
 All notable changes to this project are documented in this file.
 
+## v5.2.1
+
+### Fixed
+
+- `POST /cv/upload` and `POST /certificates/upload` now reject a file whose
+  actual content doesn't match its declared type, instead of trusting a weak
+  mimetype-or-extension check that either half alone could spoof (a renamed
+  `.exe` given a `.pdf` extension, or a forged `Content-Type` header, both
+  used to pass). `src/app.ts` gives each multer instance a `fileFilter` that
+  checks the declared mimetype only (`isAllowedCvMimetype.ts`:
+  `application/pdf` for `/cv/upload`; `isAllowedCertificateMimetype.ts`:
+  `application/pdf`/`image/jpeg`/`image/jpg`/`image/png` for
+  `/certificates/upload`, unchanged from before), and a rejected file now
+  answers a clean `400` JSON body via a new `handleUploadFilterError`
+  middleware instead of silently proceeding. Real verification happens after
+  multer writes the file to disk: the new `src/utils/verifyFileContentType.ts`
+  (`fileContentMatchesMimetype`) reads the file's leading bytes and compares
+  them against its declared mimetype's magic-byte signature (`%PDF-` for PDF,
+  `FF D8 FF` for JPEG, the 8-byte PNG header), replacing the old
+  mimetype-or-extension check entirely in both `uploadCV.ts` and
+  `uploadCertificates.ts`. A file that fails is deleted from disk (best-effort)
+  and the request answers `400`; for `/certificates/upload`'s batch upload
+  this is all-or-nothing, matching that route's pre-existing all-or-nothing
+  semantics. `/certificates/upload` still accepts PDF/JPEG/PNG — only
+  `/cv/upload` is PDF-only. This closes a validation gap rather than changing
+  an intentional feature, so previously-accepted non-conforming uploads (which
+  should never have succeeded) now correctly answer `400` (closes #64).
+
 ## v5.2.0
 
 ### Added

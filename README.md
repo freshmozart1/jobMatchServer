@@ -198,7 +198,7 @@ Renders the stored cover letter to a standalone PDF and streams it as `cover-let
 
 ### `POST /cv/upload`
 
-Multipart form upload (`file`) plus a `jobDuplicateKey` field. Stores the CV file and associates it with the job.
+Multipart form upload (`file`) plus a `jobDuplicateKey` field. Stores the CV file and associates it with the job. The upload must genuinely be a PDF: its declared `Content-Type` must be `application/pdf`, and its actual content is verified against the PDF file signature (magic bytes). A file that fails either check is rejected with `400` and deleted from disk.
 
 ### `GET /cv/:jobDuplicateKey`
 
@@ -210,7 +210,7 @@ Returns whether a CV has been uploaded for the given job.
 
 ### `POST /certificates/upload`
 
-Multipart form upload (up to 10 files, 10MB each, PDF/JPEG/PNG only) plus a `jobDuplicateKey` field. Stores each certificate and associates it with the job.
+Multipart form upload (up to 10 files, 10MB each, PDF/JPEG/PNG only) plus a `jobDuplicateKey` field. Stores each certificate and associates it with the job. Each file's declared `Content-Type` and its actual content (verified against the PDF/JPEG/PNG file signature) must both match a PDF, JPEG, or PNG. This check is all-or-nothing across the batch: if any file fails, every file in the request is rejected with `400` and deleted from disk.
 
 ### `GET /certificates/:jobDuplicateKey/status`
 
