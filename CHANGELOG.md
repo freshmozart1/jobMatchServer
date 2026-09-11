@@ -2,6 +2,56 @@
 
 All notable changes to this project are documented in this file.
 
+## v5.2.0
+
+### Added
+
+- `npm run smoke:generator-model`, an opt-in check that the OpenAI API still
+  accepts the model and reasoning effort `cover-letter-generator` generates
+  with. Every test mocks that package wholesale, so green CI never proved that
+  `gpt-6-astra` at `reasoning.effort: 'high'`, which #133 moved generation to,
+  can actually be reached. The script builds, reads both values from the
+  installed package rather than a copy, and sends one minimal Responses API
+  request with them, capped at `max_output_tokens: 256` and using a strict
+  `json_schema` output format that mirrors the package's own call shape. A
+  `completed` or `incomplete` response passes, since either proves the request
+  was accepted; a `failed` or unexpected status, or a rejected request, fails
+  with the HTTP status, error code, parameter, and message — except a `401`,
+  whose provider text is never echoed because it contains part of the key. An
+  unset or blank `OPENAI_API_KEY` skips without calling the API. A local run
+  bills a real request. Both values are deep-imported from
+  `cover-letter-generator/dist/constants/` because the package does not export
+  them, so an upstream rename breaks the build in the bump PR itself; a public
+  export that doesn't construct an OpenAI client is requested upstream in
+  freshmozart1/cover-letter-generator#51 (closes #140).
+- A separate `Generator model smoke check` workflow
+  (`.github/workflows/generator-model-smoke.yml`) runs the script weekly, on
+  manual dispatch, and on pull requests that touch `package.json`,
+  `package-lock.json`, the workflow, or `src/smokeChecks/`. On a pull request it
+  makes the live call only when the `cover-letter-generator` lockfile pin, the
+  `openai` SDK version, the `smoke:generator-model` script, or the smoke check
+  files actually changed, because every release PR's version bump touches both
+  package files; otherwise it skips. A pull request that cannot see the
+  `OPENAI_API_KEY` secret, such as one from a fork or Dependabot, skips too, but
+  a scheduled or manual run without the secret fails, so a deleted secret cannot
+  pass unnoticed. It installs with `npm ci`, and a newer push cancels the run it
+  supersedes. This pull request's own runs made the live call and passed.
+  Segmentation's LLM fallback model and the embedding model are not covered:
+  the package keeps both as file-local, unexported constants.
+
+### Changed
+
+- The reducer that turns a rejection into the `reason` of
+  `POST /scrape/linkedin`'s SSE failure frame moved out of `scrapeJob.ts` into
+  the shared `src/errors/describeErrorMessage.ts`, which the smoke check also
+  uses. It keeps the same fallbacks — `message || name`, an error-like object's
+  `message`, then a guarded `String()` — and still never puts the error object
+  itself on the wire, so the frame is unchanged for ordinary rejections. It is
+  also hardened against a rejection whose `message` getter throws: that now
+  reads as having no message and falls through to `String()`, where the old
+  helper let the throw escape the reducer, the kind of throw its comment warned
+  could strand the stream open.
+
 ## v5.1.7
 
 ### Changed

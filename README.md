@@ -93,6 +93,14 @@ Run the test suite (builds first, then runs Jest against `dist/`):
 npm run test:once
 ```
 
+Check that the OpenAI API still accepts the model and reasoning effort `cover-letter-generator` generates cover letters with (builds first, then sends one live Responses API request):
+
+```bash
+npm run smoke:generator-model
+```
+
+The test suite mocks `cover-letter-generator` entirely, so it can't catch a model or reasoning effort the API no longer accepts. This check reads both from the installed package and sends one small request using `OPENAI_API_KEY` (loaded from `.env` if present), so **a local run bills a real API request**. It prints `Passed`, `Skipped`, or `Failed` and exits non-zero only on failure; with no key set it skips without calling the API.
+
 ## Runtime Behavior
 
 On startup the server spawns the Python token service, then starts listening on port `3000`. If the port is already in use, it automatically tries the next port until it finds one available.
@@ -106,11 +114,11 @@ Server running on http://localhost:3000
 
 ## Required Environment Variables
 
-| Variable                    | Notes                                                                                                                                                                                                                                                            |
-| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `MONGODB_CONNECTION_STRING` | MongoDB connection URI; checked at startup and before every DB call                                                                                                                                                                                              |
-| `OPENAI_API_KEY`            | Picked up automatically by the OpenAI SDK; no explicit reference in source. Also now required at process startup, not just call time — `cover-letter-generator`'s `dist/llm.js` constructs an OpenAI client at import time, and `src/app.ts` imports it eagerly. |
-| `PYTHON`                    | Optional. Overrides Python binary resolution for the token service subprocess                                                                                                                                                                                    |
+| Variable                    | Notes                                                                                                                                                                                                                                                                                                           |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `MONGODB_CONNECTION_STRING` | MongoDB connection URI; checked at startup and before every DB call                                                                                                                                                                                                                                             |
+| `OPENAI_API_KEY`            | Picked up automatically by the OpenAI SDK; the server never reads it explicitly, but `npm run smoke:generator-model` does. Also now required at process startup, not just call time — `cover-letter-generator`'s `dist/llm.js` constructs an OpenAI client at import time, and `src/app.ts` imports it eagerly. |
+| `PYTHON`                    | Optional. Overrides Python binary resolution for the token service subprocess                                                                                                                                                                                                                                   |
 
 Copy `.env.example` to `.env` and fill in the values to configure these locally — `npm run dev` and `npm start` both load it automatically via Node's `--env-file-if-exists` flag if present. Variables already set in the shell or by a process manager take precedence over `.env` values.
 
@@ -263,6 +271,7 @@ The `duplicateKey` is stable across scrape runs and used to detect jobs that hav
 - Nodemon watches TypeScript files in `src` and runs the entry point through the `ts-node` ESM loader.
 - TypeScript strict mode is enabled (`noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`).
 - Tests run against compiled `dist/` output, not source TypeScript — always `npm run build` before running Jest directly.
+- CI has two workflows: `.github/workflows/test.yml` runs `npm run test:once` on every push and pull request, and `.github/workflows/generator-model-smoke.yml` runs `npm run smoke:generator-model` weekly, on manual dispatch, and on pull requests that change the `cover-letter-generator` pin, the `openai` SDK version, or the smoke check itself. Pull requests that can't see the `OPENAI_API_KEY` secret (from a fork or Dependabot) skip the smoke check, while a scheduled or manual run without the secret fails.
 
 ## Responsible Scraping
 
