@@ -44,12 +44,26 @@ export default async function uploadCertificates(
         return;
     }
 
-    const fileValidities = await Promise.all(
-        files.map(async (file) => ({
-            file,
-            valid: await fileContentMatchesMimetype(file.path, file.mimetype),
-        })),
-    );
+    let fileValidities: { file: Express.Multer.File; valid: boolean }[];
+    try {
+        fileValidities = await Promise.all(
+            files.map(async (file) => ({
+                file,
+                valid: await fileContentMatchesMimetype(
+                    file.path,
+                    file.mimetype,
+                ),
+            })),
+        );
+    } catch (error) {
+        createErrorMessage(
+            response,
+            error,
+            'Error uploading certificates',
+            500,
+        );
+        return;
+    }
     const invalidFile = fileValidities.find((entry) => !entry.valid)?.file;
     if (invalidFile) {
         await Promise.all(

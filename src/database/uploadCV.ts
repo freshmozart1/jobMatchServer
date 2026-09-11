@@ -43,12 +43,17 @@ export default async function uploadCV(
         );
         return;
     }
-    if (
-        !(await fileContentMatchesMimetype(
+    let contentMatchesPdf: boolean;
+    try {
+        contentMatchesPdf = await fileContentMatchesMimetype(
             request.file.path,
             request.file.mimetype,
-        ))
-    ) {
+        );
+    } catch (error) {
+        createErrorMessage(response, error, 'Error uploading CV', 500);
+        return;
+    }
+    if (!contentMatchesPdf) {
         await unlink(request.file.path).catch(() => {});
         createErrorMessage(
             response,
