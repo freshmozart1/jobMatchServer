@@ -222,7 +222,7 @@ Returns whether certificates have been uploaded for the given job.
 
 ### `POST /cover-letters/create/text`
 
-Body: a job plus `{ "x"?: number }` (default `3`). Ranks all stored cover letters against the job using the [`cover-letter-generator`](https://github.com/freshmozart1/cover-letter-generator) package's `embedJob` and `getTopXSimilarCoverLetters`, then generates a new cover letter from the top `x` matches via the package's `generateCoverLetter`. Generation itself is delegated to that package, so the exact model it uses internally isn't documented here. Returns `{ "coverLetter": string }`.
+Body: a job plus `{ "x"?: number }` (default `3`). Ranks all stored cover letters against the job using the [`cover-letter-generator`](https://github.com/freshmozart1/cover-letter-generator) package's `embedJob` and `getTopXSimilarCoverLetters`, then generates a new cover letter from the top `x` matches via the package's `generateCoverLetter`. Generation itself is delegated to that package, so the exact model it uses internally isn't documented here. Returns `{ "coverLetter": string, "saved": true, "coverLetterId": string }`. `saved: true` means the generator's exact embedded segments are already persisted under the request job's `duplicateKey`; clients should not immediately upload the unchanged generated text through `POST /cover-letters/upload/text`.
 
 ### `POST /cover-letters/revise/text`
 

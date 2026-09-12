@@ -11,6 +11,7 @@ import {
     getGeneratorCoverLetterTextSegments,
     reconstructCoverLetterText,
     toGeneratorCoverLetter,
+    toStoredCoverLetter,
 } from './coverLetterAdapters.js';
 import {
     connectionStringConfigured,
@@ -70,6 +71,29 @@ async function findStoredCoverLetters(
     }
 }
 
+// Use a fresh, short-lived client for the post-generation write so no MongoDB
+// connection remains open during the model round trips.
+async function storeGeneratedCoverLetter(
+    client: MongoClient,
+    coverLetter: Omit<StoredCoverLetter, 'jobDuplicateKey'>,
+    jobDuplicateKey: string,
+): Promise<WithId<StoredCoverLetter>['_id'] | undefined> {
+    try {
+        await client.connect();
+        const savedCoverLetter = await getCollection<StoredCoverLetter>(
+            client,
+            'coverLetters',
+        ).findOneAndReplace(
+            { jobDuplicateKey },
+            { ...coverLetter, jobDuplicateKey },
+            { upsert: true, returnDocument: 'after' },
+        );
+        return savedCoverLetter?._id;
+    } finally {
+        await client.close();
+    }
+}
+
 export default async function generateCoverLetterAsText(
     req: Request<object, object, GenerateCoverLetterAsTextRequestBody>,
     res: Response,
@@ -88,10 +112,10 @@ export default async function generateCoverLetterAsText(
 
     if (!connectionStringConfigured(res)) return;
 
-    const client = new MongoClient(MONGODB_CONNECTION!);
+    const readClient = new MongoClient(MONGODB_CONNECTION!);
 
     try {
-        const storedCoverLetters = await findStoredCoverLetters(client);
+        const storedCoverLetters = await findStoredCoverLetters(readClient);
 
         const packageCoverLetters = storedCoverLetters.map(
             toGeneratorCoverLetter,
@@ -117,11 +141,19 @@ export default async function generateCoverLetterAsText(
         );
 
         const generated = await generateCoverLetter(job, exampleSegments);
+        const writeClient = new MongoClient(MONGODB_CONNECTION!);
+        const coverLetterId = await storeGeneratedCoverLetter(
+            writeClient,
+            toStoredCoverLetter(generated),
+            jobData.duplicateKey,
+        );
 
         res.status(200).json({
             coverLetter: reconstructCoverLetterText(
                 getGeneratorCoverLetterTextSegments(generated),
             ),
+            saved: true,
+            coverLetterId,
         });
     } catch (error) {
         createErrorMessage(

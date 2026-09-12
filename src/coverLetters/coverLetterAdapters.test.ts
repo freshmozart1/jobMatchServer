@@ -10,6 +10,7 @@ import {
     getGeneratorCoverLetterTextSegments,
     reconstructCoverLetterText,
     toGeneratorCoverLetter,
+    toStoredCoverLetter,
 } from './coverLetterAdapters.js';
 
 const storedCoverLetter = {
@@ -84,6 +85,34 @@ describe('toGeneratorCoverLetter', () => {
 
         expect(result.subject).toEqual({ text: 'Subject: Application' });
         expect('embedding' in result.subject).toBe(false);
+    });
+});
+
+describe('toStoredCoverLetter', () => {
+    it('maps a package CoverLetter to the stored shape, keeping embeddings', () => {
+        const packageCoverLetter = {
+            subject: { text: 'Subject: Application', embedding: [0.1] },
+            salutation: { text: 'Dear Hiring Manager,', embedding: [0.2] },
+            introduction: { text: 'I am excited to apply.', embedding: [0.3] },
+            mainBody: { text: 'I build software.', embedding: [0.4] },
+            conclusion: {
+                text: 'I look forward to speaking with you.',
+                embedding: [0.5],
+            },
+            greetings: { text: 'Best regards\nOle' },
+        } satisfies CoverLetter;
+
+        expect(toStoredCoverLetter(packageCoverLetter)).toEqual({
+            subject: { text: 'Subject: Application', embedding: [0.1] },
+            salutation: { text: 'Dear Hiring Manager,', embedding: [0.2] },
+            introduction: { text: 'I am excited to apply.', embedding: [0.3] },
+            mainBody: { text: 'I build software.', embedding: [0.4] },
+            conclusion: {
+                text: 'I look forward to speaking with you.',
+                embedding: [0.5],
+            },
+            greetings: { text: 'Best regards\nOle', embedding: null },
+        });
     });
 });
 

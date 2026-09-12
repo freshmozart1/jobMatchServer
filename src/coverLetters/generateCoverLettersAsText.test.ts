@@ -25,6 +25,7 @@ import {
     embedJob,
     getTopXSimilarCoverLetters,
     generateCoverLetter,
+    segmentCoverLetter,
 } from '../testMockModules/coverLetterGenerator.test.js';
 import createResponse from '../testHelpers/createResponse.test.js';
 import createRequest from '../testHelpers/createRequest.test.js';
@@ -183,6 +184,13 @@ describe('isValidGenerateCoverLetterAsTextRequestBody', () => {
 
 const find = createFind<WithId<StoredCoverLetter>>();
 const toArray = createToArray<WithId<StoredCoverLetter>>();
+const findOneAndReplace = jest.fn<
+    (
+        filter: { jobDuplicateKey: string },
+        replacement: StoredCoverLetter,
+        options: { upsert: boolean; returnDocument: string },
+    ) => Promise<{ _id: string } | null>
+>();
 
 const storedCoverLetter: WithId<StoredCoverLetter> = {
     _id: {
@@ -221,15 +229,25 @@ const matchedCoverLetter = {
 } satisfies CoverLetter;
 
 const generatedCoverLetter = {
-    subject: { text: 'Generated subject' },
-    salutation: { text: 'Dear Hiring Manager,' },
-    introduction: { text: 'Generated introduction' },
-    mainBody: { text: 'Generated main body' },
-    conclusion: { text: 'Generated conclusion' },
-    greetings: { text: 'Best regards\nOle' },
+    subject: { text: 'Generated subject', embedding: [1.1] },
+    salutation: { text: 'Dear Hiring Manager,', embedding: [1.2] },
+    introduction: { text: 'Generated introduction', embedding: [1.3] },
+    mainBody: { text: 'Generated main body', embedding: [1.4] },
+    conclusion: { text: 'Generated conclusion', embedding: [1.5] },
+    greetings: { text: 'Best regards\nOle', embedding: [1.6] },
 } satisfies CoverLetter;
 
+const storedGeneratedCoverLetter = {
+    subject: { text: 'Generated subject', embedding: [1.1] },
+    salutation: { text: 'Dear Hiring Manager,', embedding: [1.2] },
+    introduction: { text: 'Generated introduction', embedding: [1.3] },
+    mainBody: { text: 'Generated main body', embedding: [1.4] },
+    conclusion: { text: 'Generated conclusion', embedding: [1.5] },
+    greetings: { text: 'Best regards\nOle', embedding: [1.6] },
+} satisfies StoredCoverLetter;
+
 const jobEmbedding = [0.7, 0.8, 0.9];
+const savedCoverLetterId = 'saved-cover-letter-id';
 
 describe('generateCoverLetterAsText', () => {
     beforeEach(() => {
@@ -238,9 +256,10 @@ describe('generateCoverLetterAsText', () => {
 
         connect.mockResolvedValue();
         close.mockResolvedValue();
-        getCollection.mockReturnValue({ find });
+        getCollection.mockReturnValue({ find, findOneAndReplace });
         toArray.mockResolvedValue([storedCoverLetter]);
         find.mockReturnValue({ toArray });
+        findOneAndReplace.mockResolvedValue({ _id: savedCoverLetterId });
         embedJob.mockResolvedValue(jobEmbedding);
         getTopXSimilarCoverLetters.mockResolvedValue([
             { coverLetter: matchedCoverLetter, similarity: 0.9 },
@@ -252,7 +271,7 @@ describe('generateCoverLetterAsText', () => {
         jest.restoreAllMocks();
     });
 
-    it('ranks stored cover letters against the job and returns the generated cover letter text', async () => {
+    it('ranks stored cover letters, persists the generated segments, and returns saved-state metadata', async () => {
         const request = createRequest<ScrapedJob & { x?: number }>({
             body: { ...createJob<ScrapedJob>(), x: 2 },
         });
@@ -280,13 +299,24 @@ describe('generateCoverLetterAsText', () => {
             },
             [getGeneratorCoverLetterTextSegments(matchedCoverLetter)],
         );
+        expect(findOneAndReplace).toHaveBeenCalledWith(
+            { jobDuplicateKey: 'linkedin:123456789' },
+            {
+                ...storedGeneratedCoverLetter,
+                jobDuplicateKey: 'linkedin:123456789',
+            },
+            { upsert: true, returnDocument: 'after' },
+        );
+        expect(segmentCoverLetter).not.toHaveBeenCalled();
         expect(status).toHaveBeenCalledWith(200);
         expect(json).toHaveBeenCalledWith({
             coverLetter:
                 'Generated subject\n\nDear Hiring Manager,\n\nGenerated introduction\n\nGenerated main body\n\nGenerated conclusion\n\nBest regards\nOle',
+            saved: true,
+            coverLetterId: savedCoverLetterId,
         });
-        expect(connect).toHaveBeenCalledTimes(1);
-        expect(close).toHaveBeenCalledTimes(1);
+        expect(connect).toHaveBeenCalledTimes(2);
+        expect(close).toHaveBeenCalledTimes(2);
     });
 
     it('defaults x to 3 when the x key is absent entirely from the request body', async () => {
@@ -375,6 +405,79 @@ describe('generateCoverLetterAsText', () => {
         expect(close).toHaveBeenCalledTimes(1);
     });
 
+    it('returns a sanitized 500 and closes both clients when saving fails', async () => {
+        const error = new Error('save failed');
+        findOneAndReplace.mockRejectedValue(error);
+        const request = createRequest<ScrapedJob & { x?: number }>({
+            body: createJob<ScrapedJob & { x?: number }>(),
+        });
+        const { response, status, json } = createResponse();
+
+        await generateCoverLetterAsText(request, response);
+
+        expect(status).toHaveBeenCalledTimes(1);
+        expect(status).toHaveBeenCalledWith(500);
+        expect(json).toHaveBeenCalledWith({
+            message: 'Error generating cover letter',
+            error: 'Provider request failed',
+        });
+        expect(console.error).toHaveBeenCalledWith(
+            'Error generating cover letter',
+            error,
+        );
+        expect(connect).toHaveBeenCalledTimes(2);
+        expect(close).toHaveBeenCalledTimes(2);
+    });
+
+    it('returns a sanitized 500 and closes the write client when its connection fails', async () => {
+        const error = new Error('write connect failed');
+        connect.mockResolvedValueOnce().mockRejectedValueOnce(error);
+        const request = createRequest<ScrapedJob & { x?: number }>({
+            body: createJob<ScrapedJob & { x?: number }>(),
+        });
+        const { response, status, json } = createResponse();
+
+        await generateCoverLetterAsText(request, response);
+
+        expect(generateCoverLetter).toHaveBeenCalledTimes(1);
+        expect(findOneAndReplace).not.toHaveBeenCalled();
+        expect(status).toHaveBeenCalledTimes(1);
+        expect(status).toHaveBeenCalledWith(500);
+        expect(json).toHaveBeenCalledWith({
+            message: 'Error generating cover letter',
+            error: 'Provider request failed',
+        });
+        expect(console.error).toHaveBeenCalledWith(
+            'Error generating cover letter',
+            error,
+        );
+        expect(close).toHaveBeenCalledTimes(2);
+    });
+
+    it('returns a sanitized 500 instead of success when closing the write client fails', async () => {
+        const error = new Error('write close failed');
+        close.mockResolvedValueOnce().mockRejectedValueOnce(error);
+        const request = createRequest<ScrapedJob & { x?: number }>({
+            body: createJob<ScrapedJob & { x?: number }>(),
+        });
+        const { response, status, json } = createResponse();
+
+        await generateCoverLetterAsText(request, response);
+
+        expect(findOneAndReplace).toHaveBeenCalledTimes(1);
+        expect(status).toHaveBeenCalledTimes(1);
+        expect(status).toHaveBeenCalledWith(500);
+        expect(json).toHaveBeenCalledWith({
+            message: 'Error generating cover letter',
+            error: 'Provider request failed',
+        });
+        expect(console.error).toHaveBeenCalledWith(
+            'Error generating cover letter',
+            error,
+        );
+        expect(close).toHaveBeenCalledTimes(2);
+    });
+
     it('closes the client after reading stored cover letters and before the LLM round trips', async () => {
         const request = createRequest<ScrapedJob & { x?: number }>({
             body: createJob<ScrapedJob & { x?: number }>(),
@@ -391,11 +494,18 @@ describe('generateCoverLetterAsText', () => {
         await generateCoverLetterAsText(request, response);
 
         expect(status).toHaveBeenCalledWith(200);
-        expect(close).toHaveBeenCalledTimes(1);
+        expect(connect).toHaveBeenCalledTimes(2);
+        expect(close).toHaveBeenCalledTimes(2);
         expect(firstCall(toArray)).toBeLessThan(firstCall(close));
         expect(firstCall(close)).toBeLessThan(firstCall(embedJob));
         expect(firstCall(embedJob)).toBeLessThan(
             firstCall(generateCoverLetter),
+        );
+        expect(generateCoverLetter.mock.invocationCallOrder[0]).toBeLessThan(
+            connect.mock.invocationCallOrder[1] ?? Number.NaN,
+        );
+        expect(connect.mock.invocationCallOrder[1]).toBeLessThan(
+            close.mock.invocationCallOrder[1] ?? Number.NaN,
         );
     });
 

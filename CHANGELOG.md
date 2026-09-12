@@ -2,6 +2,18 @@
 
 All notable changes to this project are documented in this file.
 
+## v5.2.3
+
+### Fixed
+
+- `POST /cover-letters/create/text` now upserts the generated cover letter under
+  the request job's `duplicateKey`, preserving the generator's exact segments
+  and embeddings instead of discarding them and requiring the client's next
+  autosave to reconstruct the same segmentation. The response still includes
+  the flattened `coverLetter` text for editing and now also returns
+  `saved: true` plus the stored `coverLetterId`, allowing clients to skip an
+  immediate upload of unchanged generated text (closes #141).
+
 ## v5.2.2
 
 ### Fixed
