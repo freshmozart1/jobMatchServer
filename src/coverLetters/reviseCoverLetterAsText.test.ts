@@ -1,4 +1,11 @@
-import { beforeEach, describe, expect, it, jest } from '@jest/globals';
+import {
+    afterEach,
+    beforeEach,
+    describe,
+    expect,
+    it,
+    jest,
+} from '@jest/globals';
 import type { ReviseCoverLetterAsTextRequestBody } from '#types';
 import {
     mockCoverLetterGeneratorModule,
@@ -17,6 +24,7 @@ mockLocalDatabaseModule();
 const {
     default: reviseCoverLetterAsText,
     isValidReviseCoverLetterAsTextRequestBody,
+    REVISE_COVER_LETTER_DEADLINE_MS,
 } = await import('./reviseCoverLetterAsText.js');
 
 const validBody: ReviseCoverLetterAsTextRequestBody = {
@@ -70,6 +78,11 @@ describe('reviseCoverLetterAsText', () => {
     beforeEach(() => {
         jest.clearAllMocks();
         jest.spyOn(console, 'error').mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+        jest.useRealTimers();
+        jest.restoreAllMocks();
     });
 
     it('passes the exact request context to the helper and returns its replacement', async () => {
@@ -167,10 +180,9 @@ describe('reviseCoverLetterAsText', () => {
         'returns a sanitized 500 for an invalid helper result %#',
         async (replacementText) => {
             reviseCoverLetterText.mockResolvedValue(replacementText);
-            const request =
-                createRequest<ReviseCoverLetterAsTextRequestBody>({
-                    body: validBody,
-                });
+            const request = createRequest<ReviseCoverLetterAsTextRequestBody>({
+                body: validBody,
+            });
             const { response, status, json } = createResponse();
 
             await reviseCoverLetterAsText(request, response);
@@ -186,7 +198,9 @@ describe('reviseCoverLetterAsText', () => {
 
     it('returns a sanitized 500 when the provider fails', async () => {
         reviseCoverLetterText.mockRejectedValue(
-            new Error(`Provider failed while processing ${validBody.selectedText}`),
+            new Error(
+                `Provider failed while processing ${validBody.selectedText}`,
+            ),
         );
         const request = createRequest<ReviseCoverLetterAsTextRequestBody>({
             body: validBody,
@@ -203,6 +217,41 @@ describe('reviseCoverLetterAsText', () => {
         expect(JSON.stringify(json.mock.calls)).not.toContain(
             validBody.selectedText,
         );
+        expect(getCollection).not.toHaveBeenCalled();
+    });
+
+    it('returns a sanitized 504 and never responds again when revision settles after the deadline', async () => {
+        jest.useFakeTimers();
+        let resolveRevision: ((value: string) => void) | undefined;
+        reviseCoverLetterText.mockImplementation(
+            () =>
+                new Promise<string>((resolve) => {
+                    resolveRevision = resolve;
+                }),
+        );
+        const request = createRequest<ReviseCoverLetterAsTextRequestBody>({
+            body: validBody,
+        });
+        const { response, status, json } = createResponse();
+
+        const handler = reviseCoverLetterAsText(request, response);
+        await jest.advanceTimersByTimeAsync(REVISE_COVER_LETTER_DEADLINE_MS);
+        await handler;
+
+        expect(status).toHaveBeenCalledTimes(1);
+        expect(status).toHaveBeenCalledWith(504);
+        expect(json).toHaveBeenCalledTimes(1);
+        expect(json).toHaveBeenCalledWith({
+            message: 'Cover letter revision deadline exceeded',
+            error: 'Request deadline exceeded',
+        });
+
+        resolveRevision?.('Late replacement');
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(status).toHaveBeenCalledTimes(1);
+        expect(json).toHaveBeenCalledTimes(1);
         expect(getCollection).not.toHaveBeenCalled();
     });
 });

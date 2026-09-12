@@ -2,6 +2,9 @@ import type { ReviseCoverLetterAsTextRequestBody } from '#types';
 import type { Request, Response } from 'express';
 import { reviseCoverLetterText } from 'cover-letter-generator';
 import { createErrorMessage } from '../errors/createErrorMessage.js';
+import { DeadlineExceededError, withDeadline } from '../utils/withDeadline.js';
+
+export const REVISE_COVER_LETTER_DEADLINE_MS = 60 * 1000;
 
 function isNonEmptyStringProp(object: object, key: string): boolean {
     const value = (object as Record<string, unknown>)[key];
@@ -63,29 +66,46 @@ export default async function reviseCoverLetterAsText(
     }
 
     try {
-        const replacementText = await reviseCoverLetterText({
-            selectedText,
-            instruction,
-            coverLetterText,
-            job: {
-                title: job.title,
-                company: job.company,
-                description: job.description ?? '',
-                ...(job.location !== undefined
-                    ? { location: job.location }
-                    : {}),
-            },
-        });
-        if (
-            typeof replacementText !== 'string' ||
-            replacementText.trim().length === 0 ||
-            replacementText.includes('```')
-        ) {
-            throw new Error('Revision helper returned an invalid replacement');
-        }
+        const replacementText = await withDeadline(async () => {
+            const replacement = await reviseCoverLetterText({
+                selectedText,
+                instruction,
+                coverLetterText,
+                job: {
+                    title: job.title,
+                    company: job.company,
+                    description: job.description ?? '',
+                    ...(job.location !== undefined
+                        ? { location: job.location }
+                        : {}),
+                },
+            });
+            if (
+                typeof replacement !== 'string' ||
+                replacement.trim().length === 0 ||
+                replacement.includes('```')
+            ) {
+                throw new Error(
+                    'Revision helper returned an invalid replacement',
+                );
+            }
+
+            return replacement;
+        }, REVISE_COVER_LETTER_DEADLINE_MS);
 
         response.status(200).json({ replacementText });
     } catch (error) {
+        if (error instanceof DeadlineExceededError) {
+            createErrorMessage(
+                response,
+                error,
+                'Cover letter revision deadline exceeded',
+                504,
+                'Request deadline exceeded',
+            );
+            return;
+        }
+
         createErrorMessage(
             response,
             error,
