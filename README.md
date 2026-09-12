@@ -93,6 +93,14 @@ Run the test suite (builds first, then runs Jest against `dist/`):
 npm run test:once
 ```
 
+Check that the OpenAI API still accepts the model and reasoning effort `cover-letter-generator` generates cover letters with (builds first, then sends one live Responses API request):
+
+```bash
+npm run smoke:generator-model
+```
+
+The test suite mocks `cover-letter-generator` entirely, so it can't catch a model or reasoning effort the API no longer accepts. This check reads both from the installed package and sends one small request using `OPENAI_API_KEY` (loaded from `.env` if present), so **a local run bills a real API request**. It prints `Passed`, `Skipped`, or `Failed` and exits non-zero only on failure; with no key set it skips without calling the API.
+
 ## Runtime Behavior
 
 On startup the server spawns the Python token service, then starts listening on port `3000`. If the port is already in use, it automatically tries the next port until it finds one available.
@@ -106,11 +114,11 @@ Server running on http://localhost:3000
 
 ## Required Environment Variables
 
-| Variable                    | Notes                                                                                                                                                                                                                                                            |
-| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `MONGODB_CONNECTION_STRING` | MongoDB connection URI; checked at startup and before every DB call                                                                                                                                                                                              |
-| `OPENAI_API_KEY`            | Picked up automatically by the OpenAI SDK; no explicit reference in source. Also now required at process startup, not just call time — `cover-letter-generator`'s `dist/llm.js` constructs an OpenAI client at import time, and `src/app.ts` imports it eagerly. |
-| `PYTHON`                    | Optional. Overrides Python binary resolution for the token service subprocess                                                                                                                                                                                    |
+| Variable                    | Notes                                                                                                                                                                                                                                                                                                           |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `MONGODB_CONNECTION_STRING` | MongoDB connection URI; checked at startup and before every DB call                                                                                                                                                                                                                                             |
+| `OPENAI_API_KEY`            | Picked up automatically by the OpenAI SDK; the server never reads it explicitly, but `npm run smoke:generator-model` does. Also now required at process startup, not just call time — `cover-letter-generator`'s `dist/llm.js` constructs an OpenAI client at import time, and `src/app.ts` imports it eagerly. |
+| `PYTHON`                    | Optional. Overrides Python binary resolution for the token service subprocess                                                                                                                                                                                                                                   |
 
 Copy `.env.example` to `.env` and fill in the values to configure these locally — `npm run dev` and `npm start` both load it automatically via Node's `--env-file-if-exists` flag if present. Variables already set in the shell or by a process manager take precedence over `.env` values.
 
@@ -139,7 +147,11 @@ Body:
 keyword). `datePosted` is one of `"day"`, `"week"`, or `"month"`. `location` is
 optional — omit it, or send `""`, to search without narrowing to a city, and the
 param is simply not sent to LinkedIn; any other non-string value is rejected.
-The response
+`distance` is optional too — omit it, or send a positive integer, but it is
+only forwarded to LinkedIn (as `distanceMiles`) when `location` is also
+present; a `distance` sent without a `location` is accepted but never reaches
+LinkedIn, since a radius is meaningless without a location to centre it on,
+and any other value is rejected. The response
 is an SSE stream. It starts with a `: ping` comment, sends a `: keepalive`
 comment every 15 seconds, and carries these JSON values in `data:` frames:
 
@@ -190,7 +202,7 @@ Renders the stored cover letter to a standalone PDF and streams it as `cover-let
 
 ### `POST /cv/upload`
 
-Multipart form upload (`file`) plus a `jobDuplicateKey` field. Stores the CV file and associates it with the job.
+Multipart form upload (`file`) plus a `jobDuplicateKey` field. Stores the CV file and associates it with the job. The upload must genuinely be a PDF: its declared `Content-Type` must be `application/pdf`, and its actual content is verified against the PDF file signature (magic bytes). A file that fails either check is rejected with `400` and deleted from disk.
 
 ### `GET /cv/:jobDuplicateKey`
 
@@ -202,7 +214,7 @@ Returns whether a CV has been uploaded for the given job.
 
 ### `POST /certificates/upload`
 
-Multipart form upload (up to 10 files, 10MB each, PDF/JPEG/PNG only) plus a `jobDuplicateKey` field. Stores each certificate and associates it with the job.
+Multipart form upload (up to 10 files, 10MB each, PDF/JPEG/PNG only) plus a `jobDuplicateKey` field. Stores each certificate and associates it with the job. Each file's declared `Content-Type` and its actual content (verified against the PDF/JPEG/PNG file signature) must both match a PDF, JPEG, or PNG. This check is all-or-nothing across the batch: if any file fails, every file in the request is rejected with `400` and deleted from disk.
 
 ### `GET /certificates/:jobDuplicateKey/status`
 
@@ -263,6 +275,7 @@ The `duplicateKey` is stable across scrape runs and used to detect jobs that hav
 - Nodemon watches TypeScript files in `src` and runs the entry point through the `ts-node` ESM loader.
 - TypeScript strict mode is enabled (`noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`).
 - Tests run against compiled `dist/` output, not source TypeScript — always `npm run build` before running Jest directly.
+- CI has two workflows: `.github/workflows/test.yml` runs `npm run test:once` on every push and pull request, and `.github/workflows/generator-model-smoke.yml` runs `npm run smoke:generator-model` weekly, on manual dispatch, and on pull requests that change the `cover-letter-generator` pin, the `openai` SDK version, or the smoke check itself. Pull requests that can't see the `OPENAI_API_KEY` secret (from a fork or Dependabot) skip the smoke check, while a scheduled or manual run without the secret fails.
 
 ## Responsible Scraping
 

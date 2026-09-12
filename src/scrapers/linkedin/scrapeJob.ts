@@ -17,6 +17,7 @@ import {
     MONGODB_CONNECTION,
 } from '#database/database.js';
 import { createErrorMessage } from '../../errors/createErrorMessage.js';
+import { describeErrorMessage } from '../../errors/describeErrorMessage.js';
 import { createJobEmbedding } from '../../embeddings/jobEmbedding.js';
 import { getLinkedInJobScraperSearchParamsFromBody } from '#utils/getLinkedInJobScraperSearchParamsFromBody.js';
 import { computeJobMatch } from './linkedInJobSimilarity.js';
@@ -41,47 +42,19 @@ const KEEPALIVE_INTERVAL_MS = 15_000;
 // could silently drift. It names every field because the previous bare 'Invalid request
 // body' told a user who left the UI's "(optional)" location blank nothing at all (#143).
 export const INVALID_BODY_ERROR_MESSAGE =
-    'Invalid request body. Please provide keywords as a non-empty string or array of non-empty strings, distance as a positive integer, datePosted as "day", "week", or "month", and an optional string location.';
-
-// Reads a non-Error rejection's own `message`: a `{ message, code }` object or
-// a cross-realm Error fails `instanceof` yet still carries a real message, one
-// `String()` would flatten to "[object Object]". Only `message` is read, so no
-// other field of the rejection can reach the wire.
-function errorLikeMessage(reason: unknown): string | undefined {
-    const message = (reason as { message?: unknown } | null | undefined)
-        ?.message;
-    return typeof message === 'string' && message.length > 0
-        ? message
-        : undefined;
-}
+    'Invalid request body. Please provide keywords as a non-empty string or array of non-empty strings, datePosted as "day", "week", or "month", an optional string location, and an optional positive integer distance.';
 
 // Reduces a rejection value to the single string the failure frame carries.
-// Only a message goes on the wire, following createErrorMessage()'s convention:
-// an Error's own fields are non-enumerable, so stringifying the error itself
-// yields `{}` (#124), while spreading it would leak internal state.
-//
-// Every fallback is load-bearing:
-//   - `message || name`: `new Error().message` is `''`, and an empty reason is
-//     falsy on the client — as uninformative as the `{}` it replaced.
-//   - `errorLikeMessage`: see above.
-//   - the try/catch: `String()` throws on a null-prototype object (or anything
-//     else lacking `toString`/`valueOf`), and a throw here would escape past
-//     scrapeJob's `res.end()` and strand the SSE stream open.
+// Only a message goes on the wire, following createErrorMessage()'s convention;
+// describeErrorMessage() documents why each of its fallbacks is load-bearing.
+// The one this caller depends on most is that it never throws: a throw here
+// would escape past scrapeJob's `res.end()` and strand the SSE stream open.
 //
 // The result is a raw scraper/Playwright message and this endpoint has no auth
 // (see CLAUDE.md), so the frame deliberately discloses internal failure detail
 // to any caller — acceptable for a single-user service, but not free.
 function describeFailureReason(reason: unknown): string {
-    if (reason instanceof Error) {
-        return reason.message || reason.name || UNKNOWN_FAILURE_REASON;
-    }
-    const errorLike = errorLikeMessage(reason);
-    if (errorLike !== undefined) return errorLike;
-    try {
-        return String(reason) || UNKNOWN_FAILURE_REASON;
-    } catch {
-        return UNKNOWN_FAILURE_REASON;
-    }
+    return describeErrorMessage(reason, UNKNOWN_FAILURE_REASON);
 }
 
 function writeIfConnected(
@@ -407,7 +380,12 @@ export async function scrapeJob(req: Request, res: Response): Promise<void> {
                         keyword,
                         datePosted,
                         ...(location !== undefined ? { location } : {}),
-                        distanceMiles: distance,
+                        // distanceMiles is meaningless to linkedin-job-scraper's
+                        // buildSearchUrl without a location to centre it on, so it's
+                        // only forwarded when both are present (#148).
+                        ...(location !== undefined && distance !== undefined
+                            ? { distanceMiles: distance }
+                            : {}),
                     },
                     signal: controller.signal,
                     scraperOptions: { shouldScrapeJob },

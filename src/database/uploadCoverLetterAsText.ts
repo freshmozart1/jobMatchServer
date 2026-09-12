@@ -3,7 +3,7 @@ import {
   segmentCoverLetter,
   embedCoverLetterSegments,
 } from 'cover-letter-generator';
-import { MongoClient } from 'mongodb';
+import { MongoClient, type ObjectId } from 'mongodb';
 import {
   connectionStringConfigured,
   getCollection,
@@ -37,6 +37,35 @@ function isValidCoverLetterAsTextRequestBody(
   return true;
 }
 
+// Scoped to the one write the client serves, so the connection opens after
+// segmentation and embedding instead of idling through those round trips.
+async function storeCoverLetter(
+  client: MongoClient,
+  coverLetter: Omit<StoredCoverLetter, 'jobDuplicateKey'>,
+  jobDuplicateKey: string | undefined,
+): Promise<ObjectId | undefined> {
+  try {
+    await client.connect();
+    const coverLettersCollection = getCollection<StoredCoverLetter>(
+      client,
+      'coverLetters',
+    );
+
+    if (jobDuplicateKey) {
+      const upserted = await coverLettersCollection.findOneAndReplace(
+        { jobDuplicateKey },
+        { ...coverLetter, jobDuplicateKey },
+        { upsert: true, returnDocument: 'after' },
+      );
+      return upserted?._id;
+    }
+    const result = await coverLettersCollection.insertOne(coverLetter);
+    return result.insertedId;
+  } finally {
+    await client.close();
+  }
+}
+
 export default async function uploadCoverLetterAsText(
   request: Request<object, object, CoverLetterAsTextRequestBody>,
   response: Response,
@@ -60,44 +89,26 @@ export default async function uploadCoverLetterAsText(
   const { coverLetterText, jobDuplicateKey } = request.body;
   const client = new MongoClient(MONGODB_CONNECTION!);
   try {
-    await client.connect();
-    const coverLettersCollection = getCollection<StoredCoverLetter>(
-      client,
-      'coverLetters',
-    );
     const { segments } = await segmentCoverLetter(coverLetterText);
     const coverLetter = toStoredCoverLetter(
       await embedCoverLetterSegments(segments),
     );
-
-    if (jobDuplicateKey) {
-      const upserted = await coverLettersCollection.findOneAndReplace(
-        { jobDuplicateKey },
-        { ...coverLetter, jobDuplicateKey },
-        { upsert: true, returnDocument: 'after' },
-      );
-      response
-        .status(201)
-        .json({
-          message: 'Cover letter uploaded',
-          coverLetterId: upserted?._id,
-        });
-    } else {
-      const result = await coverLettersCollection.insertOne(coverLetter);
-      response
-        .status(201)
-        .json({
-          message: 'Cover letter uploaded',
-          coverLetterId: result.insertedId,
-        });
-    }
+    const coverLetterId = await storeCoverLetter(
+      client,
+      coverLetter,
+      jobDuplicateKey,
+    );
+    response
+      .status(201)
+      .json({
+        message: 'Cover letter uploaded',
+        coverLetterId,
+      });
   } catch (error) {
     createErrorMessage(
       response,
       error,
       'An error occurred while uploading the cover letter',
     );
-  } finally {
-    await client.close();
   }
 }

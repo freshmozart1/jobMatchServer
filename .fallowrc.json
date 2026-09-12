@@ -1,4 +1,12 @@
 {
-  "entry": ["src/**/*.test.ts"],
-  "ignoreDependencies": ["@jest/globals"]
+    "entry": ["src/**/*.test.ts"],
+    "ignoreDependencies": ["@jest/globals"],
+    "framework": [
+        {
+            "name": "jest-src-tests",
+            "enablers": ["jest"],
+            "entryPoints": ["src/**/*.test.ts"],
+            "entryPointRole": "test"
+        }
+    ]
 }

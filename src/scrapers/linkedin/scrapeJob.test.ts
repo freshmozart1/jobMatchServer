@@ -1051,9 +1051,10 @@ describe('scrapeJob', () => {
         );
 
         expect(capturedSearchParams).toEqual([
-            { keyword: 'TypeScript', datePosted: 'day', distanceMiles: 25 },
+            { keyword: 'TypeScript', datePosted: 'day' },
         ]);
         expect(capturedSearchParams[0]).not.toHaveProperty('location');
+        expect(capturedSearchParams[0]).not.toHaveProperty('distanceMiles');
         expect(writeHead).toHaveBeenCalledTimes(1);
         expect(end).toHaveBeenCalledTimes(1);
     });
@@ -1067,9 +1068,25 @@ describe('scrapeJob', () => {
         await scrapeJob(createRequest(bodyWithoutLocation), response);
 
         expect(capturedSearchParams).toEqual([
-            { keyword: 'TypeScript', datePosted: 'day', distanceMiles: 25 },
+            { keyword: 'TypeScript', datePosted: 'day' },
         ]);
         expect(capturedSearchParams[0]).not.toHaveProperty('location');
+        expect(capturedSearchParams[0]).not.toHaveProperty('distanceMiles');
+        expect(end).toHaveBeenCalledTimes(1);
+    });
+
+    it('omits distanceMiles from searchParams when the body has a location but no distance key', async () => {
+        const { distance, ...bodyWithoutDistance } = validBody;
+        void distance;
+        const capturedSearchParams = runScrapeCapturingSearchParams();
+        const { response, end } = createSseResponse();
+
+        await scrapeJob(createRequest(bodyWithoutDistance), response);
+
+        expect(capturedSearchParams).toEqual([
+            { keyword: 'TypeScript', datePosted: 'day', location: 'Berlin' },
+        ]);
+        expect(capturedSearchParams[0]).not.toHaveProperty('distanceMiles');
         expect(end).toHaveBeenCalledTimes(1);
     });
 

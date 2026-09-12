@@ -2,7 +2,7 @@
 
 All notable changes to this project are documented in this file.
 
-## v5.1.4
+## v5.2.3
 
 ### Fixed
 
@@ -13,6 +13,227 @@ All notable changes to this project are documented in this file.
   the flattened `coverLetter` text for editing and now also returns
   `saved: true` plus the stored `coverLetterId`, allowing clients to skip an
   immediate upload of unchanged generated text (closes #141).
+
+## v5.2.2
+
+### Fixed
+
+- `POST /cv/upload` and `POST /certificates/upload` now reject a file whose
+  actual content doesn't match its declared type, instead of trusting a weak
+  mimetype-or-extension check that either half alone could spoof (a renamed
+  `.exe` given a `.pdf` extension, or a forged `Content-Type` header, both
+  used to pass). `src/app.ts` gives each multer instance a `fileFilter` that
+  checks the declared mimetype only (`isAllowedCvMimetype.ts`:
+  `application/pdf` for `/cv/upload`; `isAllowedCertificateMimetype.ts`:
+  `application/pdf`/`image/jpeg`/`image/jpg`/`image/png` for
+  `/certificates/upload`, unchanged from before), and a rejected file now
+  answers a clean `400` JSON body via a new `handleUploadFilterError`
+  middleware instead of silently proceeding. Real verification happens after
+  multer writes the file to disk: the new `src/utils/verifyFileContentType.ts`
+  (`fileContentMatchesMimetype`) reads the file's leading bytes and compares
+  them against its declared mimetype's magic-byte signature (`%PDF-` for PDF,
+  `FF D8 FF` for JPEG, the 8-byte PNG header), replacing the old
+  mimetype-or-extension check entirely in both `uploadCV.ts` and
+  `uploadCertificates.ts`. A file that fails is deleted from disk (best-effort)
+  and the request answers `400`; for `/certificates/upload`'s batch upload
+  this is all-or-nothing, matching that route's pre-existing all-or-nothing
+  semantics. `/certificates/upload` still accepts PDF/JPEG/PNG — only
+  `/cv/upload` is PDF-only. This closes a validation gap rather than changing
+  an intentional feature, so previously-accepted non-conforming uploads (which
+  should never have succeeded) now correctly answer `400` (closes #64).
+
+## v5.2.1
+
+### Fixed
+
+- `POST /scrape/linkedin` now accepts a request whose `distance` is absent
+  instead of answering `400`, mirroring #143's `location` fix. `distance` was
+  the last field `getLinkedInJobScraperSearchParamsFromBody.ts` still
+  required, so a request with no location and no distance kept failing
+  validation even though neither field means anything without the other.
+  Absent and `undefined` now both mean "no distance"; any other value must
+  still be a valid positive integer, so garbage input keeps producing a `400`.
+  `scrapeJob.ts` also no longer always forwards `distanceMiles` into
+  `linkedin-job-scraper`'s search params — a radius is meaningless without a
+  location to centre it on, so it is only sent when both `location` and
+  `distance` survive validation; a `distance` supplied with no `location` is
+  accepted by the validator but silently dropped before it reaches LinkedIn
+  (closes #148).
+
+## v5.2.0
+
+### Added
+
+- `npm run smoke:generator-model`, an opt-in check that the OpenAI API still
+  accepts the model and reasoning effort `cover-letter-generator` generates
+  with. Every test mocks that package wholesale, so green CI never proved that
+  `gpt-6-astra` at `reasoning.effort: 'high'`, which #133 moved generation to,
+  can actually be reached. The script builds, reads both values from the
+  installed package rather than a copy, and sends one minimal Responses API
+  request with them, capped at `max_output_tokens: 256` and using a strict
+  `json_schema` output format that mirrors the package's own call shape. A
+  `completed` or `incomplete` response passes, since either proves the request
+  was accepted; a `failed` or unexpected status, or a rejected request, fails
+  with the HTTP status, error code, parameter, and message — except a `401`,
+  whose provider text is never echoed because it contains part of the key. An
+  unset or blank `OPENAI_API_KEY` skips without calling the API. A local run
+  bills a real request. Both values are deep-imported from
+  `cover-letter-generator/dist/constants/` because the package does not export
+  them, so an upstream rename breaks the build in the bump PR itself; a public
+  export that doesn't construct an OpenAI client is requested upstream in
+  freshmozart1/cover-letter-generator#51 (closes #140).
+- A separate `Generator model smoke check` workflow
+  (`.github/workflows/generator-model-smoke.yml`) runs the script weekly, on
+  manual dispatch, and on pull requests that touch `package.json`,
+  `package-lock.json`, the workflow, or `src/smokeChecks/`. On a pull request it
+  makes the live call only when the `cover-letter-generator` lockfile pin, the
+  `openai` SDK version, the `smoke:generator-model` script, or the smoke check
+  files actually changed, because every release PR's version bump touches both
+  package files; otherwise it skips. A pull request that cannot see the
+  `OPENAI_API_KEY` secret, such as one from a fork or Dependabot, skips too, but
+  a scheduled or manual run without the secret fails, so a deleted secret cannot
+  pass unnoticed. It installs with `npm ci`, and a newer push cancels the run it
+  supersedes. This pull request's own runs made the live call and passed.
+  Segmentation's LLM fallback model and the embedding model are not covered:
+  the package keeps both as file-local, unexported constants.
+
+### Changed
+
+- The reducer that turns a rejection into the `reason` of
+  `POST /scrape/linkedin`'s SSE failure frame moved out of `scrapeJob.ts` into
+  the shared `src/errors/describeErrorMessage.ts`, which the smoke check also
+  uses. It keeps the same fallbacks — `message || name`, an error-like object's
+  `message`, then a guarded `String()` — and still never puts the error object
+  itself on the wire, so the frame is unchanged for ordinary rejections. It is
+  also hardened against a rejection whose `message` getter throws: that now
+  reads as having no message and falls through to `String()`, where the old
+  helper let the throw escape the reducer, the kind of throw its comment warned
+  could strand the stream open.
+
+## v5.1.7
+
+### Changed
+
+- `POST /cover-letters/upload/text` no longer holds its `MongoClient` open
+  across the model round trips. The handler used to connect first and then keep
+  that idle connection through `segmentCoverLetter` (heuristic, with an LLM
+  fallback) and `embedCoverLetterSegments` (an OpenAI embeddings call) before
+  its only database operation, so every concurrent upload pinned a connection
+  for both calls — the same defect v5.1.5 fixed for
+  `POST /cover-letters/create/text`. Segmentation and embedding now finish
+  before the handler connects, and the write runs in a local `storeCoverLetter`
+  helper that connects, upserts by `jobDuplicateKey` or inserts, and closes in
+  its own `finally`, mirroring that route's `findStoredCoverLetters`. The `201`
+  bodies, the `400` validation, the stored documents, and the `500` answer for
+  a failed segmentation, embedding, connect, or write are unchanged. Three edge
+  cases move on purpose. A failed segmentation or embedding call no longer
+  opens a connection at all. If MongoDB is unreachable, a request now pays for
+  segmentation and embedding before `connect()` fails, where it used to fail
+  first; that is accepted, because `connect()` already waits out server
+  selection (`serverSelectionTimeoutMS`, 30 s by default) during such an
+  outage, while the saving applies to every healthy upload. A malformed
+  connection string still fails before any model call, because the client is
+  still constructed up front and construction throws synchronously. And the
+  `201` is now sent after the client closes, so a `close()` rejection after a
+  successful write would answer `500` instead of escaping the handler after the
+  `201`; driver 7.5 squashes `endSessions` failures inside `close()` and this
+  server configures no client-side encryption, so that path is not expected in
+  practice. New tests pin that embedding settles before `connect()` and that
+  the client closes after either write, that a failed segmentation or embedding
+  call answers `500` without connecting, that a rejected connect, insert, or
+  upsert answers `500` with exactly one close, and — as v5.1.5 does for the
+  create route — that a `close()` rejection after the write answers `500`
+  rather than `201`. The suite now silences `console.error` with a spy restored
+  after each test.
+
+## v5.1.6
+
+### Changed
+
+- The shared `cover-letter-generator` Jest mock factory,
+  `src/testMockModules/coverLetterGenerator.test.ts`, now also exports
+  `COVER_LETTER_SEGMENT_NAMES` — the package's only runtime value export besides
+  its six functions. `jest.unstable_mockModule` replaces the whole module, and
+  `coverLetterAdapters.ts` imports that constant, so a test that registered the
+  mock and then loaded the adapters with a dynamic `await import(...)` — the
+  ordering CLAUDE.md prescribes — failed to link with a `SyntaxError` saying the
+  module does not provide an export named `COVER_LETTER_SEGMENT_NAMES`.
+  `generateCoverLettersAsText.test.ts`, the only suite using the adapters under
+  the mock, passed by accident: it imported them statically, before the mock was
+  registered. It now imports them dynamically after the mocks, and asserts the
+  generated letter as a literal string instead of recomputing it with the
+  handler's own helpers. To keep the mock from drifting again, each mocked
+  function is typed from the package's own signature
+  (`jest.fn<typeof CoverLetterGenerator.segmentCoverLetter>()` and so on) and
+  the factory's returned object
+  `satisfies Omit<typeof CoverLetterGenerator, 'default'>`, so `npm run build`
+  fails when a package upgrade adds or removes a value export or changes one's
+  parameter or return type. That also removed the mock's hand-copied signatures
+  and made `uploadCoverLetterAsText.test.ts` resolve `segmentCoverLetter` with
+  the `confidence` and `source` a `SegmentationResult` requires (#156). A new
+  test in `coverLetterAdapters.test.ts`, run against the real package, checks
+  that the mock's hand-copied array equals the real one in contents and order,
+  which the package's widened `CoverLetterSegmentName[]` type cannot. Test
+  infrastructure only: no runtime behavior, endpoint, request/response shape, or
+  stored document changed (#152) (closes #138).
+
+## v5.1.5
+
+### Changed
+
+- `POST /cover-letters/create/text` no longer holds its `MongoClient` open
+  across the LLM round trips. The handler used to connect, read every stored
+  cover letter, and then keep that idle connection until an outer `finally` ran
+  after `embedJob`, `getTopXSimilarCoverLetters`, and `generateCoverLetter` —
+  and since v5.1.2 moved generation to `gpt-6-astra` at
+  `reasoning.effort: 'high'`, every in-flight request pinned a connection for
+  the whole reasoning-model round trip. The read now runs in a local
+  `findStoredCoverLetters` helper that connects, reads, and closes in its own
+  `finally`, so the connection is released before the first LLM call. The
+  route's request/response shapes, its `200` body, and v5.1.4's sanitized `500`
+  handling are unchanged: a failed connect or read still closes the client and
+  answers `500` with `Provider request failed`, and so does a failed embedding,
+  ranking, or generation call, by which point the client has already been
+  closed exactly once — v5.1.4's per-call rejection tests still pin all of
+  those. One edge case moves on purpose: if `client.close()` rejects after a
+  successful read, the request now answers that same sanitized `500` before any
+  LLM call, where previously the close only ran after the `200` had already been
+  sent. Two new tests pin the call order (read, close, embed, generate) and that
+  close-failure `500` (closes #136).
+
+## v5.1.4
+
+### Fixed
+
+- `POST /cover-letters/create/text` no longer echoes the raw error message in
+  its `500` body. Its `catch` let `createErrorMessage`'s `publicError` default
+  to the caught error, so the response's `error` field carried whatever the
+  provider said — and an `OpenAI.APIError` message can include organization or
+  project identifiers, request IDs, and quota detail, on a server with no auth.
+  The route now passes the literal `Provider request failed` as `publicError`,
+  exactly as `POST /cover-letters/revise/text` already did, and the real error
+  stays server-side in the `console.error` log. The `{ message, error }`
+  response shape is unchanged; only the content of the `error` string is. The
+  route's single `try` also wraps the MongoDB `connect()` and `find().toArray()`
+  calls, so a database failure now gets the same `Provider request failed`
+  string even though no provider was involved — accepted deliberately.
+  `createErrorMessage`'s own default is untouched, so every other `500` call
+  site that omits `publicError` still sends raw messages, most notably
+  `POST /cover-letters/upload/text`, which forwards raw OpenAI errors from
+  segmentation's LLM fallback and segment embedding; those remaining call sites
+  are tracked in #155 (closes #135).
+
+### Changed
+
+- `POST /cover-letters/create/text`'s `500` path is now covered by tests; it
+  previously had none. A new `it.each` in `generateCoverLettersAsText.test.ts`
+  rejects each awaited call in turn — `connect`, `find().toArray`, `embedJob`,
+  `getTopXSimilarCoverLetters`, and `generateCoverLetter` — and asserts that
+  each produces exactly one sanitized `500` response (`status` and `json` each
+  called once), that a sentinel secret embedded in the error never reaches the
+  body, that the real error is still logged via `console.error`, and that the
+  MongoDB client is still closed. The suite now silences `console.error` with a
+  spy that is restored after each test (closes #137).
 
 ## v5.1.3
 

@@ -1,6 +1,6 @@
 import type { ScrapedJob, StoredCoverLetter } from '#types';
 import type { Request, Response } from 'express';
-import { MongoClient } from 'mongodb';
+import { MongoClient, type WithId } from 'mongodb';
 import {
     embedJob,
     generateCoverLetter,
@@ -56,6 +56,44 @@ export function isValidGenerateCoverLetterAsTextRequestBody(
     );
 }
 
+// Scoped to the one read the client serves, so the connection is released
+// before the embedding and generation round trips instead of idling (#136).
+async function findStoredCoverLetters(
+    client: MongoClient,
+): Promise<WithId<StoredCoverLetter>[]> {
+    try {
+        await client.connect();
+        return await getCollection<StoredCoverLetter>(client, 'coverLetters')
+            .find()
+            .toArray();
+    } finally {
+        await client.close();
+    }
+}
+
+// Use a fresh, short-lived client for the post-generation write so no MongoDB
+// connection remains open during the model round trips.
+async function storeGeneratedCoverLetter(
+    client: MongoClient,
+    coverLetter: Omit<StoredCoverLetter, 'jobDuplicateKey'>,
+    jobDuplicateKey: string,
+): Promise<WithId<StoredCoverLetter>['_id'] | undefined> {
+    try {
+        await client.connect();
+        const savedCoverLetter = await getCollection<StoredCoverLetter>(
+            client,
+            'coverLetters',
+        ).findOneAndReplace(
+            { jobDuplicateKey },
+            { ...coverLetter, jobDuplicateKey },
+            { upsert: true, returnDocument: 'after' },
+        );
+        return savedCoverLetter?._id;
+    } finally {
+        await client.close();
+    }
+}
+
 export default async function generateCoverLetterAsText(
     req: Request<object, object, GenerateCoverLetterAsTextRequestBody>,
     res: Response,
@@ -74,17 +112,10 @@ export default async function generateCoverLetterAsText(
 
     if (!connectionStringConfigured(res)) return;
 
-    const client = new MongoClient(MONGODB_CONNECTION!);
+    const readClient = new MongoClient(MONGODB_CONNECTION!);
 
     try {
-        await client.connect();
-        const coverLettersCollection = getCollection<StoredCoverLetter>(
-            client,
-            'coverLetters',
-        );
-        const storedCoverLetters = await coverLettersCollection
-            .find()
-            .toArray();
+        const storedCoverLetters = await findStoredCoverLetters(readClient);
 
         const packageCoverLetters = storedCoverLetters.map(
             toGeneratorCoverLetter,
@@ -110,13 +141,11 @@ export default async function generateCoverLetterAsText(
         );
 
         const generated = await generateCoverLetter(job, exampleSegments);
-        const savedCoverLetter = await coverLettersCollection.findOneAndReplace(
-            { jobDuplicateKey: jobData.duplicateKey },
-            {
-                ...toStoredCoverLetter(generated),
-                jobDuplicateKey: jobData.duplicateKey,
-            },
-            { upsert: true, returnDocument: 'after' },
+        const writeClient = new MongoClient(MONGODB_CONNECTION!);
+        const coverLetterId = await storeGeneratedCoverLetter(
+            writeClient,
+            toStoredCoverLetter(generated),
+            jobData.duplicateKey,
         );
 
         res.status(200).json({
@@ -124,11 +153,15 @@ export default async function generateCoverLetterAsText(
                 getGeneratorCoverLetterTextSegments(generated),
             ),
             saved: true,
-            coverLetterId: savedCoverLetter?._id,
+            coverLetterId,
         });
     } catch (error) {
-        createErrorMessage(res, error, 'Error generating cover letter', 500);
-    } finally {
-        await client.close();
+        createErrorMessage(
+            res,
+            error,
+            'Error generating cover letter',
+            500,
+            'Provider request failed',
+        );
     }
 }
