@@ -40,6 +40,7 @@ mockCoverLetterGeneratorModule();
 // at module scope (the adapters import its COVER_LETTER_SEGMENT_NAMES value),
 // so that mock must be registered before these imports run.
 const {
+    GENERATE_COVER_LETTER_DEADLINE_MS,
     default: generateCoverLetterAsText,
     isValidGenerateCoverLetterAsTextRequestBody,
 } = await import('./generateCoverLettersAsText.js');
@@ -184,13 +185,14 @@ describe('isValidGenerateCoverLetterAsTextRequestBody', () => {
 
 const find = createFind<WithId<StoredCoverLetter>>();
 const toArray = createToArray<WithId<StoredCoverLetter>>();
-const findOneAndReplace = jest.fn<
-    (
-        filter: { jobDuplicateKey: string },
-        replacement: StoredCoverLetter,
-        options: { upsert: boolean; returnDocument: string },
-    ) => Promise<{ _id: string } | null>
->();
+const findOneAndReplace =
+    jest.fn<
+        (
+            filter: { jobDuplicateKey: string },
+            replacement: StoredCoverLetter,
+            options: { upsert: boolean; returnDocument: string },
+        ) => Promise<{ _id: string } | null>
+    >();
 
 const storedCoverLetter: WithId<StoredCoverLetter> = {
     _id: {
@@ -268,6 +270,7 @@ describe('generateCoverLetterAsText', () => {
     });
 
     afterEach(() => {
+        jest.useRealTimers();
         jest.restoreAllMocks();
     });
 
@@ -532,5 +535,73 @@ describe('generateCoverLetterAsText', () => {
         );
         expect(close).toHaveBeenCalledTimes(1);
         expect(embedJob).not.toHaveBeenCalled();
+    });
+
+    it('returns a sanitized 504 and never responds again when generation settles after the deadline', async () => {
+        jest.useFakeTimers();
+        let resolveGeneration: ((value: CoverLetter) => void) | undefined;
+        generateCoverLetter.mockImplementation(
+            () =>
+                new Promise<CoverLetter>((resolve) => {
+                    resolveGeneration = resolve;
+                }),
+        );
+        const request = createRequest<ScrapedJob & { x?: number }>({
+            body: createJob<ScrapedJob & { x?: number }>(),
+        });
+        const { response, status, json } = createResponse();
+
+        const handler = generateCoverLetterAsText(request, response);
+        await jest.advanceTimersByTimeAsync(GENERATE_COVER_LETTER_DEADLINE_MS);
+        await handler;
+
+        expect(status).toHaveBeenCalledTimes(1);
+        expect(status).toHaveBeenCalledWith(504);
+        expect(json).toHaveBeenCalledTimes(1);
+        expect(json).toHaveBeenCalledWith({
+            message: 'Cover letter generation deadline exceeded',
+            error: 'Request deadline exceeded',
+        });
+
+        resolveGeneration?.(generatedCoverLetter);
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(status).toHaveBeenCalledTimes(1);
+        expect(json).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps the persistence step inside the generation deadline', async () => {
+        jest.useFakeTimers();
+        let resolveSave: ((value: { _id: string } | null) => void) | undefined;
+        findOneAndReplace.mockImplementation(
+            () =>
+                new Promise<{ _id: string } | null>((resolve) => {
+                    resolveSave = resolve;
+                }),
+        );
+        const request = createRequest<ScrapedJob & { x?: number }>({
+            body: createJob<ScrapedJob & { x?: number }>(),
+        });
+        const { response, status, json } = createResponse();
+
+        const handler = generateCoverLetterAsText(request, response);
+        await jest.advanceTimersByTimeAsync(GENERATE_COVER_LETTER_DEADLINE_MS);
+        await handler;
+
+        expect(generateCoverLetter).toHaveBeenCalledTimes(1);
+        expect(findOneAndReplace).toHaveBeenCalledTimes(1);
+        expect(status).toHaveBeenCalledWith(504);
+        expect(json).toHaveBeenCalledWith({
+            message: 'Cover letter generation deadline exceeded',
+            error: 'Request deadline exceeded',
+        });
+
+        resolveSave?.({ _id: savedCoverLetterId });
+        await jest.advanceTimersByTimeAsync(0);
+
+        expect(close).toHaveBeenCalledTimes(2);
+        expect(status).toHaveBeenCalledTimes(1);
+        expect(json).toHaveBeenCalledTimes(1);
     });
 });

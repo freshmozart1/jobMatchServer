@@ -25,6 +25,9 @@ import {
     hasOptionalStringProp,
     hasStringProp,
 } from '../utils/requestBodyValidators.js';
+import { DeadlineExceededError, withDeadline } from '../utils/withDeadline.js';
+
+export const GENERATE_COVER_LETTER_DEADLINE_MS = 5 * 60 * 1000;
 
 type GenerateCoverLetterAsTextRequestBody = ScrapedJob & { x?: number };
 
@@ -112,50 +115,64 @@ export default async function generateCoverLetterAsText(
 
     if (!connectionStringConfigured(res)) return;
 
-    const readClient = new MongoClient(MONGODB_CONNECTION!);
-
     try {
-        const storedCoverLetters = await findStoredCoverLetters(readClient);
+        const result = await withDeadline(async () => {
+            const readClient = new MongoClient(MONGODB_CONNECTION!);
+            const storedCoverLetters = await findStoredCoverLetters(readClient);
 
-        const packageCoverLetters = storedCoverLetters.map(
-            toGeneratorCoverLetter,
-        );
+            const packageCoverLetters = storedCoverLetters.map(
+                toGeneratorCoverLetter,
+            );
 
-        const job: Job = {
-            title: jobData.title,
-            company: jobData.company,
-            description: jobData.descriptionText ?? '',
-            ...(jobData.location !== undefined
-                ? { location: jobData.location }
-                : {}),
-        };
+            const job: Job = {
+                title: jobData.title,
+                company: jobData.company,
+                description: jobData.descriptionText ?? '',
+                ...(jobData.location !== undefined
+                    ? { location: jobData.location }
+                    : {}),
+            };
 
-        const jobEmbedding = await embedJob(job);
-        const matches = await getTopXSimilarCoverLetters(
-            x ?? 3,
-            jobEmbedding,
-            packageCoverLetters,
-        );
-        const exampleSegments = matches.map(({ coverLetter }) =>
-            getGeneratorCoverLetterTextSegments(coverLetter),
-        );
+            const jobEmbedding = await embedJob(job);
+            const matches = await getTopXSimilarCoverLetters(
+                x ?? 3,
+                jobEmbedding,
+                packageCoverLetters,
+            );
+            const exampleSegments = matches.map(({ coverLetter }) =>
+                getGeneratorCoverLetterTextSegments(coverLetter),
+            );
 
-        const generated = await generateCoverLetter(job, exampleSegments);
-        const writeClient = new MongoClient(MONGODB_CONNECTION!);
-        const coverLetterId = await storeGeneratedCoverLetter(
-            writeClient,
-            toStoredCoverLetter(generated),
-            jobData.duplicateKey,
-        );
+            const generated = await generateCoverLetter(job, exampleSegments);
+            const writeClient = new MongoClient(MONGODB_CONNECTION!);
+            const coverLetterId = await storeGeneratedCoverLetter(
+                writeClient,
+                toStoredCoverLetter(generated),
+                jobData.duplicateKey,
+            );
 
-        res.status(200).json({
-            coverLetter: reconstructCoverLetterText(
-                getGeneratorCoverLetterTextSegments(generated),
-            ),
-            saved: true,
-            coverLetterId,
-        });
+            return {
+                coverLetter: reconstructCoverLetterText(
+                    getGeneratorCoverLetterTextSegments(generated),
+                ),
+                saved: true,
+                coverLetterId,
+            };
+        }, GENERATE_COVER_LETTER_DEADLINE_MS);
+
+        res.status(200).json(result);
     } catch (error) {
+        if (error instanceof DeadlineExceededError) {
+            createErrorMessage(
+                res,
+                error,
+                'Cover letter generation deadline exceeded',
+                504,
+                'Request deadline exceeded',
+            );
+            return;
+        }
+
         createErrorMessage(
             res,
             error,
