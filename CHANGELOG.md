@@ -2,6 +2,25 @@
 
 All notable changes to this project are documented in this file.
 
+## v5.3.0
+
+### Added
+
+- Added handler-local deadlines to the two provider-backed cover-letter text
+  routes. `POST /cover-letters/create/text` now races its entire asynchronous
+  operation — the MongoDB read/close, embedding, ranking, generation, and the
+  generated-letter persistence added in v5.2.3 — against a 5-minute deadline,
+  while `POST /cover-letters/revise/text` races its complete revision operation
+  against a 60-second deadline. Expiry returns a sanitized `504` with public
+  `error: "Request deadline exceeded"` (and a route-specific
+  generation/revision `message`), distinct from the existing sanitized `500`
+  `Provider request failed` response for provider or database failures. The
+  deadline only bounds how long the handler waits: this repository cannot cancel
+  package-owned provider work, and a MongoDB operation may likewise settle and
+  close its client after the `504`; late settlement does not send a second
+  response. No global server timeout or scraper SSE behavior changed (closes
+  #139).
+
 ## v5.2.3
 
 ### Fixed
