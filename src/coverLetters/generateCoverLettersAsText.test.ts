@@ -429,6 +429,55 @@ describe('generateCoverLetterAsText', () => {
         expect(close).toHaveBeenCalledTimes(2);
     });
 
+    it('returns a sanitized 500 and closes the write client when its connection fails', async () => {
+        const error = new Error('write connect failed');
+        connect.mockResolvedValueOnce().mockRejectedValueOnce(error);
+        const request = createRequest<ScrapedJob & { x?: number }>({
+            body: createJob<ScrapedJob & { x?: number }>(),
+        });
+        const { response, status, json } = createResponse();
+
+        await generateCoverLetterAsText(request, response);
+
+        expect(generateCoverLetter).toHaveBeenCalledTimes(1);
+        expect(findOneAndReplace).not.toHaveBeenCalled();
+        expect(status).toHaveBeenCalledTimes(1);
+        expect(status).toHaveBeenCalledWith(500);
+        expect(json).toHaveBeenCalledWith({
+            message: 'Error generating cover letter',
+            error: 'Provider request failed',
+        });
+        expect(console.error).toHaveBeenCalledWith(
+            'Error generating cover letter',
+            error,
+        );
+        expect(close).toHaveBeenCalledTimes(2);
+    });
+
+    it('returns a sanitized 500 instead of success when closing the write client fails', async () => {
+        const error = new Error('write close failed');
+        close.mockResolvedValueOnce().mockRejectedValueOnce(error);
+        const request = createRequest<ScrapedJob & { x?: number }>({
+            body: createJob<ScrapedJob & { x?: number }>(),
+        });
+        const { response, status, json } = createResponse();
+
+        await generateCoverLetterAsText(request, response);
+
+        expect(findOneAndReplace).toHaveBeenCalledTimes(1);
+        expect(status).toHaveBeenCalledTimes(1);
+        expect(status).toHaveBeenCalledWith(500);
+        expect(json).toHaveBeenCalledWith({
+            message: 'Error generating cover letter',
+            error: 'Provider request failed',
+        });
+        expect(console.error).toHaveBeenCalledWith(
+            'Error generating cover letter',
+            error,
+        );
+        expect(close).toHaveBeenCalledTimes(2);
+    });
+
     it('closes the client after reading stored cover letters and before the LLM round trips', async () => {
         const request = createRequest<ScrapedJob & { x?: number }>({
             body: createJob<ScrapedJob & { x?: number }>(),
