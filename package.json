@@ -61,7 +61,7 @@
         "nodemon": "^3.1.14",
         "playwright": "^1.62.0",
         "prettier": "^3.9.6",
-        "qs": "^6.15.3",
+        "qs": "^6.16.0",
         "ts-node": "^10.9.2",
         "typescript": "^6.0.3",
         "typescript-eslint": "^8.65.0",
@@ -72,7 +72,7 @@
         "express": "^5.2.1",
         "linkedin-job-scraper": "github:freshmozart1/linkedin-job-scraper#v0.13.0",
         "mongodb": "^7.5.0",
-        "multer": "^2.2.0",
+        "multer": "^2.4.0",
         "openai": "^6.49.0",
         "pdf-lib": "^1.17.1",
         "puppeteer": "^25.4.0"
