@@ -5,6 +5,7 @@
 // filenames (uploadCV.ts, uploadCertificates.ts), not raw user input.
 // Verified 2026-07.
 import type { Request, Response } from 'express';
+import { withCvReadLease } from './cvFileAccess.js';
 import { readFile } from 'fs/promises';
 import type { MongoClient, WithId } from 'mongodb';
 import path from 'path';
@@ -116,7 +117,7 @@ function isMissingApplicationRecord(error: unknown): boolean {
     );
 }
 
-export default async function getApplication(
+async function createApplication(
     request: Request<{ jobDuplicateKey: string }>,
     response: Response,
 ): Promise<void> {
@@ -196,4 +197,13 @@ export default async function getApplication(
     } finally {
         await client.close();
     }
+}
+
+export default function getApplication(
+    request: Request<{ jobDuplicateKey: string }>,
+    response: Response,
+): Promise<void> {
+    return withCvReadLease(request.params.jobDuplicateKey, () =>
+        createApplication(request, response),
+    );
 }

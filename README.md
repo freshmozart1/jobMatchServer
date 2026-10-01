@@ -281,6 +281,19 @@ the same check and error. Other rendering failures still return `500`.
 
 Multipart form upload (`file`) plus a `jobDuplicateKey` field. Stores the CV file and associates it with the job. The upload must genuinely be a PDF: its declared `Content-Type` must be `application/pdf`, and its actual content is verified against the PDF file signature (magic bytes). A file that fails either check is rejected with `400` and deleted from disk.
 
+A successful upload returns `201` with `{ "message": "CV uploaded", "cvId": "..." }`.
+Replacing a CV preserves its record ID and removes the previous file only
+when it is an unreferenced direct child of the managed `uploads/cv` directory.
+A failed ownership check or deletion keeps the previous file and logs the
+cleanup failure without failing the new upload.
+Active CV and combined-application downloads in this server process finish
+using their selected CV before replacement cleanup removes it. Cleanup
+waits for existing readers of that job, then checks ownership again; new
+downloads wait during cleanup and read current CV metadata from the primary.
+This coordination is local to one server process. Multiple server processes
+sharing upload storage, or external writers, need shared coordination before
+using automatic replacement cleanup.
+
 ### `GET /cv/:jobDuplicateKey`
 
 Streams the stored CV PDF for the given job.
@@ -292,6 +305,20 @@ Returns whether a CV has been uploaded for the given job.
 ### `POST /certificates/upload`
 
 Multipart form upload (up to 10 files, 10MB each, PDF/JPEG/PNG only) plus a `jobDuplicateKey` field. Stores each certificate and associates it with the job. Each file's declared `Content-Type` and its actual content (verified against the PDF/JPEG/PNG file signature) must both match a PDF, JPEG, or PNG. This check is all-or-nothing across the batch: if any file fails, every file in the request is rejected with `400` and deleted from disk.
+
+Both upload handlers remove staged files after validation, content-read,
+configuration, missing-job, or other failures before a database write. Once
+a write succeeds, its files remain stored even if sending the response or
+closing the database client fails. For an acknowledged partial certificate
+insertion, the handler checks actual database references and removes only
+files that were not stored; generated insert IDs alone are not ownership
+proof. Cleanup is best effort and logs filesystem failures.
+
+Network, timeout, write-concern, or otherwise uncertain write outcomes retain
+the uploaded files, as does a failed ownership query. An immediate empty
+query cannot rule out a late commit. These retained files can require later
+manual reconciliation once the database outcome is known; there is no
+automatic orphan-file sweep.
 
 ### `GET /certificates/:jobDuplicateKey/status`
 
