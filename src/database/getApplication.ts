@@ -18,7 +18,11 @@ import type {
     StoredScrapedJob,
     StoredUser,
 } from '#types';
-import { coverLetterToHtml, renderCoverLetterPdf } from './coverLetterPdf.js';
+import {
+    CoverLetterOverflowError,
+    coverLetterToHtml,
+    renderCoverLetterPdf,
+} from './coverLetterPdf.js';
 import {
     createDatabaseClient,
     cvNotFoundError,
@@ -104,6 +108,14 @@ async function mergeCertificatesIntoPdf(
     }
 }
 
+function isMissingApplicationRecord(error: unknown): boolean {
+    return (
+        error === coverLetterNotFoundError ||
+        error === jobNotFoundError ||
+        error === cvNotFoundError
+    );
+}
+
 export default async function getApplication(
     request: Request<{ jobDuplicateKey: string }>,
     response: Response,
@@ -171,15 +183,15 @@ export default async function getApplication(
         );
         response.end(Buffer.from(mergedBytes));
     } catch (error) {
+        if (error instanceof CoverLetterOverflowError) {
+            createErrorMessage(response, error, error.message, 422);
+            return;
+        }
         createErrorMessage(
             response,
             error,
             'Error retrieving application',
-            error === coverLetterNotFoundError ||
-                error === jobNotFoundError ||
-                error === cvNotFoundError
-                ? 404
-                : 500,
+            isMissingApplicationRecord(error) ? 404 : 500,
         );
     } finally {
         await client.close();

@@ -2,6 +2,17 @@
 
 All notable changes to this project are documented in this file.
 
+## v5.3.6
+
+### Fixed
+
+- Detect cover-letter body text that would be clipped in the fixed one-page
+  PDF layout after print styles and fonts are ready. Both cover-letter and
+  combined-application downloads now return the same actionable `422` error
+  asking the user to shorten the letter, before producing PDF bytes or
+  merging attachments. Normal one-page rendering is unchanged, and genuine
+  rendering failures remain `500` (closes #170).
+
 ## v5.3.5
 
 ### Fixed

@@ -261,6 +261,22 @@ Body: `{ "coverLetterText": string, "jobDuplicateKey"?: string }`. Segments the 
 
 Renders the stored cover letter to a standalone PDF and streams it as `cover-letter.pdf`.
 
+The existing one-page layout is checked in the browser using print styles,
+loaded fonts, and the actual body text bounds. Text that would be clipped
+vertically or horizontally returns `422` JSON instead of a partial PDF:
+
+```json
+{
+    "message": "Cover letter text does not fit on one page. Shorten the letter and try downloading again.",
+    "error": "Cover letter text does not fit on one page. Shorten the letter and try downloading again."
+}
+```
+
+Shorten the saved cover letter and retry the download. This check measures
+layout rather than applying a character limit; empty trailing paragraph
+margins do not count as clipped text. The combined application download uses
+the same check and error. Other rendering failures still return `500`.
+
 ### `POST /cv/upload`
 
 Multipart form upload (`file`) plus a `jobDuplicateKey` field. Stores the CV file and associates it with the job. The upload must genuinely be a PDF: its declared `Content-Type` must be `application/pdf`, and its actual content is verified against the PDF file signature (magic bytes). A file that fails either check is rejected with `400` and deleted from disk.
@@ -304,6 +320,11 @@ Body: `{ "text": string, "model"?: string }`. Proxies to the Python token servic
 ### `GET /application/:jobDuplicateKey`
 
 Renders the stored cover letter to PDF, merges it with the CV and any certificates for that job, and streams the combined `application.pdf`.
+
+The cover-letter overflow check described above runs before reading attachment
+files or merging PDFs. An overflowing letter returns the same actionable
+`422` JSON and no application PDF; shorten the letter before downloading
+again.
 
 ## Job Model
 
