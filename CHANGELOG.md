@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented in this file.
 
+## v5.3.3
+
+### Fixed
+
+- Stop printing the MongoDB connection URI at startup so credentials and
+  secret query parameters are no longer copied into startup logs. Listener
+  startup, port fallback, and fatal-error cleanup are unchanged (closes #169).
+
 ## v5.3.2
 
 ### Fixed

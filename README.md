@@ -103,7 +103,7 @@ The test suite mocks `cover-letter-generator` entirely, so it can't catch a mode
 
 ## Runtime Behavior
 
-On startup the server spawns the Python token service, then starts listening on port `3000`. If the port is already in use, it automatically tries the next port until it finds one available.
+On startup the server spawns the Python token service, then starts listening on port `3000`. If the port is already in use, it automatically tries the next port until it finds one available. Startup does not print the MongoDB connection URI, which may contain credentials or secret query parameters.
 
 Example startup output:
 
