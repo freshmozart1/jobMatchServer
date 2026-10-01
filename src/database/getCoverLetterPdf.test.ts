@@ -35,6 +35,8 @@ const findOneUser = jest.fn<(filter: unknown) => Promise<StoredUser | null>>();
 type MockPdfOptions = { format?: string };
 type MockSetContentOptions = { waitUntil?: string };
 type MockPage = {
+  emulateMediaType: (type: string) => Promise<void>;
+  evaluate: () => Promise<boolean>;
   setContent: (html: string, options?: MockSetContentOptions) => Promise<void>;
   pdf: (options?: MockPdfOptions) => Promise<Uint8Array>;
   close: () => Promise<void>;
@@ -44,6 +46,8 @@ type MockBrowser = {
   close: () => Promise<void>;
 };
 
+const mockEmulateMediaType = jest.fn<(type: string) => Promise<void>>();
+const mockEvaluate = jest.fn<() => Promise<boolean>>();
 const mockPdf = jest.fn<(options?: MockPdfOptions) => Promise<Uint8Array>>();
 const mockSetContent =
   jest.fn<(html: string, options?: MockSetContentOptions) => Promise<void>>();
@@ -74,7 +78,10 @@ const mockCoverLetter: StoredCoverLetter & {
   subject: { text: 'Application for Software Engineer', embedding: null },
   salutation: { text: 'Dear Hiring Manager,', embedding: null },
   introduction: { text: 'I am writing to apply.', embedding: null },
-  mainBody: { text: 'I have experience.\n\nI am passionate.', embedding: null },
+  mainBody: {
+    text: 'I have experience.\n\nI am passionate.',
+    embedding: null,
+  },
   conclusion: { text: 'Thank you.', embedding: null },
   greetings: { text: 'Best regards,\nJohn Doe', embedding: null },
   jobDuplicateKey: duplicateKey,
@@ -114,10 +121,14 @@ describe('getCoverLetterPdf', () => {
     );
 
     mockNewPage.mockResolvedValue({
+      emulateMediaType: mockEmulateMediaType,
+      evaluate: mockEvaluate,
       setContent: mockSetContent,
       pdf: mockPdf,
       close: mockPageClose,
     });
+    mockEmulateMediaType.mockResolvedValue();
+    mockEvaluate.mockResolvedValue(false);
     mockSetContent.mockResolvedValue();
     mockPageClose.mockResolvedValue();
     mockPdf.mockResolvedValue(mockCoverLetterPdfBytes);
@@ -225,6 +236,48 @@ describe('getCoverLetterPdf', () => {
       error: 'Connection failed',
       message: 'Error retrieving cover letter',
     });
+    expect(close).toHaveBeenCalledTimes(1);
+  });
+  it('returns an actionable 422 for overflowing cover-letter text without a PDF response', async () => {
+    mockEvaluate.mockResolvedValue(true);
+    const request = createJobDuplicateKeyRequest(duplicateKey);
+    const { response, status, json } = createResponse();
+    const { setHeader, end } = mockResponseWithHeaders(response);
+
+    await getCoverLetterPdf(request, response);
+
+    const message =
+      'Cover letter text does not fit on one page. Shorten the letter and try downloading again.';
+    expect(status).toHaveBeenCalledWith(422);
+    expect(json).toHaveBeenCalledWith({ message, error: message });
+    expect(mockPdf).not.toHaveBeenCalled();
+    expect(setHeader).not.toHaveBeenCalled();
+    expect(end).not.toHaveBeenCalled();
+    expect(mockPageClose).toHaveBeenCalledTimes(1);
+    expect(mockBrowserClose).toHaveBeenCalledTimes(1);
+    expect(close).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps genuine rendering failures as 500 and closes browser resources', async () => {
+    mockEvaluate.mockRejectedValue(
+      new Error('Synthetic layout evaluation failed'),
+    );
+    const request = createJobDuplicateKeyRequest(duplicateKey);
+    const { response, status, json } = createResponse();
+    const { setHeader, end } = mockResponseWithHeaders(response);
+
+    await getCoverLetterPdf(request, response);
+
+    expect(status).toHaveBeenCalledWith(500);
+    expect(json).toHaveBeenCalledWith({
+      message: 'Error retrieving cover letter',
+      error: 'Synthetic layout evaluation failed',
+    });
+    expect(mockPdf).not.toHaveBeenCalled();
+    expect(setHeader).not.toHaveBeenCalled();
+    expect(end).not.toHaveBeenCalled();
+    expect(mockPageClose).toHaveBeenCalledTimes(1);
+    expect(mockBrowserClose).toHaveBeenCalledTimes(1);
     expect(close).toHaveBeenCalledTimes(1);
   });
 });

@@ -1,7 +1,11 @@
 import type { Request, Response } from 'express';
 import { createErrorMessage } from '../errors/createErrorMessage.js';
 import type { StoredCoverLetter, StoredUser } from '#types';
-import { coverLetterToHtml, renderCoverLetterPdf } from './coverLetterPdf.js';
+import {
+    CoverLetterOverflowError,
+    coverLetterToHtml,
+    renderCoverLetterPdf,
+} from './coverLetterPdf.js';
 import {
     createDatabaseClient,
     findJobByDuplicateKey,
@@ -47,6 +51,10 @@ export default async function getCoverLetterPdf(
         );
         response.end(Buffer.from(pdfBytes));
     } catch (error) {
+        if (error instanceof CoverLetterOverflowError) {
+            createErrorMessage(response, error, error.message, 422);
+            return;
+        }
         createErrorMessage(
             response,
             error,
