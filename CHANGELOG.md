@@ -2,6 +2,34 @@
 
 All notable changes to this project are documented in this file.
 
+## v5.3.4
+
+### Fixed
+
+- Accept JSON generation requests that omit optional `location`,
+  `descriptionText`, `postedAt`, or `tags` fields, individually or together.
+  Missing fields now reach cover-letter generation and persistence instead
+  of returning `400`; present invalid values remain rejected (closes #168).
+
+## v5.3.3
+
+### Fixed
+
+- Stop printing the MongoDB connection URI at startup so credentials and
+  secret query parameters are no longer copied into startup logs. Listener
+  startup, port fallback, and fatal-error cleanup are unchanged (closes #169).
+
+## v5.3.2
+
+### Fixed
+
+- Validate the complete `ScrapedJob` request at `POST /jobs/create` before
+  database setup or access. Malformed jobs, operator-valued or blank duplicate
+  keys, invalid embeddings, tags, and addresses now return `400` without
+  changing stored records. Valid jobs retain the existing scalar-key upsert,
+  stable database IDs, optional-field support, and scraper-normalized blank
+  text values (closes #167).
+
 ## v5.3.1
 
 ### Fixed
