@@ -2,6 +2,15 @@
 
 All notable changes to this project are documented in this file.
 
+## v5.3.4
+
+### Fixed
+
+- Accept JSON generation requests that omit optional `location`,
+  `descriptionText`, `postedAt`, or `tags` fields, individually or together.
+  Missing fields now reach cover-letter generation and persistence instead
+  of returning `400`; present invalid values remain rejected (closes #168).
+
 ## v5.3.3
 
 ### Fixed
