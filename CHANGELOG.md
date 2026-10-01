@@ -2,6 +2,16 @@
 
 All notable changes to this project are documented in this file.
 
+## v5.3.8
+
+### Fixed
+
+- Preserve JPEG and PNG certificate image proportions in application PDFs.
+  Uniformly fit and center each image within 36-point margins, using landscape
+  A4 for landscape images and portrait A4 for portrait or square images.
+  PDF certificate pages retain their dimensions; malformed or unsafe
+  certificates remain skipped without blank image pages (closes #172).
+
 ## v5.3.7
 
 ### Fixed

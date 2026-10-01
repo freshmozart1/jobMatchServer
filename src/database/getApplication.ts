@@ -6,6 +6,7 @@
 // Verified 2026-07.
 import type { Request, Response } from 'express';
 import { withCvReadLease } from './cvFileAccess.js';
+import { addCertificateImagePage } from './certificateImagePage.js';
 import { readFile } from 'fs/promises';
 import type { MongoClient, WithId } from 'mongodb';
 import path from 'path';
@@ -86,22 +87,10 @@ async function mergeCertificatesIntoPdf(
                 certificate.mimeType === 'image/jpg'
             ) {
                 const img = await merged.embedJpg(certificateBytes);
-                const certPage = merged.addPage([595.28, 841.89]);
-                certPage.drawImage(img, {
-                    x: 0,
-                    y: 0,
-                    width: 595.28,
-                    height: 841.89,
-                });
+                addCertificateImagePage(merged, img);
             } else if (certificate.mimeType === 'image/png') {
                 const img = await merged.embedPng(certificateBytes);
-                const certPage = merged.addPage([595.28, 841.89]);
-                certPage.drawImage(img, {
-                    x: 0,
-                    y: 0,
-                    width: 595.28,
-                    height: 841.89,
-                });
+                addCertificateImagePage(merged, img);
             }
         } catch {
             continue;

@@ -348,6 +348,14 @@ Body: `{ "text": string, "model"?: string }`. Proxies to the Python token servic
 
 Renders the stored cover letter to PDF, merges it with the CV and any certificates for that job, and streams the combined `application.pdf`.
 
+JPEG and PNG certificates preserve their original width-to-height ratio.
+Each image is scaled uniformly to fit an A4 page with at least 36 points
+(half an inch) of margin on every edge and centered on both axes. Landscape
+images use landscape A4; portrait and square images use portrait A4. PDF
+certificate pages retain their existing dimensions. Malformed or unsafe
+certificates are skipped without failing the application download.
+
+
 The cover-letter overflow check described above runs before reading attachment
 files or merging PDFs. An overflowing letter returns the same actionable
 `422` JSON and no application PDF; shorten the letter before downloading
