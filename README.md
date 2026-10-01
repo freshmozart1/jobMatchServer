@@ -251,6 +251,14 @@ Returns whether certificates have been uploaded for the given job.
 
 Body: a job plus `{ "x"?: number }` (default `3`). Ranks all stored cover letters against the job using the [`cover-letter-generator`](https://github.com/freshmozart1/cover-letter-generator) package's `embedJob` and `getTopXSimilarCoverLetters`, then generates a new cover letter from the top `x` matches via the package's `generateCoverLetter`. Generation itself is delegated to that package, so the exact model it uses internally isn't documented here. Returns `{ "coverLetter": string, "saved": true, "coverLetterId": string }`. `saved: true` means the generator's exact embedded segments are already persisted under the request job's `duplicateKey`; clients should not immediately upload the unchanged generated text through `POST /cover-letters/upload/text`. The entire handler operation, including the MongoDB read, provider work, and generated-letter persistence, has a 5-minute deadline. If it expires, the route returns `504` with `{ "message": "Cover letter generation deadline exceeded", "error": "Request deadline exceeded" }` instead of the existing sanitized `500` used for provider or database failures. The deadline bounds how long the handler waits; this repository cannot cancel package-owned provider work, and a provider or MongoDB operation may still settle (and a MongoDB client may close) after the `504` response.
 
+`location`, `descriptionText`, `postedAt`, and `tags` are optional in the
+generation request and may be omitted from JSON, individually or together.
+If supplied, the first three must be strings and `tags` must be an array of
+strings; `null` and other invalid types return `400`. A missing description is
+passed to the generator as an empty string; missing location stays omitted.
+Successful requests still persist the generated letter and return the same
+`saved` and `coverLetterId` fields.
+
 ### `POST /cover-letters/revise/text`
 
 Body: `{ "selectedText": string, "instruction": string, "coverLetterText": string, "job": { "title": string, "company": string, "location"?: string, "description"?: string } }`. Revises the selected passage using the instruction, complete draft, and job as context. Returns `{ "replacementText": string }`. The operation is stateless: the caller remains responsible for replacing the selected range and persisting the resulting draft through `POST /cover-letters/upload/text`. The entire provider-backed operation has a 60-second deadline. If it expires, the route returns `504` with `{ "message": "Cover letter revision deadline exceeded", "error": "Request deadline exceeded" }` instead of the existing sanitized `500` used for provider failures. The deadline bounds how long the handler waits; this repository cannot cancel the package-owned provider work, which may still settle after the `504` response.
