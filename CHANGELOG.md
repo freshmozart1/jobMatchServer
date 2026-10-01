@@ -2,6 +2,17 @@
 
 All notable changes to this project are documented in this file.
 
+## v5.3.1
+
+### Fixed
+
+- Handle per-job database and embedding/scoring failures immediately during
+  LinkedIn scraping instead of leaving a rejected promise unhandled until the
+  entire scrape finishes. Failed jobs now produce sanitized, keyword-tagged
+  stream errors and accurate failure counts while other jobs continue.
+  Pending processing settles before the database client closes, including
+  after a client disconnect (closes #166).
+
 ## v5.3.0
 
 ### Added

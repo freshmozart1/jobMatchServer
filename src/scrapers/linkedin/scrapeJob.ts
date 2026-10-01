@@ -28,7 +28,10 @@ import {
     normalizeDescription,
 } from './linkedInTextUtils.js';
 
-type DisconnectState = { disconnected: boolean };
+type DisconnectState = {
+    disconnected: boolean;
+    handleWriteError: () => void;
+};
 type TerminalProgressStatus = 'failed' | 'dropped';
 type KeywordProgressState = {
     current: number;
@@ -63,7 +66,16 @@ function writeIfConnected(
     chunk: string,
 ): void {
     if (disconnectState.disconnected) return;
-    res.write(chunk);
+    try {
+        res.write(chunk);
+    } catch {
+        disconnectState.disconnected = true;
+        try {
+            disconnectState.handleWriteError();
+        } catch {
+            // A failed transport/cleanup must not reject a detached job task.
+        }
+    }
 }
 
 function writeSseFrame(
@@ -186,11 +198,41 @@ async function forwardJobIfNew(
     });
 }
 
+// Start the error boundary with the forwarding task, not when scraping ends:
+// an embedding/DB rejection can happen while later cards are still being read.
+async function forwardJobAndReportFailure(
+    client: MongoClient,
+    res: Response,
+    disconnectState: DisconnectState,
+    result: SuccessfulJobResult,
+    keyword: string,
+    progressState: KeywordProgressState,
+): Promise<void> {
+    try {
+        await forwardJobIfNew(client, res, disconnectState, result);
+    } catch (error) {
+        console.error(
+            `Failed to process LinkedIn job index ${result.index}:`,
+            error,
+        );
+        progressState.terminalStatuses.set(result.index, 'failed');
+        writeSseFrame(res, disconnectState, {
+            type: 'error',
+            error: 'Job processing failed',
+            reason: `Could not prepare job ${result.index + 1}. Try the search again.`,
+            keyword,
+        });
+        // Other jobs may have advanced the scan while this task was pending.
+        // Update the failure count without rewinding progressState.current.
+        writeScanningProgress(res, disconnectState, keyword, progressState);
+    }
+}
+
 function handleProgressEvent(
     client: MongoClient,
     res: Response,
     disconnectState: DisconnectState,
-    pendingJobWrites: Promise<void>[],
+    pendingJobForwards: Promise<void>[],
     keyword: string,
     progressState: KeywordProgressState,
     event: ScrapeProgressEvent,
@@ -220,12 +262,14 @@ function handleProgressEvent(
                     break;
                 case 'success':
                     progressState.terminalStatuses.delete(event.result.index);
-                    pendingJobWrites.push(
-                        forwardJobIfNew(
+                    pendingJobForwards.push(
+                        forwardJobAndReportFailure(
                             client,
                             res,
                             disconnectState,
                             event.result,
+                            keyword,
+                            progressState,
                         ),
                     );
                     break;
@@ -286,7 +330,13 @@ export async function scrapeJob(req: Request, res: Response): Promise<void> {
     if (!connectionStringConfigured(res)) return;
 
     const controller = new AbortController();
-    const disconnectState: DisconnectState = { disconnected: false };
+    const disconnectState: DisconnectState = {
+        disconnected: false,
+        handleWriteError: () => {
+            handleDisconnect();
+            res.destroy();
+        },
+    };
     let keepaliveTimer: ReturnType<typeof setInterval> | undefined;
     const stopKeepalive = () => {
         if (keepaliveTimer === undefined) return;
@@ -336,7 +386,7 @@ export async function scrapeJob(req: Request, res: Response): Promise<void> {
         KEEPALIVE_INTERVAL_MS,
     );
 
-    const pendingJobWrites: Promise<void>[] = [];
+    const pendingJobForwards: Promise<void>[] = [];
 
     try {
         // Best-effort performance optimization: if this fetch fails, fall back to
@@ -371,7 +421,7 @@ export async function scrapeJob(req: Request, res: Response): Promise<void> {
                             client,
                             res,
                             disconnectState,
-                            pendingJobWrites,
+                            pendingJobForwards,
                             keyword,
                             progressState,
                             e,
@@ -392,7 +442,6 @@ export async function scrapeJob(req: Request, res: Response): Promise<void> {
                 });
             }),
         );
-        await Promise.allSettled(pendingJobWrites);
         settledScrapes.forEach((settledScrape, index) => {
             if (settledScrape.status !== 'rejected') return;
             if (settledScrape.reason instanceof ScrapeAbortedError) {
@@ -419,6 +468,7 @@ export async function scrapeJob(req: Request, res: Response): Promise<void> {
             );
         });
     } finally {
+        await Promise.allSettled(pendingJobForwards);
         stopKeepalive();
         await client.close();
     }
