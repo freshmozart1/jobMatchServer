@@ -31,15 +31,3 @@ export function hasOptionalPositiveIntegerProp(
         (typeof value === 'number' && Number.isInteger(value) && value > 0)
     );
 }
-
-export function hasBooleanProp(obj: object, key: string): boolean {
-    return (
-        key in obj && typeof (obj as Record<string, unknown>)[key] === 'boolean'
-    );
-}
-
-export function hasObjectProp(obj: object, key: string): boolean {
-    if (!(key in obj)) return false;
-    const value = (obj as Record<string, unknown>)[key];
-    return typeof value === 'object' && value !== null;
-}

@@ -2,6 +2,17 @@
 
 All notable changes to this project are documented in this file.
 
+## v5.3.2
+
+### Fixed
+
+- Validate the complete `ScrapedJob` request at `POST /jobs/create` before
+  database setup or access. Malformed jobs, operator-valued or blank duplicate
+  keys, invalid embeddings, tags, and addresses now return `400` without
+  changing stored records. Valid jobs retain the existing scalar-key upsert,
+  stable database IDs, optional-field support, and scraper-normalized blank
+  text values (closes #167).
+
 ## v5.3.1
 
 ### Fixed

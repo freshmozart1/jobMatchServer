@@ -198,7 +198,26 @@ client disconnect suppresses further frames while cleanup completes.
 
 ### `POST /jobs/create`
 
-Body: `{ "job": ScrapedJob, "like": boolean }`. Upserts the job into MongoDB keyed by `duplicateKey`, recording whether it was liked or disliked (used to rank future scrapes). Returns `{ "message": "Job created", "jobId": "..." }`.
+Body: `{ "job": ScrapedJob, "like": boolean }`. Upserts the job into MongoDB keyed by the exact `duplicateKey`, recording whether it was liked or disliked (used to rank future scrapes). Repeated saves replace only that job, preserving its database ID. Returns `201` with `{ "message": "Job created", "jobId": "..." }`.
+
+The body and job must be plain objects containing only the documented fields
+(see [Job Model](#job-model)); `like` belongs on the body, not inside `job`.
+Database-owned fields such as `_id` are not accepted. Validation runs before
+any database setup or access; malformed requests return `400` with `message`
+and `error` strings and do not write a job.
+
+- `duplicateKey` must be a string containing at least one non-whitespace
+  character. Objects, arrays, and MongoDB operators are rejected.
+- `sourceHostname`, `sourceUrl`, `title`, `company`, and `scrapedAt` must be
+  present as strings. Empty strings from scraper normalization remain valid.
+- `embedding` must be a non-empty array of finite numbers. No fixed vector
+  dimension is imposed by this endpoint.
+- `companyAddresses` must be an array (which may be empty). Each address must
+  contain exactly the four string fields shown in the model; empty strings
+  are valid when the scraper could not determine part of an address.
+- Optional `sourceJobId`, `location`, `descriptionText`, and `postedAt` must
+  be strings when present; optional `tags` must be an array of strings and
+  optional `match` must be a finite number. Omitted optional fields are valid.
 
 ### `POST /cover-letters/upload/text`
 
