@@ -34,7 +34,10 @@ async function findJobAndCvByDuplicateKey(
 ) {
     const job = await findJobByDuplicateKey(client, duplicateKey);
     const cvs = getCollection(client, 'cv') as MockCollection;
-    const cv = await cvs.findOne({ jobId: job._id.toHexString() });
+    const cv = await cvs.findOne(
+        { jobId: job._id.toHexString() },
+        { readPreference: 'primary', readConcern: { level: 'local' } },
+    );
     if (!cv) throw cvNotFoundError;
     return { job, cv };
 }

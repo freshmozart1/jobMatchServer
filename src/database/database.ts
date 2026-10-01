@@ -69,9 +69,10 @@ export async function findJobAndCvByDuplicateKey(
 ): Promise<{ job: WithId<StoredScrapedJob>; cv: StoredCv }> {
     const job = await findJobByDuplicateKey(client, duplicateKey);
 
-    const cv = await getCollection<StoredCv>(client, 'cv').findOne({
-        jobId: job._id.toHexString(),
-    });
+    const cv = await getCollection<StoredCv>(client, 'cv').findOne(
+        { jobId: job._id.toHexString() },
+        { readPreference: 'primary', readConcern: { level: 'local' } },
+    );
     if (!cv) throw cvNotFoundError;
 
     return { job, cv };
