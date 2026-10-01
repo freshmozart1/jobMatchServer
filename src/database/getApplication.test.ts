@@ -57,8 +57,9 @@ type MockBrowser = {
   newPage: () => Promise<MockPage>;
   close: () => Promise<void>;
 };
-type MockPdfImage = object;
-type MockPdfPage = { drawImage: (img: unknown, options: unknown) => void };
+type MockPdfImage = { width: number; height: number };
+type ImagePlacement = { x: number; y: number; width: number; height: number };
+type MockPdfPage = { drawImage: (img: unknown, options: ImagePlacement) => void };
 type MockMergedDoc = {
   addPage: (page: unknown) => MockPdfPage;
   copyPages: (doc: unknown, indices: number[]) => Promise<unknown[]>;
@@ -78,7 +79,8 @@ const mockBrowserClose = jest.fn<() => Promise<void>>();
 const mockNewPage = jest.fn<() => Promise<MockPage>>();
 const mockLaunch = jest.fn<() => Promise<MockBrowser>>();
 
-const mockDrawImage = jest.fn<(img: unknown, options: unknown) => void>();
+const mockDrawImage =
+  jest.fn<(img: unknown, options: ImagePlacement) => void>();
 const mockAddPage = jest.fn<(page: unknown) => MockPdfPage>();
 const mockGetPageIndices = jest.fn<() => number[]>();
 const mockCopyPages =
@@ -210,8 +212,8 @@ describe('getApplication', () => {
     mockCopyPages.mockResolvedValue([{}]);
     mockSave.mockResolvedValue(mockMergedBytes);
     mockAddPage.mockReturnValue({ drawImage: mockDrawImage });
-    mockEmbedJpg.mockResolvedValue({});
-    mockEmbedPng.mockResolvedValue({});
+    mockEmbedJpg.mockResolvedValue({ width: 400, height: 200 });
+    mockEmbedPng.mockResolvedValue({ width: 200, height: 400 });
 
     mockReadFile.mockResolvedValue(mockCvBytes);
   });
@@ -343,6 +345,82 @@ describe('getApplication', () => {
     expect(end).toHaveBeenCalledWith(Buffer.from(mockMergedBytes));
     expect(status).not.toHaveBeenCalled();
     expect(json).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['image/jpeg', 200, 200],
+    ['image/jpeg', 400, 200],
+    ['image/jpeg', 200, 400],
+    ['image/png', 200, 200],
+    ['image/png', 400, 200],
+    ['image/png', 200, 400],
+  ])(
+    'fits %s %s x %s certificates without distortion',
+    async (mimeType, imageWidth, imageHeight) => {
+      const image = { width: imageWidth, height: imageHeight };
+      mockEmbedJpg.mockResolvedValue(image);
+      mockEmbedPng.mockResolvedValue(image);
+      certToArray.mockResolvedValue([
+        {
+          jobId: mockJobId,
+          filePath: 'uploads/certificates/synthetic',
+          originalName: 'synthetic',
+          mimeType,
+        },
+      ]);
+      const { response, status } = createResponse();
+      mockResponseWithHeaders(response);
+
+      await getApplication(
+        createJobDuplicateKeyRequest(duplicateKey),
+        response,
+      );
+
+      const [pageWidth, pageHeight] =
+        imageWidth > imageHeight ? [841.89, 595.28] : [595.28, 841.89];
+      expect(mockAddPage).toHaveBeenLastCalledWith([pageWidth, pageHeight]);
+      const [, placement] = mockDrawImage.mock.calls[0]!;
+      expect(placement.width / placement.height).toBeCloseTo(
+        imageWidth / imageHeight,
+        10,
+      );
+      expect(placement.x).toBeGreaterThanOrEqual(36 - 1e-8);
+      expect(placement.y).toBeGreaterThanOrEqual(36 - 1e-8);
+      expect(placement.x + placement.width).toBeLessThanOrEqual(
+        pageWidth - 36 + 1e-8,
+      );
+      expect(placement.y + placement.height).toBeLessThanOrEqual(
+        pageHeight - 36 + 1e-8,
+      );
+      expect(placement.x * 2 + placement.width).toBeCloseTo(pageWidth, 10);
+      expect(placement.y * 2 + placement.height).toBeCloseTo(pageHeight, 10);
+      expect(Math.min(placement.x, placement.y)).toBeCloseTo(36, 10);
+      expect(status).not.toHaveBeenCalled();
+    },
+  );
+
+  it('skips an image with invalid dimensions without adding a blank page', async () => {
+    mockEmbedPng.mockResolvedValue({ width: 0, height: 100 });
+    certToArray.mockResolvedValue([
+      {
+        jobId: mockJobId,
+        filePath: 'uploads/certificates/invalid.png',
+        originalName: 'invalid.png',
+        mimeType: 'image/png',
+      },
+    ]);
+    const { response, status } = createResponse();
+    const { end } = mockResponseWithHeaders(response);
+
+    await getApplication(
+      createJobDuplicateKeyRequest(duplicateKey),
+      response,
+    );
+
+    expect(mockDrawImage).not.toHaveBeenCalled();
+    expect(mockAddPage).toHaveBeenCalledTimes(2);
+    expect(end).toHaveBeenCalledWith(Buffer.from(mockMergedBytes));
+    expect(status).not.toHaveBeenCalled();
   });
 
   it('skips certificates with unrecognised MIME types without failing', async () => {
