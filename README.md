@@ -119,8 +119,42 @@ Server running on http://localhost:3000
 | `MONGODB_CONNECTION_STRING` | MongoDB connection URI; checked at startup and before every DB call                                                                                                                                                                                                                                             |
 | `OPENAI_API_KEY`            | Picked up automatically by the OpenAI SDK; the server never reads it explicitly, but `npm run smoke:generator-model` does. Also now required at process startup, not just call time — `cover-letter-generator`'s `dist/llm.js` constructs an OpenAI client at import time, and `src/app.ts` imports it eagerly. |
 | `PYTHON`                    | Optional. Overrides Python binary resolution for the token service subprocess                                                                                                                                                                                                                                   |
+| `CORS_ALLOWED_ORIGINS` | Optional comma-separated additional exact HTTP(S) frontend origins; see Browser Origins (CORS) below. |
 
 Copy `.env.example` to `.env` and fill in the values to configure these locally — `npm run dev` and `npm start` both load it automatically via Node's `--env-file-if-exists` flag if present. Variables already set in the shell or by a process manager take precedence over `.env` values.
+
+## Browser Origins (CORS)
+
+The API allows these local frontend origins by default:
+
+| Workflow | Origins |
+| --- | --- |
+| Development | `http://localhost:5173`, `http://127.0.0.1:5173` |
+| Preview | `http://localhost:4173`, `http://127.0.0.1:4173` |
+
+Existing HTTP development access from valid `192.168.*.*` addresses on port
+`5173` remains supported. For deployment domains, other LAN subnets, or LAN
+preview ports, set `CORS_ALLOWED_ORIGINS` to a comma-separated list of
+additional exact origins, for example:
+
+```dotenv
+CORS_ALLOWED_ORIGINS=https://jobs.example.com,http://10.0.0.10:5173,http://192.168.1.10:4173
+```
+
+These values extend the defaults. Use the browser's exact `location.origin`
+format: HTTP(S) scheme and host, with a non-default port if needed. Do not
+include a trailing slash, path, username/password, query, fragment, wildcard,
+`null`, or a redundant default port (`:80` for HTTP or `:443` for HTTPS).
+Whitespace around list entries is ignored; unset or blank configuration adds
+no origins. Empty entries in a nonempty list, invalid URLs, and noncanonical
+origins stop app initialization with an indexed configuration error that does
+not echo the invalid value. Restart the backend after changing configuration.
+
+An unconfigured origin receives no `Access-Control-Allow-Origin` header, so
+browsers deny cross-origin access. Requests without an `Origin` header still
+work normally. Responses vary by `Origin`, including denied/no-Origin
+responses; preflight replies retain `204`, `GET,POST,OPTIONS`, and the
+`Content-Type` allowed header.
 
 ## API Endpoints
 

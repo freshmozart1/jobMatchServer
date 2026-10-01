@@ -2,6 +2,18 @@
 
 All notable changes to this project are documented in this file.
 
+## v5.3.5
+
+### Fixed
+
+- Allow local frontend preview on port `4173` as well as development on
+  `5173`, using both `localhost` and `127.0.0.1`. Add validated
+  `CORS_ALLOWED_ORIGINS` configuration for exact deployment and LAN origins,
+  preserving existing valid `192.168.*.*:5173` development access. Invalid
+  configuration fails startup without echoing its value; unconfigured origins
+  remain unapproved. All responses now vary by `Origin` for correct caching
+  (closes #165).
+
 ## v5.3.4
 
 ### Fixed
