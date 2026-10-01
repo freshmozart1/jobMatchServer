@@ -188,6 +188,14 @@ keyword, the route skips already-stored cards before clicking when possible,
 extracts and embeds new jobs, computes their like/dislike match score, and
 filters any remaining duplicates before emitting a job frame.
 
+A database lookup, embedding, or scoring failure for an individual job emits
+an error frame with `error: "Job processing failed"`, its keyword, and a
+sanitized reason identifying the one-based job index and suggesting a retry.
+The keyword's `failed` count includes that job; other jobs keep processing.
+Provider/database details remain in server logs. The stream and database
+client stay open until all pending job processing has settled, and a
+client disconnect suppresses further frames while cleanup completes.
+
 ### `POST /jobs/create`
 
 Body: `{ "job": ScrapedJob, "like": boolean }`. Upserts the job into MongoDB keyed by `duplicateKey`, recording whether it was liked or disliked (used to rank future scrapes). Returns `{ "message": "Job created", "jobId": "..." }`.

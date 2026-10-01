@@ -98,18 +98,21 @@ function createSseResponse(): {
     writeHead: ReturnType<typeof jest.fn>;
     write: ReturnType<typeof jest.fn>;
     end: ReturnType<typeof jest.fn>;
+    destroy: ReturnType<typeof jest.fn>;
     status: ReturnType<typeof jest.fn<(statusCode: number) => Response>>;
     json: ReturnType<typeof jest.fn<(body: unknown) => Response>>;
 } {
     const writeHead = jest.fn();
     const write = jest.fn();
     const end = jest.fn();
+    const destroy = jest.fn();
     const status = jest.fn<(statusCode: number) => Response>();
     const json = jest.fn<(body: unknown) => Response>();
     const response = Object.assign(new EventEmitter(), {
         writeHead,
         write,
         end,
+        destroy,
         status,
         json,
     }) as unknown as Response;
@@ -117,7 +120,7 @@ function createSseResponse(): {
     status.mockReturnValue(response);
     json.mockReturnValue(response);
 
-    return { response, writeHead, write, end, status, json };
+    return { response, writeHead, write, end, destroy, status, json };
 }
 
 const validBody = {
@@ -251,6 +254,20 @@ function runScrapeCapturingSearchParams(): MockRunScrapeOptions['searchParams'][
     return captured;
 }
 
+function deferred<T>() {
+    let resolve!: (value: T) => void;
+    let reject!: (reason: unknown) => void;
+    const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+        resolve = resolvePromise;
+        reject = rejectPromise;
+    });
+    return { promise, resolve, reject };
+}
+
+function nextTurn(): Promise<void> {
+    return new Promise((resolve) => setImmediate(resolve));
+}
+
 describe('scrapeJob', () => {
     beforeEach(() => {
         jest.clearAllMocks();
@@ -308,6 +325,261 @@ describe('scrapeJob', () => {
         expect(connect).toHaveBeenCalledTimes(1);
         expect(close).toHaveBeenCalledTimes(1);
         expect(end).toHaveBeenCalledTimes(1);
+    });
+
+    it.each(['lookup', 'embedding', 'matching'] as const)(
+        'handles a %s rejection before the scrape settles and continues with later jobs',
+        async (stage) => {
+            const failure = new Error('private provider or database details');
+            findOne.mockResolvedValue(null);
+            if (stage === 'lookup') findOne.mockRejectedValueOnce(failure);
+            if (stage === 'embedding')
+                mockCreateJobEmbedding.mockRejectedValueOnce(failure);
+            if (stage === 'matching')
+                mockComputeJobMatch.mockRejectedValueOnce(failure);
+            const started = deferred<void>();
+            const finishScrape = deferred<void>();
+            mockRunScrape.mockImplementation(async ({ onProgress }) => {
+                onProgress?.({ type: 'jobs:found', total: 2 });
+                onProgress?.({ type: 'job:done', result: successfulResult() });
+                started.resolve();
+                await finishScrape.promise;
+                onProgress?.({
+                    type: 'job:done',
+                    result: successfulResult({
+                        index: 1,
+                        sourceJobId: '987654321',
+                    }),
+                });
+                return { results: [], url: '' };
+            });
+            const error = jest
+                .spyOn(console, 'error')
+                .mockImplementation(() => undefined);
+            const unhandled = jest.fn();
+            process.on('unhandledRejection', unhandled);
+            const { response, write, end } = createSseResponse();
+            const scraping = scrapeJob(createRequest(validBody), response);
+            try {
+                await started.promise;
+                // Cross an event-loop turn while runScrape is still pending:
+                // attaching allSettled only after scraping finishes is too late.
+                await nextTurn();
+                expect(unhandled).not.toHaveBeenCalled();
+                expect(dataFrames(write)).toContainEqual({
+                    type: 'error',
+                    error: 'Job processing failed',
+                    reason: 'Could not prepare job 1. Try the search again.',
+                    keyword: 'TypeScript',
+                });
+                expect(dataFrames(write).at(-1)).toEqual({
+                    type: 'progress',
+                    keyword: 'TypeScript',
+                    stage: 'scanning',
+                    current: 1,
+                    total: 2,
+                    failed: 1,
+                    dropped: 0,
+                });
+                expect(write.mock.calls.join('')).not.toContain(
+                    failure.message,
+                );
+                expect(error).toHaveBeenCalledWith(
+                    'Failed to process LinkedIn job index 0:',
+                    failure,
+                );
+                expect(end).not.toHaveBeenCalled();
+                expect(close).not.toHaveBeenCalled();
+            } finally {
+                finishScrape.resolve();
+                await scraping;
+                process.off('unhandledRejection', unhandled);
+            }
+            expect(jobDataWrites(write)).toHaveLength(1);
+            expect(jobDataWrites(write)[0]).toContain('linkedin:987654321');
+            expect(close).toHaveBeenCalledTimes(1);
+            expect(end).toHaveBeenCalledTimes(1);
+        },
+    );
+
+    it('contains a transport exception while reporting a failure during an active scrape', async () => {
+        findOne.mockResolvedValue(null);
+        mockCreateJobEmbedding.mockRejectedValueOnce(
+            new Error('embedding failed'),
+        );
+        const started = deferred<void>();
+        const finishScrape = deferred<void>();
+        let signal: AbortSignal | undefined;
+        mockRunScrape.mockImplementation(async (options) => {
+            signal = options.signal;
+            options.onProgress?.({
+                type: 'job:done',
+                result: successfulResult(),
+            });
+            started.resolve();
+            await finishScrape.promise;
+            return { results: [], url: '' };
+        });
+        jest.spyOn(console, 'error').mockImplementation(() => undefined);
+        const unhandled = jest.fn();
+        process.on('unhandledRejection', unhandled);
+        const { response, write, end, destroy } = createSseResponse();
+        write.mockImplementation((chunk) => {
+            if (String(chunk).includes('Job processing failed'))
+                throw new Error('socket write failed');
+        });
+        // Even transport cleanup itself cannot create another rejected task.
+        destroy.mockImplementation(() => {
+            throw new Error('socket destroy failed');
+        });
+        const scraping = scrapeJob(createRequest(validBody), response);
+        try {
+            await started.promise;
+            await nextTurn();
+            expect(unhandled).not.toHaveBeenCalled();
+            expect(signal?.aborted).toBe(true);
+            expect(destroy).toHaveBeenCalledTimes(1);
+            expect(write).toHaveBeenCalledTimes(3); // ping, progress, failed error write
+            expect(close).not.toHaveBeenCalled();
+            expect(end).not.toHaveBeenCalled();
+        } finally {
+            finishScrape.resolve();
+            await scraping;
+            process.off('unhandledRejection', unhandled);
+        }
+        expect(close).toHaveBeenCalledTimes(1);
+        expect(end).not.toHaveBeenCalled();
+        expect(write).toHaveBeenCalledTimes(3);
+    });
+
+    it('drains concurrent forwarding failures without rewinding progress or losing successful jobs', async () => {
+        findOne.mockResolvedValue(null);
+        const firstEmbedding = deferred<number[]>();
+        const secondEmbedding = deferred<number[]>();
+        mockCreateJobEmbedding
+            .mockReturnValueOnce(firstEmbedding.promise)
+            .mockReturnValueOnce(secondEmbedding.promise);
+        mockRunScrape.mockImplementation(async ({ onProgress }) => {
+            onProgress?.({ type: 'jobs:found', total: 3 });
+            for (let index = 0; index < 3; index++) {
+                onProgress?.({
+                    type: 'job:done',
+                    result: successfulResult({
+                        index,
+                        sourceJobId: String(index + 100),
+                    }),
+                });
+            }
+            return { results: [], url: '' };
+        });
+        jest.spyOn(console, 'error').mockImplementation(() => undefined);
+        const { response, write, end } = createSseResponse();
+        const scraping = scrapeJob(createRequest(validBody), response);
+        try {
+            await nextTurn();
+            expect(jobDataWrites(write)).toHaveLength(1);
+            expect(close).not.toHaveBeenCalled();
+            expect(end).not.toHaveBeenCalled();
+            secondEmbedding.reject(new Error('second failed first'));
+            await nextTurn();
+            expect(dataFrames(write).at(-1)).toMatchObject({
+                current: 3,
+                total: 3,
+                failed: 1,
+                dropped: 0,
+            });
+            expect(close).not.toHaveBeenCalled();
+        } finally {
+            firstEmbedding.reject(new Error('first failed last'));
+            secondEmbedding.reject(
+                new Error('cleanup unsettled second embedding'),
+            );
+            await scraping;
+        }
+        expect(dataFrames(write).at(-1)).toMatchObject({
+            current: 3,
+            total: 3,
+            failed: 2,
+            dropped: 0,
+        });
+        expect(
+            dataFrames(write).filter((frame) => frame.type === 'error'),
+        ).toHaveLength(2);
+        expect(jobDataWrites(write)).toHaveLength(1);
+        expect(close).toHaveBeenCalledTimes(1);
+        expect(end).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps forwarding failure counts isolated between concurrent keywords', async () => {
+        findOne.mockResolvedValue(null);
+        mockCreateJobEmbedding.mockRejectedValueOnce(
+            new Error('first keyword failed'),
+        );
+        mockRunScrape.mockImplementation(
+            async ({ onProgress, searchParams }) => {
+                onProgress?.({ type: 'jobs:found', total: 1 });
+                onProgress?.({
+                    type: 'job:done',
+                    result: successfulResult({
+                        sourceJobId:
+                            searchParams?.keyword === 'TypeScript'
+                                ? '100'
+                                : '200',
+                    }),
+                });
+                return { results: [], url: '' };
+            },
+        );
+        jest.spyOn(console, 'error').mockImplementation(() => undefined);
+        const { response, write } = createSseResponse();
+        await scrapeJob(
+            createRequest({ ...validBody, keywords: ['TypeScript', 'Vue'] }),
+            response,
+        );
+        const frames = dataFrames(write);
+        expect(frames.filter((frame) => frame.type === 'error')).toEqual([
+            expect.objectContaining({
+                keyword: 'TypeScript',
+                error: 'Job processing failed',
+            }),
+        ]);
+        expect(
+            frames
+                .filter(
+                    (frame) =>
+                        frame.type === 'progress' &&
+                        frame.keyword === 'TypeScript',
+                )
+                .at(-1),
+        ).toMatchObject({ failed: 1, total: 1 });
+        expect(
+            frames
+                .filter(
+                    (frame) =>
+                        frame.type === 'progress' && frame.keyword === 'Vue',
+                )
+                .at(-1),
+        ).toMatchObject({ failed: 0, total: 1 });
+        expect(jobDataWrites(write)).toHaveLength(1);
+        expect(jobDataWrites(write)[0]).toContain('linkedin:200');
+    });
+
+    it('handles a forwarding rejection after disconnect without writing and still closes the client', async () => {
+        findOne.mockResolvedValue(null);
+        const embedding = deferred<number[]>();
+        mockCreateJobEmbedding.mockReturnValueOnce(embedding.promise);
+        runScrapeWithResult(successfulResult());
+        jest.spyOn(console, 'error').mockImplementation(() => undefined);
+        const { response, write, end } = createSseResponse();
+        const scraping = scrapeJob(createRequest(validBody), response);
+        await nextTurn();
+        emitClose(response);
+        const writesBeforeFailure = write.mock.calls.length;
+        embedding.reject(new Error('failure after disconnect'));
+        await scraping;
+        expect(write).toHaveBeenCalledTimes(writesBeforeFailure);
+        expect(close).toHaveBeenCalledTimes(1);
+        expect(end).not.toHaveBeenCalled();
     });
 
     it('skips jobs whose duplicateKey is already stored, without embedding them', async () => {
