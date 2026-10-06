@@ -183,7 +183,12 @@ shape. Unexpected provider, database, and filesystem failures return the
 fixed `error: "Internal server error"` by default; detailed caught errors stay
 in server logs. Curated validation, missing-record, invalid-path, PDF overflow,
 and deadline messages remain explicit. Cover-letter create/revise retain their
-existing `error: "Provider request failed"` on unexpected failures.
+existing `error: "Provider request failed"` on unexpected failures. A final
+Express error handler also returns generic `500` JSON when an error escapes
+before a route's local catch, such as an invalid database URI. Parser errors
+retain their `4xx` status with a fixed `Invalid request` message. If response
+headers have already been sent, Express closes the response instead of
+appending an error body to an SSE stream or PDF.
 
 ### `GET /health`
 

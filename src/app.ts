@@ -23,6 +23,7 @@ import { createErrorMessage } from './errors/createErrorMessage.js';
 import isAllowedCvMimetype from './utils/isAllowedCvMimetype.js';
 import isAllowedCertificateMimetype from './utils/isAllowedCertificateMimetype.js';
 import createCorsMiddleware from './server/cors.js';
+import handleUnhandledError from './server/errorHandler.js';
 
 export const app = express();
 
@@ -122,3 +123,7 @@ app.post('/cover-letters/revise/text', reviseCoverLetterAsText);
 app.post('/tokens/count', countTokens);
 
 app.get('/application/:jobDuplicateKey', getApplication);
+
+// Also catches constructor failures before a handler's local try/catch and
+// rejected async handlers. Keep this after every route and upload error filter.
+app.use(handleUnhandledError);
