@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented in this file.
 
+## v5.3.11
+
+### Changed
+
+- Remove the unused local LinkedIn search URL builder, its obsolete tests,
+  and its sole constant module. The scraper package continues to construct
+  search URLs, preserving HTTP behavior (closes #160).
+
 ## v5.3.10
 
 ### Fixed
