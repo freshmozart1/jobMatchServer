@@ -76,10 +76,9 @@ function readField(value: unknown, field: string): unknown {
     }
 }
 
-// fallow scores this at 0% estimated coverage because it doesn't treat
-// src/**/*.test.ts as tests (Jest's testMatch targets dist/), so its CRAP
-// finding is a false positive: runGeneratorModelSmokeCheck.test.ts drives each
-// status case below. Verified 2026-09.
+// fallow recognizes runGeneratorModelSmokeCheck.test.ts but still estimates
+// partial coverage here, yielding CRAP 37.1 above its threshold of 30.
+// The test file drives each status case below. Verified with fallow 3.9.1.
 // fallow-ignore-next-line complexity
 function classifyResponse(
     response: SmokeCheckResponse,
@@ -111,9 +110,6 @@ function classifyResponse(
 
 // Classified by shape rather than `instanceof`, so any error-like value with a
 // `status`/`code`/`param` is read the same way as the SDK's own APIError.
-// Its CRAP finding is the same estimated-coverage false positive as
-// classifyResponse's; the test file covers each rejection shape.
-// fallow-ignore-next-line complexity
 function classifyRejection(
     error: unknown,
     checked: string,
