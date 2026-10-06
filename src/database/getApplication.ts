@@ -6,6 +6,7 @@
 // Verified 2026-07.
 import type { Request, Response } from 'express';
 import { withCvReadLease } from './cvFileAccess.js';
+import { findUserProfile, UserProfileMissingError } from './userProfile.js';
 import { addCertificateImagePage } from './certificateImagePage.js';
 import { readFile } from 'fs/promises';
 import type { MongoClient, WithId } from 'mongodb';
@@ -31,7 +32,6 @@ import {
     findJobAndCvByDuplicateKey,
     getCollection,
     jobNotFoundError,
-    USER_ID,
 } from './database.js';
 
 const coverLetterNotFoundError = new Error('Cover letter not found');
@@ -58,10 +58,7 @@ async function loadApplicationRecords(
         jobDuplicateKey,
     );
 
-    const user = await getCollection<StoredUser>(client, 'users').findOne({
-        _id: USER_ID,
-    });
-    if (!user) throw new Error('User not found');
+    const user = await findUserProfile(client);
 
     return { coverLetter, job, cv, user };
 }
@@ -173,6 +170,10 @@ async function createApplication(
         );
         response.end(Buffer.from(mergedBytes));
     } catch (error) {
+        if (error instanceof UserProfileMissingError) {
+            createErrorMessage(response, error, error.message, 409, error.message);
+            return;
+        }
         if (error instanceof CoverLetterOverflowError) {
             createErrorMessage(response, error, error.message, 422);
             return;

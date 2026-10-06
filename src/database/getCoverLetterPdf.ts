@@ -1,6 +1,7 @@
 import type { Request, Response } from 'express';
 import { createErrorMessage } from '../errors/createErrorMessage.js';
-import type { StoredCoverLetter, StoredUser } from '#types';
+import type { StoredCoverLetter } from '#types';
+import { findUserProfile, UserProfileMissingError } from './userProfile.js';
 import {
     CoverLetterOverflowError,
     coverLetterToHtml,
@@ -11,7 +12,6 @@ import {
     findJobByDuplicateKey,
     getCollection,
     jobNotFoundError,
-    USER_ID,
 } from './database.js';
 
 const coverLetterNotFoundError = new Error('Cover letter not found');
@@ -36,10 +36,7 @@ export default async function getCoverLetterPdf(
 
         const job = await findJobByDuplicateKey(client, jobDuplicateKey);
 
-        const user = await getCollection<StoredUser>(client, 'users').findOne({
-            _id: USER_ID,
-        });
-        if (!user) throw new Error('User not found');
+        const user = await findUserProfile(client);
 
         const html = coverLetterToHtml(coverLetter, job, user);
         const pdfBytes = await renderCoverLetterPdf(html);
@@ -51,6 +48,10 @@ export default async function getCoverLetterPdf(
         );
         response.end(Buffer.from(pdfBytes));
     } catch (error) {
+        if (error instanceof UserProfileMissingError) {
+            createErrorMessage(response, error, error.message, 409, error.message);
+            return;
+        }
         if (error instanceof CoverLetterOverflowError) {
             createErrorMessage(response, error, error.message, 422);
             return;

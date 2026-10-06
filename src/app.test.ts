@@ -6,6 +6,17 @@ import type { AddressInfo } from 'node:net';
 // Keep the real app, Express middleware and HTTP transport; unrelated routes
 // must never load their database/provider/scraper modules for these tests.
 const unusedHandler = jest.fn();
+const profileHandler = jest.fn<
+    (
+        request: import('express').Request,
+        response: import('express').Response,
+    ) => void
+>((_request, response) => {
+    response.status(201).json({ message: 'User profile created' });
+});
+jest.unstable_mockModule('#database/createUserProfile.js', () => ({
+    default: profileHandler,
+}));
 jest.unstable_mockModule('#scrapers/linkedin/scrapeJob.js', () => ({
     scrapeJob: unusedHandler,
 }));
@@ -94,6 +105,20 @@ async function expectAllowed(baseUrl: string, origin: string): Promise<void> {
 }
 
 describe('app CORS policy', () => {
+    it('wires profile setup through the JSON body middleware', async () => {
+        const body = { name: 'Synthetic Applicant' };
+        const response = await fetch(`${await startApp()}/users/profile`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+        expect(response.status).toBe(201);
+        expect(profileHandler).toHaveBeenCalledTimes(1);
+        expect(profileHandler.mock.calls[0]?.[0].body).toEqual(body);
+        expect(await response.json()).toEqual({
+            message: 'User profile created',
+        });
+    });
     it.each([
         'http://localhost:5173',
         'http://127.0.0.1:5173',

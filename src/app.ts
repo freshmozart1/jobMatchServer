@@ -7,6 +7,7 @@ import multer from 'multer';
 
 import { scrapeJob } from '#scrapers/linkedin/scrapeJob.js';
 import createJobInDatabase from '#database/createJobInDatabase.js';
+import createUserProfile from '#database/createUserProfile.js';
 import uploadCoverLetterAsText from '#database/uploadCoverLetterAsText.js';
 import generateCoverLetterAsText from './coverLetters/generateCoverLettersAsText.js';
 import reviseCoverLetterAsText from './coverLetters/reviseCoverLetterAsText.js';
@@ -36,6 +37,8 @@ app.get('/health', (_request: Request, response: Response): void => {
 app.post('/scrape/linkedin', scrapeJob);
 
 app.post('/jobs/create', createJobInDatabase);
+
+app.post('/users/profile', createUserProfile);
 
 app.post('/cover-letters/upload/text', uploadCoverLetterAsText);
 

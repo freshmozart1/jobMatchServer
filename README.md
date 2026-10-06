@@ -22,7 +22,7 @@ Not yet implemented:
 
 - Scheduled/recurring scraping jobs
 - Authenticated LinkedIn session support
-- Multi-user support (the application/user record is currently a single hardcoded user)
+- Multi-user support (every request uses one profile with a fixed identity; create it with `POST /users/profile`)
 
 ## Architecture
 
@@ -86,6 +86,26 @@ Start the built server:
 ```bash
 npm start
 ```
+
+Before downloading a cover letter or application for the first time, create
+your single-user profile. Write a local `profile.json` containing your own
+details using the [profile endpoint shape](#post-usersprofile), then send it
+to the running server (adjust the port if startup selected another one):
+
+```bash
+curl --fail-with-body http://localhost:3000/users/profile \
+    -H 'Content-Type: application/json' \
+    --data-binary @profile.json
+```
+
+This inserts the profile into the `jobMatch.users` collection at the fixed
+identity already used by both PDF downloads. No manual ObjectId insertion or
+sample candidate facts are needed. It returns `201` once; repeating setup
+returns `409` and preserves the existing profile, including a profile from an
+older installation. Until setup succeeds, both PDF download routes return
+`409` with an instruction to call `POST /users/profile`. This remains a
+single-user service without authentication; profile setup has the same access
+boundary as the other write endpoints.
 
 Run the test suite (builds first, then runs Jest against `dist/`):
 
@@ -161,6 +181,35 @@ responses; preflight replies retain `204`, `GET,POST,OPTIONS`, and the
 ### `GET /health`
 
 Lightweight process health check. Returns `{ "status": "ok" }`.
+
+### `POST /users/profile`
+
+Creates the single profile used in the sender block of cover-letter and
+application PDFs. Supply your own values in this shape:
+
+```ts
+{
+    name: string;
+    email: string;
+    tel: string;
+    address: {
+        streetAddress: string;
+        city: string;
+        postalCode: string;
+        countryCode: string;
+    };
+}
+```
+
+Every field is required and must be a nonblank string. The body and address
+must be plain objects with only these fields; `_id`, extra fields and
+MongoDB operators are rejected with `400` before any database access. Values
+are stored as supplied. The server assigns the existing single-user identity,
+`6a3d03b1dba1b11cee01161c`, and returns `201` with
+`{ "message": "User profile created", "userId": "6a3d03b1dba1b11cee01161c" }`.
+An existing profile or concurrent repeat returns `409` with
+`{ "message": "User profile already exists and was not changed", "error": "User profile already exists and was not changed" }`.
+This setup endpoint never replaces or updates a profile.
 
 ### `POST /scrape/linkedin`
 

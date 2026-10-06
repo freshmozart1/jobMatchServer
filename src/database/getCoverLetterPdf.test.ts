@@ -3,6 +3,7 @@ import type { StoredCoverLetter, StoredScrapedJob, StoredUser } from '#types';
 import {
   getCollection,
   mockLocalDatabaseModule,
+  USER_ID,
 } from '../testMockModules/localDatabase.test.js';
 import {
   close,
@@ -150,6 +151,11 @@ describe('getCoverLetterPdf', () => {
       jobDuplicateKey: duplicateKey,
     });
     expect(findOneJob).toHaveBeenCalledWith({ duplicateKey });
+    expect(findOneUser).toHaveBeenCalledWith({ _id: USER_ID });
+    expect(mockSetContent).toHaveBeenCalledWith(
+      expect.stringContaining(mockUser.name),
+      { waitUntil: 'load' },
+    );
     expect(mockLaunch).toHaveBeenCalledTimes(1);
     expect(mockSetContent).toHaveBeenCalledWith(
       expect.stringContaining(
@@ -208,19 +214,22 @@ describe('getCoverLetterPdf', () => {
     expect(close).toHaveBeenCalledTimes(1);
   });
 
-  it('returns 500 when the user is not found', async () => {
+  it('returns actionable 409 when the user profile needs setup', async () => {
     findOneUser.mockResolvedValue(null);
     const request = createJobDuplicateKeyRequest(duplicateKey);
     const { response, status, json } = createResponse();
+    const { setHeader, end } = mockResponseWithHeaders(response);
 
     await getCoverLetterPdf(request, response);
 
-    expect(status).toHaveBeenCalledWith(500);
+    expect(status).toHaveBeenCalledWith(409);
     expect(json).toHaveBeenCalledWith({
-      error: 'User not found',
-      message: 'Error retrieving cover letter',
+      error: 'User profile is not configured. Create it with POST /users/profile before downloading PDFs.',
+      message: 'User profile is not configured. Create it with POST /users/profile before downloading PDFs.',
     });
     expect(mockLaunch).not.toHaveBeenCalled();
+    expect(setHeader).not.toHaveBeenCalled();
+    expect(end).not.toHaveBeenCalled();
     expect(close).toHaveBeenCalledTimes(1);
   });
 
