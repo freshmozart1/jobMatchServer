@@ -1,5 +1,4 @@
 import type { Request, Response } from 'express';
-import { unlink } from 'fs/promises';
 import { MongoClient } from 'mongodb';
 import {
     connectionStringConfigured,
@@ -11,6 +10,7 @@ import {
 import type { StoredCertificate } from '#types';
 import { createErrorMessage } from '../errors/createErrorMessage.js';
 import { fileContentMatchesMimetype } from '../utils/verifyFileContentType.js';
+import { UploadFileOwnership } from './uploadFileCleanup.js';
 
 // Returns the first uploaded file whose on-disk content doesn't match its
 // declared mimetype, or undefined if every file is valid. Split out of
@@ -19,89 +19,78 @@ import { fileContentMatchesMimetype } from '../utils/verifyFileContentType.js';
 async function findInvalidCertificateFile(
     files: Express.Multer.File[],
 ): Promise<Express.Multer.File | undefined> {
-    const fileValidities = await Promise.all(
+    const fileValidities = await Promise.allSettled(
         files.map(async (file) => ({
             file,
             valid: await fileContentMatchesMimetype(file.path, file.mimetype),
         })),
     );
-    return fileValidities.find((entry) => !entry.valid)?.file;
+    const failedRead = fileValidities.find(
+        (entry) => entry.status === 'rejected',
+    );
+    if (failedRead) throw failedRead.reason;
+    return fileValidities
+        .filter((entry) => entry.status === 'fulfilled')
+        .find((entry) => !entry.value.valid)?.value.file;
 }
 
 export default async function uploadCertificates(
     request: Request,
     response: Response,
 ): Promise<void> {
-    const jobDuplicateKey = request.body['jobDuplicateKey'] as unknown;
-    const jobDuplicateKeyMustBeStringError = new Error(
-        'jobDuplicateKey must be a string',
-    );
-
-    if (!connectionStringConfigured(response)) return;
-
-    if (typeof jobDuplicateKey !== 'string') {
-        createErrorMessage(
-            response,
-            jobDuplicateKeyMustBeStringError,
-            'Error uploading certificates',
-            400,
-        );
-        return;
-    }
-
-    const files = request.files;
-    if (!Array.isArray(files) || files.length === 0) {
-        createErrorMessage(
-            response,
-            new Error('At least one file is required'),
-            'Error uploading certificates',
-            400,
-        );
-        return;
-    }
-
-    let invalidFile: Express.Multer.File | undefined;
+    const files = Array.isArray(request.files) ? request.files : [];
+    const ownership = new UploadFileOwnership(files.map((file) => file.path));
+    let client: MongoClient | undefined;
     try {
-        invalidFile = await findInvalidCertificateFile(files);
-    } catch (error) {
-        createErrorMessage(
-            response,
-            error,
-            'Error uploading certificates',
-            500,
-        );
-        return;
-    }
-    if (invalidFile) {
-        await Promise.all(
-            files.map((file) => unlink(file.path).catch(() => {})),
-        );
-        createErrorMessage(
-            response,
-            new Error(
-                `File "${invalidFile.originalname}" is not a valid PDF, JPEG, or PNG file`,
-            ),
-            'Error uploading certificates',
-            400,
-        );
-        return;
-    }
+        const jobDuplicateKey = request.body?.['jobDuplicateKey'] as unknown;
+        if (!connectionStringConfigured(response)) return;
+        if (typeof jobDuplicateKey !== 'string') {
+            createErrorMessage(
+                response,
+                new Error('jobDuplicateKey must be a string'),
+                'Error uploading certificates',
+                400,
+            );
+            return;
+        }
+        if (files.length === 0) {
+            createErrorMessage(
+                response,
+                new Error('At least one file is required'),
+                'Error uploading certificates',
+                400,
+            );
+            return;
+        }
+        const invalidFile = await findInvalidCertificateFile(files);
+        if (invalidFile) {
+            createErrorMessage(
+                response,
+                new Error(
+                    `File "${invalidFile.originalname}" is not a valid PDF, JPEG, or PNG file`,
+                ),
+                'Error uploading certificates',
+                400,
+            );
+            return;
+        }
 
-    const client = new MongoClient(MONGODB_CONNECTION!);
-    try {
+        client = new MongoClient(MONGODB_CONNECTION!);
         await client.connect();
         const job = await findJobByDuplicateKey(client, jobDuplicateKey);
-
-        const docs: StoredCertificate[] = files.map((f) => ({
+        const docs: StoredCertificate[] = files.map((file) => ({
             jobId: job._id.toHexString(),
-            filePath: f.path,
-            originalName: f.originalname,
-            mimeType: f.mimetype,
+            filePath: file.path,
+            originalName: file.originalname,
+            mimeType: file.mimetype,
         }));
-        const result = await getCollection<StoredCertificate>(
+        const collection = getCollection<StoredCertificate>(
             client,
             'certificates',
-        ).insertMany(docs);
+        );
+        const result = await ownership.persist(collection, () =>
+            collection.insertMany(docs, { ordered: true }),
+        );
         response.status(201).json({
             message: 'Certificates uploaded',
             certificateIds: Object.values(result.insertedIds),
@@ -114,6 +103,7 @@ export default async function uploadCertificates(
             error === jobNotFoundError ? 404 : 500,
         );
     } finally {
-        await client.close();
+        await ownership.cleanup();
+        await client?.close();
     }
 }

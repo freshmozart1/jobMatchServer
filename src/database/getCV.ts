@@ -4,6 +4,7 @@
 // filePath is a multer-generated filename (uploadCV.ts), not raw user input.
 // Verified 2026-07.
 import type { Request, Response } from 'express';
+import { withCvReadLease } from './cvFileAccess.js';
 import path from 'path';
 import {
     createDatabaseClient,
@@ -14,7 +15,7 @@ import {
 import { createErrorMessage } from '../errors/createErrorMessage.js';
 import { isPathInside } from '../utils/isPathInside.js';
 
-export default async function getCV(
+async function sendCv(
     request: Request<{ jobDuplicateKey: string }>,
     response: Response,
 ): Promise<void> {
@@ -58,4 +59,13 @@ export default async function getCV(
     } finally {
         await client.close();
     }
+}
+
+export default function getCV(
+    request: Request<{ jobDuplicateKey: string }>,
+    response: Response,
+): Promise<void> {
+    return withCvReadLease(request.params.jobDuplicateKey, () =>
+        sendCv(request, response),
+    );
 }

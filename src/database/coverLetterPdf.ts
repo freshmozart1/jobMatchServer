@@ -71,12 +71,44 @@ export function coverLetterToHtml(
     .replace(/\{\{bodyParas\}\}/g, () => bodyParas);
 }
 
+export class CoverLetterOverflowError extends Error {
+  constructor() {
+    super(
+      'Cover letter text does not fit on one page. Shorten the letter and try downloading again.',
+    );
+    this.name = 'CoverLetterOverflowError';
+  }
+}
+
 export async function renderCoverLetterPdf(html: string): Promise<Uint8Array> {
   const browser = await puppeteer.launch({ headless: true });
   try {
     const page = await browser.newPage();
     try {
+      await page.emulateMediaType('print');
       await page.setContent(html, { waitUntil: 'load' });
+      const overflows = await page.evaluate(async () => {
+        await document.fonts.ready;
+        const body = document.querySelector('.body');
+        if (!body) throw new Error('Cover letter body container not found');
+
+        const bounds = body.getBoundingClientRect();
+        const content = document.createRange();
+        content.selectNodeContents(body);
+        // Compare content boxes, excluding paragraph margins. Half a CSS pixel
+        // tolerates subpixel rounding without permitting a clipped line.
+        const epsilon = 0.5;
+        return Array.from(content.getClientRects()).some(
+          (rect) =>
+            rect.width > 0 &&
+            rect.height > 0 &&
+            (rect.top < bounds.top - epsilon ||
+              rect.bottom > bounds.bottom + epsilon ||
+              rect.left < bounds.left - epsilon ||
+              rect.right > bounds.right + epsilon),
+        );
+      });
+      if (overflows) throw new CoverLetterOverflowError();
       return await page.pdf({ format: 'A4' });
     } finally {
       await page.close();

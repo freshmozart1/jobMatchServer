@@ -2,6 +2,84 @@
 
 All notable changes to this project are documented in this file.
 
+## v5.3.8
+
+### Fixed
+
+- Preserve JPEG and PNG certificate image proportions in application PDFs.
+  Uniformly fit and center each image within 36-point margins, using landscape
+  A4 for landscape images and portrait A4 for portrait or square images.
+  PDF certificate pages retain their dimensions; malformed or unsafe
+  certificates remain skipped without blank image pages (closes #172).
+
+## v5.3.7
+
+### Fixed
+
+- Clean up staged CV/certificate files after validation and other definite
+  prewrite failures. Retrieve previous CV metadata atomically during
+  replacement and remove only a superseded, unreferenced managed file while
+  preserving the current `cvId`. Reconcile acknowledged partial certificate
+  writes against actual database records before removing uncommitted files;
+  never treat generated insert IDs as persistence evidence. Keep acknowledged
+  uploads across response/close failures, and conservatively retain files for
+  uncertain writes or failed ownership queries. Cleanup failures are logged
+  and can require later manual reconciliation. Coordinate active CV/application
+  downloads with replacement cleanup using per-job process-local leases, so
+  a selected old file remains available until existing readers finish; use
+  primary CV metadata for readers admitted after cleanup (closes #171).
+
+## v5.3.6
+
+### Fixed
+
+- Detect cover-letter body text that would be clipped in the fixed one-page
+  PDF layout after print styles and fonts are ready. Both cover-letter and
+  combined-application downloads now return the same actionable `422` error
+  asking the user to shorten the letter, before producing PDF bytes or
+  merging attachments. Normal one-page rendering is unchanged, and genuine
+  rendering failures remain `500` (closes #170).
+
+## v5.3.5
+
+### Fixed
+
+- Allow local frontend preview on port `4173` as well as development on
+  `5173`, using both `localhost` and `127.0.0.1`. Add validated
+  `CORS_ALLOWED_ORIGINS` configuration for exact deployment and LAN origins,
+  preserving existing valid `192.168.*.*:5173` development access. Invalid
+  configuration fails startup without echoing its value; unconfigured origins
+  remain unapproved. All responses now vary by `Origin` for correct caching
+  (closes #165).
+
+## v5.3.4
+
+### Fixed
+
+- Accept JSON generation requests that omit optional `location`,
+  `descriptionText`, `postedAt`, or `tags` fields, individually or together.
+  Missing fields now reach cover-letter generation and persistence instead
+  of returning `400`; present invalid values remain rejected (closes #168).
+
+## v5.3.3
+
+### Fixed
+
+- Stop printing the MongoDB connection URI at startup so credentials and
+  secret query parameters are no longer copied into startup logs. Listener
+  startup, port fallback, and fatal-error cleanup are unchanged (closes #169).
+
+## v5.3.2
+
+### Fixed
+
+- Validate the complete `ScrapedJob` request at `POST /jobs/create` before
+  database setup or access. Malformed jobs, operator-valued or blank duplicate
+  keys, invalid embeddings, tags, and addresses now return `400` without
+  changing stored records. Valid jobs retain the existing scalar-key upsert,
+  stable database IDs, optional-field support, and scraper-normalized blank
+  text values (closes #167).
+
 ## v5.3.1
 
 ### Fixed

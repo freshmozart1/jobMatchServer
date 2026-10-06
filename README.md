@@ -103,7 +103,7 @@ The test suite mocks `cover-letter-generator` entirely, so it can't catch a mode
 
 ## Runtime Behavior
 
-On startup the server spawns the Python token service, then starts listening on port `3000`. If the port is already in use, it automatically tries the next port until it finds one available.
+On startup the server spawns the Python token service, then starts listening on port `3000`. If the port is already in use, it automatically tries the next port until it finds one available. Startup does not print the MongoDB connection URI, which may contain credentials or secret query parameters.
 
 Example startup output:
 
@@ -119,8 +119,42 @@ Server running on http://localhost:3000
 | `MONGODB_CONNECTION_STRING` | MongoDB connection URI; checked at startup and before every DB call                                                                                                                                                                                                                                             |
 | `OPENAI_API_KEY`            | Picked up automatically by the OpenAI SDK; the server never reads it explicitly, but `npm run smoke:generator-model` does. Also now required at process startup, not just call time — `cover-letter-generator`'s `dist/llm.js` constructs an OpenAI client at import time, and `src/app.ts` imports it eagerly. |
 | `PYTHON`                    | Optional. Overrides Python binary resolution for the token service subprocess                                                                                                                                                                                                                                   |
+| `CORS_ALLOWED_ORIGINS` | Optional comma-separated additional exact HTTP(S) frontend origins; see Browser Origins (CORS) below. |
 
 Copy `.env.example` to `.env` and fill in the values to configure these locally — `npm run dev` and `npm start` both load it automatically via Node's `--env-file-if-exists` flag if present. Variables already set in the shell or by a process manager take precedence over `.env` values.
+
+## Browser Origins (CORS)
+
+The API allows these local frontend origins by default:
+
+| Workflow | Origins |
+| --- | --- |
+| Development | `http://localhost:5173`, `http://127.0.0.1:5173` |
+| Preview | `http://localhost:4173`, `http://127.0.0.1:4173` |
+
+Existing HTTP development access from valid `192.168.*.*` addresses on port
+`5173` remains supported. For deployment domains, other LAN subnets, or LAN
+preview ports, set `CORS_ALLOWED_ORIGINS` to a comma-separated list of
+additional exact origins, for example:
+
+```dotenv
+CORS_ALLOWED_ORIGINS=https://jobs.example.com,http://10.0.0.10:5173,http://192.168.1.10:4173
+```
+
+These values extend the defaults. Use the browser's exact `location.origin`
+format: HTTP(S) scheme and host, with a non-default port if needed. Do not
+include a trailing slash, path, username/password, query, fragment, wildcard,
+`null`, or a redundant default port (`:80` for HTTP or `:443` for HTTPS).
+Whitespace around list entries is ignored; unset or blank configuration adds
+no origins. Empty entries in a nonempty list, invalid URLs, and noncanonical
+origins stop app initialization with an indexed configuration error that does
+not echo the invalid value. Restart the backend after changing configuration.
+
+An unconfigured origin receives no `Access-Control-Allow-Origin` header, so
+browsers deny cross-origin access. Requests without an `Origin` header still
+work normally. Responses vary by `Origin`, including denied/no-Origin
+responses; preflight replies retain `204`, `GET,POST,OPTIONS`, and the
+`Content-Type` allowed header.
 
 ## API Endpoints
 
@@ -198,7 +232,26 @@ client disconnect suppresses further frames while cleanup completes.
 
 ### `POST /jobs/create`
 
-Body: `{ "job": ScrapedJob, "like": boolean }`. Upserts the job into MongoDB keyed by `duplicateKey`, recording whether it was liked or disliked (used to rank future scrapes). Returns `{ "message": "Job created", "jobId": "..." }`.
+Body: `{ "job": ScrapedJob, "like": boolean }`. Upserts the job into MongoDB keyed by the exact `duplicateKey`, recording whether it was liked or disliked (used to rank future scrapes). Repeated saves replace only that job, preserving its database ID. Returns `201` with `{ "message": "Job created", "jobId": "..." }`.
+
+The body and job must be plain objects containing only the documented fields
+(see [Job Model](#job-model)); `like` belongs on the body, not inside `job`.
+Database-owned fields such as `_id` are not accepted. Validation runs before
+any database setup or access; malformed requests return `400` with `message`
+and `error` strings and do not write a job.
+
+- `duplicateKey` must be a string containing at least one non-whitespace
+  character. Objects, arrays, and MongoDB operators are rejected.
+- `sourceHostname`, `sourceUrl`, `title`, `company`, and `scrapedAt` must be
+  present as strings. Empty strings from scraper normalization remain valid.
+- `embedding` must be a non-empty array of finite numbers. No fixed vector
+  dimension is imposed by this endpoint.
+- `companyAddresses` must be an array (which may be empty). Each address must
+  contain exactly the four string fields shown in the model; empty strings
+  are valid when the scraper could not determine part of an address.
+- Optional `sourceJobId`, `location`, `descriptionText`, and `postedAt` must
+  be strings when present; optional `tags` must be an array of strings and
+  optional `match` must be a finite number. Omitted optional fields are valid.
 
 ### `POST /cover-letters/upload/text`
 
@@ -208,9 +261,38 @@ Body: `{ "coverLetterText": string, "jobDuplicateKey"?: string }`. Segments the 
 
 Renders the stored cover letter to a standalone PDF and streams it as `cover-letter.pdf`.
 
+The existing one-page layout is checked in the browser using print styles,
+loaded fonts, and the actual body text bounds. Text that would be clipped
+vertically or horizontally returns `422` JSON instead of a partial PDF:
+
+```json
+{
+    "message": "Cover letter text does not fit on one page. Shorten the letter and try downloading again.",
+    "error": "Cover letter text does not fit on one page. Shorten the letter and try downloading again."
+}
+```
+
+Shorten the saved cover letter and retry the download. This check measures
+layout rather than applying a character limit; empty trailing paragraph
+margins do not count as clipped text. The combined application download uses
+the same check and error. Other rendering failures still return `500`.
+
 ### `POST /cv/upload`
 
 Multipart form upload (`file`) plus a `jobDuplicateKey` field. Stores the CV file and associates it with the job. The upload must genuinely be a PDF: its declared `Content-Type` must be `application/pdf`, and its actual content is verified against the PDF file signature (magic bytes). A file that fails either check is rejected with `400` and deleted from disk.
+
+A successful upload returns `201` with `{ "message": "CV uploaded", "cvId": "..." }`.
+Replacing a CV preserves its record ID and removes the previous file only
+when it is an unreferenced direct child of the managed `uploads/cv` directory.
+A failed ownership check or deletion keeps the previous file and logs the
+cleanup failure without failing the new upload.
+Active CV and combined-application downloads in this server process finish
+using their selected CV before replacement cleanup removes it. Cleanup
+waits for existing readers of that job, then checks ownership again; new
+downloads wait during cleanup and read current CV metadata from the primary.
+This coordination is local to one server process. Multiple server processes
+sharing upload storage, or external writers, need shared coordination before
+using automatic replacement cleanup.
 
 ### `GET /cv/:jobDuplicateKey`
 
@@ -224,6 +306,20 @@ Returns whether a CV has been uploaded for the given job.
 
 Multipart form upload (up to 10 files, 10MB each, PDF/JPEG/PNG only) plus a `jobDuplicateKey` field. Stores each certificate and associates it with the job. Each file's declared `Content-Type` and its actual content (verified against the PDF/JPEG/PNG file signature) must both match a PDF, JPEG, or PNG. This check is all-or-nothing across the batch: if any file fails, every file in the request is rejected with `400` and deleted from disk.
 
+Both upload handlers remove staged files after validation, content-read,
+configuration, missing-job, or other failures before a database write. Once
+a write succeeds, its files remain stored even if sending the response or
+closing the database client fails. For an acknowledged partial certificate
+insertion, the handler checks actual database references and removes only
+files that were not stored; generated insert IDs alone are not ownership
+proof. Cleanup is best effort and logs filesystem failures.
+
+Network, timeout, write-concern, or otherwise uncertain write outcomes retain
+the uploaded files, as does a failed ownership query. An immediate empty
+query cannot rule out a late commit. These retained files can require later
+manual reconciliation once the database outcome is known; there is no
+automatic orphan-file sweep.
+
 ### `GET /certificates/:jobDuplicateKey/status`
 
 Returns whether certificates have been uploaded for the given job.
@@ -231,6 +327,14 @@ Returns whether certificates have been uploaded for the given job.
 ### `POST /cover-letters/create/text`
 
 Body: a job plus `{ "x"?: number }` (default `3`). Ranks all stored cover letters against the job using the [`cover-letter-generator`](https://github.com/freshmozart1/cover-letter-generator) package's `embedJob` and `getTopXSimilarCoverLetters`, then generates a new cover letter from the top `x` matches via the package's `generateCoverLetter`. Generation itself is delegated to that package, so the exact model it uses internally isn't documented here. Returns `{ "coverLetter": string, "saved": true, "coverLetterId": string }`. `saved: true` means the generator's exact embedded segments are already persisted under the request job's `duplicateKey`; clients should not immediately upload the unchanged generated text through `POST /cover-letters/upload/text`. The entire handler operation, including the MongoDB read, provider work, and generated-letter persistence, has a 5-minute deadline. If it expires, the route returns `504` with `{ "message": "Cover letter generation deadline exceeded", "error": "Request deadline exceeded" }` instead of the existing sanitized `500` used for provider or database failures. The deadline bounds how long the handler waits; this repository cannot cancel package-owned provider work, and a provider or MongoDB operation may still settle (and a MongoDB client may close) after the `504` response.
+
+`location`, `descriptionText`, `postedAt`, and `tags` are optional in the
+generation request and may be omitted from JSON, individually or together.
+If supplied, the first three must be strings and `tags` must be an array of
+strings; `null` and other invalid types return `400`. A missing description is
+passed to the generator as an empty string; missing location stays omitted.
+Successful requests still persist the generated letter and return the same
+`saved` and `coverLetterId` fields.
 
 ### `POST /cover-letters/revise/text`
 
@@ -243,6 +347,19 @@ Body: `{ "text": string, "model"?: string }`. Proxies to the Python token servic
 ### `GET /application/:jobDuplicateKey`
 
 Renders the stored cover letter to PDF, merges it with the CV and any certificates for that job, and streams the combined `application.pdf`.
+
+JPEG and PNG certificates preserve their original width-to-height ratio.
+Each image is scaled uniformly to fit an A4 page with at least 36 points
+(half an inch) of margin on every edge and centered on both axes. Landscape
+images use landscape A4; portrait and square images use portrait A4. PDF
+certificate pages retain their existing dimensions. Malformed or unsafe
+certificates are skipped without failing the application download.
+
+
+The cover-letter overflow check described above runs before reading attachment
+files or merging PDFs. An overflowing letter returns the same actionable
+`422` JSON and no application PDF; shorten the letter before downloading
+again.
 
 ## Job Model
 

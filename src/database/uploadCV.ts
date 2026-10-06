@@ -1,6 +1,5 @@
 import type { Request, Response } from 'express';
-import { unlink } from 'fs/promises';
-import { MongoClient } from 'mongodb';
+import { MongoClient, type Collection } from 'mongodb';
 import {
     connectionStringConfigured,
     findJobByDuplicateKey,
@@ -11,75 +10,89 @@ import {
 import type { StoredCv } from '#types';
 import { createErrorMessage } from '../errors/createErrorMessage.js';
 import { fileContentMatchesMimetype } from '../utils/verifyFileContentType.js';
+import { withCvRetirementLease } from './cvFileAccess.js';
+import {
+    removeSupersededCv,
+    UploadFileOwnership,
+} from './uploadFileCleanup.js';
+
+async function replaceCv(
+    collection: Collection<StoredCv>,
+    upload: { jobId: string; filePath: string; jobDuplicateKey: string },
+    ownership: UploadFileOwnership,
+): Promise<unknown> {
+    const { jobId, filePath, jobDuplicateKey } = upload;
+    const result = await ownership.persist(collection, () =>
+        collection.findOneAndReplace(
+            { jobId },
+            { jobId, filePath },
+            {
+                upsert: true,
+                returnDocument: 'before',
+                includeResultMetadata: true,
+            },
+        ),
+    );
+    await withCvRetirementLease(jobDuplicateKey, () =>
+        removeSupersededCv(collection, result.value?.filePath, filePath),
+    );
+    return result.value?._id ?? result.lastErrorObject?.['upserted'];
+}
 
 export default async function uploadCV(
     request: Request,
     response: Response,
 ): Promise<void> {
-    const jobDuplicateKey = request.body['jobDuplicateKey'] as unknown;
-    const jobDuplicateKeyMustBeStringError = new Error(
-        'jobDuplicateKey must be a string',
+    const ownership = new UploadFileOwnership(
+        request.file ? [request.file.path] : [],
     );
-    const fileRequiredError = new Error('file is required');
-    const fileMustBePdfError = new Error('file must be a PDF');
-
-    if (!connectionStringConfigured(response)) return;
-
-    if (typeof jobDuplicateKey !== 'string') {
-        createErrorMessage(
-            response,
-            jobDuplicateKeyMustBeStringError,
-            'Error uploading CV',
-            400,
-        );
-        return;
-    }
-    if (!request.file) {
-        createErrorMessage(
-            response,
-            fileRequiredError,
-            'Error uploading CV',
-            400,
-        );
-        return;
-    }
-    let contentMatchesPdf: boolean;
+    let client: MongoClient | undefined;
     try {
-        contentMatchesPdf = await fileContentMatchesMimetype(
-            request.file.path,
-            request.file.mimetype,
-        );
-    } catch (error) {
-        createErrorMessage(response, error, 'Error uploading CV', 500);
-        return;
-    }
-    if (!contentMatchesPdf) {
-        await unlink(request.file.path).catch(() => {});
-        createErrorMessage(
-            response,
-            fileMustBePdfError,
-            'Error uploading CV',
-            400,
-        );
-        return;
-    }
+        const jobDuplicateKey = request.body?.['jobDuplicateKey'] as unknown;
+        if (!connectionStringConfigured(response)) return;
+        if (typeof jobDuplicateKey !== 'string') {
+            createErrorMessage(
+                response,
+                new Error('jobDuplicateKey must be a string'),
+                'Error uploading CV',
+                400,
+            );
+            return;
+        }
+        if (!request.file) {
+            createErrorMessage(
+                response,
+                new Error('file is required'),
+                'Error uploading CV',
+                400,
+            );
+            return;
+        }
+        if (
+            !(await fileContentMatchesMimetype(
+                request.file.path,
+                request.file.mimetype,
+            ))
+        ) {
+            createErrorMessage(
+                response,
+                new Error('file must be a PDF'),
+                'Error uploading CV',
+                400,
+            );
+            return;
+        }
 
-    const client = new MongoClient(MONGODB_CONNECTION!);
-    try {
+        client = new MongoClient(MONGODB_CONNECTION!);
         await client.connect();
         const job = await findJobByDuplicateKey(client, jobDuplicateKey);
-
-        const upserted = await getCollection<StoredCv>(
-            client,
-            'cv',
-        ).findOneAndReplace(
-            { jobId: job._id.toHexString() },
-            { jobId: job._id.toHexString(), filePath: request.file.path },
-            { upsert: true, returnDocument: 'after' },
+        const jobId = job._id.toHexString();
+        const cvId = await replaceCv(
+            getCollection<StoredCv>(client, 'cv'),
+            { jobId, filePath: request.file.path, jobDuplicateKey },
+            ownership,
         );
-        response
-            .status(201)
-            .json({ message: 'CV uploaded', cvId: upserted?._id });
+        response.status(201).json({ message: 'CV uploaded', cvId });
     } catch (error) {
         createErrorMessage(
             response,
@@ -88,6 +101,7 @@ export default async function uploadCV(
             error === jobNotFoundError ? 404 : 500,
         );
     } finally {
-        await client.close();
+        await ownership.cleanup();
+        await client?.close();
     }
 }
