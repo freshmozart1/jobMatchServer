@@ -181,6 +181,31 @@ describe('getCoverLetterPdf', () => {
     expect(close).toHaveBeenCalledTimes(1);
   });
 
+  it('renders the latest authoritative draft without stale segmented text', async () => {
+    const coverLetterText =
+      'Application for Engineer\n\nDear Team,\n\nLatest <draft> & edit\nStill writing';
+    findOneCoverLetter.mockResolvedValue({
+      ...mockCoverLetter,
+      coverLetterText,
+    });
+    const request = createJobDuplicateKeyRequest(duplicateKey);
+    const { response, status, json } = createResponse();
+    const { end } = mockResponseWithHeaders(response);
+
+    await getCoverLetterPdf(request, response);
+
+    const renderedHtml = mockSetContent.mock.calls[0]?.[0] ?? '';
+    expect(renderedHtml).toContain(
+      '<div class="body draft">Application for Engineer\n\nDear Team,\n\nLatest &lt;draft&gt; &amp; edit\nStill writing</div>',
+    );
+    expect(renderedHtml).toContain('<div class="subject"></div>');
+    expect(renderedHtml).not.toContain('I have experience.');
+    expect(renderedHtml).not.toContain('Best regards,');
+    expect(end).toHaveBeenCalledWith(Buffer.from(mockCoverLetterPdfBytes));
+    expect(status).not.toHaveBeenCalled();
+    expect(json).not.toHaveBeenCalled();
+  });
+
   it('returns 404 when the cover letter is not found', async () => {
     findOneCoverLetter.mockResolvedValue(null);
     const request = createJobDuplicateKeyRequest(duplicateKey);

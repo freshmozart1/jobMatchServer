@@ -39,13 +39,17 @@ export function coverLetterToHtml(
     month: '2-digit',
     year: 'numeric',
   });
-  const bodyParas = BODY_SEGMENT_ORDER.flatMap((name) =>
-    coverLetter[name].text ? coverLetter[name].text.split('\n\n') : [],
-  )
-    .filter((p) => p.trim())
-    .map((p) => `<p>${escapeHtml(p).replace(/\n/g, '<br>')}</p>`)
-    .join('');
+  const isDraft = coverLetter.coverLetterText !== undefined;
+  const bodyParas = isDraft
+    ? escapeHtml(coverLetter.coverLetterText ?? '')
+    : BODY_SEGMENT_ORDER.flatMap((name) =>
+        coverLetter[name].text ? coverLetter[name].text.split('\n\n') : [],
+      )
+        .filter((p) => p.trim())
+        .map((p) => `<p>${escapeHtml(p).replace(/\n/g, '<br>')}</p>`)
+        .join('');
   return coverLetterTemplate
+    .replace(/\{\{bodyClass\}\}/g, () => (isDraft ? 'body draft' : 'body'))
     .replace(/\{\{userName\}\}/g, () => escapeHtml(user.name))
     .replace(/\{\{userStreetAddress\}\}/g, () =>
       escapeHtml(user.address.streetAddress),
@@ -67,7 +71,9 @@ export function coverLetterToHtml(
       escapeHtml(job.companyAddresses[0]?.city ?? ''),
     )
     .replace(/\{\{date\}\}/g, () => escapeHtml(date))
-    .replace(/\{\{subject\}\}/g, () => escapeHtml(coverLetter.subject.text))
+    .replace(/\{\{subject\}\}/g, () =>
+      escapeHtml(isDraft ? '' : coverLetter.subject.text),
+    )
     .replace(/\{\{bodyParas\}\}/g, () => bodyParas);
 }
 

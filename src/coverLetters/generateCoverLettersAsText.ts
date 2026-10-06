@@ -6,11 +6,12 @@ import {
     generateCoverLetter,
     getTopXSimilarCoverLetters,
     type Job,
+    type CoverLetter,
 } from 'cover-letter-generator';
 import {
     getGeneratorCoverLetterTextSegments,
     reconstructCoverLetterText,
-    toGeneratorCoverLetter,
+    prepareCoverLetterForSimilarity,
     toStoredCoverLetter,
 } from './coverLetterAdapters.js';
 import {
@@ -120,9 +121,11 @@ export default async function generateCoverLetterAsText(
             const readClient = new MongoClient(MONGODB_CONNECTION!);
             const storedCoverLetters = await findStoredCoverLetters(readClient);
 
-            const packageCoverLetters = storedCoverLetters.map(
-                toGeneratorCoverLetter,
-            );
+            const packageCoverLetters: CoverLetter[] = [];
+            for (const storedCoverLetter of storedCoverLetters)
+                packageCoverLetters.push(
+                    await prepareCoverLetterForSimilarity(storedCoverLetter),
+                );
 
             const job: Job = {
                 title: jobData.title,

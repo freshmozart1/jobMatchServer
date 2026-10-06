@@ -68,6 +68,8 @@ export type StoredCoverLetter = Record<
     CoverLetterSegment
 > & {
     jobDuplicateKey?: string;
+    // Authoritative autosaved draft. Absent on legacy/generated segmented letters.
+    coverLetterText?: string;
 };
 
 export type StoredCv = {

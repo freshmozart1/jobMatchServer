@@ -1,5 +1,7 @@
 import {
     COVER_LETTER_SEGMENT_NAMES,
+    embedCoverLetterSegments,
+    segmentCoverLetter,
     type CoverLetter,
     type CoverLetterSegments,
 } from 'cover-letter-generator';
@@ -70,4 +72,16 @@ export function getGeneratorCoverLetterTextSegments(
         conclusion: coverLetter.conclusion.text,
         greetings: coverLetter.greetings.text,
     };
+}
+
+// Only deliberate similarity consumption derives provider-backed artifacts.
+// Never write these back: a newer autosave may have replaced the draft meanwhile.
+export async function prepareCoverLetterForSimilarity(
+    coverLetter: StoredCoverLetter,
+): Promise<CoverLetter> {
+    if (coverLetter.coverLetterText === undefined)
+        return toGeneratorCoverLetter(coverLetter);
+
+    const { segments } = await segmentCoverLetter(coverLetter.coverLetterText);
+    return await embedCoverLetterSegments(segments);
 }

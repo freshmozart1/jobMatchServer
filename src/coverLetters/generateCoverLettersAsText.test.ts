@@ -26,6 +26,7 @@ import {
     getTopXSimilarCoverLetters,
     generateCoverLetter,
     segmentCoverLetter,
+    embedCoverLetterSegments,
 } from '../testMockModules/coverLetterGenerator.test.js';
 import createResponse from '../testHelpers/createResponse.test.js';
 import createRequest from '../testHelpers/createRequest.test.js';
@@ -46,6 +47,7 @@ const {
 } = await import('./generateCoverLettersAsText.js');
 const { getGeneratorCoverLetterTextSegments } =
     await import('./coverLetterAdapters.js');
+const { toStoredCoverLetterDraft } = await import('./coverLetterDraft.js');
 
 const validBase = {
     sourceHostname: 'www.linkedin.com',
@@ -267,6 +269,8 @@ describe('generateCoverLetterAsText', () => {
             { coverLetter: matchedCoverLetter, similarity: 0.9 },
         ]);
         generateCoverLetter.mockResolvedValue(generatedCoverLetter);
+        segmentCoverLetter.mockReset();
+        embedCoverLetterSegments.mockReset();
     });
 
     afterEach(() => {
@@ -311,6 +315,7 @@ describe('generateCoverLetterAsText', () => {
             { upsert: true, returnDocument: 'after' },
         );
         expect(segmentCoverLetter).not.toHaveBeenCalled();
+        expect(embedCoverLetterSegments).not.toHaveBeenCalled();
         expect(status).toHaveBeenCalledWith(200);
         expect(json).toHaveBeenCalledWith({
             coverLetter:
@@ -321,6 +326,101 @@ describe('generateCoverLetterAsText', () => {
         expect(connect).toHaveBeenCalledTimes(2);
         expect(close).toHaveBeenCalledTimes(2);
     });
+
+    it('derives fresh similarity segments only on deliberate generation, after the database closes', async () => {
+        const rawText = 'Latest raw draft\r\n\r\nStill unfinished  ';
+        const draft = {
+            ...storedCoverLetter,
+            ...toStoredCoverLetterDraft(rawText),
+        };
+        toArray.mockResolvedValue([draft, storedCoverLetter]);
+        const segments =
+            getGeneratorCoverLetterTextSegments(matchedCoverLetter);
+        segmentCoverLetter.mockResolvedValue({
+            segments,
+            source: 'llm',
+            confidence: 0.9,
+        });
+        embedCoverLetterSegments.mockResolvedValue(matchedCoverLetter);
+        getTopXSimilarCoverLetters.mockResolvedValue([
+            { coverLetter: matchedCoverLetter, similarity: 0.8 },
+        ]);
+        const request = createRequest<ScrapedJob & { x?: number }>({
+            body: createJob<ScrapedJob>(),
+        });
+        const { response, status } = createResponse();
+
+        await generateCoverLetterAsText(request, response);
+
+        expect(status).toHaveBeenCalledWith(200);
+        expect(segmentCoverLetter).toHaveBeenCalledTimes(1);
+        expect(segmentCoverLetter).toHaveBeenCalledWith(rawText);
+        expect(embedCoverLetterSegments).toHaveBeenCalledWith(segments);
+        expect(close.mock.invocationCallOrder[0]).toBeLessThan(
+            segmentCoverLetter.mock.invocationCallOrder[0]!,
+        );
+        expect(getTopXSimilarCoverLetters).toHaveBeenCalledWith(
+            3,
+            jobEmbedding,
+            [matchedCoverLetter, expectedPackageCoverLetter],
+        );
+        // Only the newly generated letter is written; derived artifacts cannot race autosave.
+        expect(findOneAndReplace).toHaveBeenCalledTimes(1);
+        expect(findOneAndReplace.mock.calls[0]?.[1]).toEqual({
+            ...storedGeneratedCoverLetter,
+            jobDuplicateKey: 'linkedin:123456789',
+        });
+        expect(draft.coverLetterText).toBe(rawText);
+        expect(draft.mainBody.embedding).toBeNull();
+    });
+
+    it.each([
+        {
+            name: 'segmentation',
+            reject: (error: Error) =>
+                segmentCoverLetter.mockRejectedValue(error),
+        },
+        {
+            name: 'embedding',
+            reject: (error: Error) =>
+                embedCoverLetterSegments.mockRejectedValue(error),
+        },
+    ])(
+        'keeps persisted draft text intact when deferred $name fails',
+        async ({ reject }) => {
+            const rawText = 'Saved unfinished draft';
+            const draft = {
+                ...storedCoverLetter,
+                ...toStoredCoverLetterDraft(rawText),
+            };
+            toArray.mockResolvedValue([draft]);
+            segmentCoverLetter.mockResolvedValue({
+                segments:
+                    getGeneratorCoverLetterTextSegments(matchedCoverLetter),
+                source: 'llm',
+                confidence: 0.9,
+            });
+            embedCoverLetterSegments.mockResolvedValue(matchedCoverLetter);
+            const error = new Error('Synthetic invalid provider segmentation');
+            reject(error);
+            const request = createRequest<ScrapedJob & { x?: number }>({
+                body: createJob<ScrapedJob>(),
+            });
+            const { response, status, json } = createResponse();
+
+            await generateCoverLetterAsText(request, response);
+
+            expect(status).toHaveBeenCalledWith(500);
+            expect(json).toHaveBeenCalledWith({
+                message: 'Error generating cover letter',
+                error: 'Provider request failed',
+            });
+            expect(findOneAndReplace).not.toHaveBeenCalled();
+            expect(generateCoverLetter).not.toHaveBeenCalled();
+            expect(close).toHaveBeenCalledTimes(1);
+            expect(draft.coverLetterText).toBe(rawText);
+        },
+    );
 
     it.each([
         { name: 'location', omitted: ['location'] },

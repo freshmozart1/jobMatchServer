@@ -83,6 +83,12 @@
         overflow: hidden;
       }
 
+      .body.draft {
+        top: 94.75mm;
+        white-space: pre-wrap;
+        overflow-wrap: break-word;
+      }
+
       .body p {
         margin: 0 0 1em;
       }
@@ -108,6 +114,6 @@
       <p style="margin-top: 9pt">{{date}}</p>
     </div>
     <div class="subject">{{subject}}</div>
-    <div class="body">{{bodyParas}}</div>
+    <div class="{{bodyClass}}">{{bodyParas}}</div>
   </body>
 </html>

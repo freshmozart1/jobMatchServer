@@ -1,8 +1,4 @@
 import type { Request, Response } from 'express';
-import {
-  segmentCoverLetter,
-  embedCoverLetterSegments,
-} from 'cover-letter-generator';
 import { MongoClient, type ObjectId } from 'mongodb';
 import {
   connectionStringConfigured,
@@ -11,7 +7,7 @@ import {
 } from './database.js';
 import type { StoredCoverLetter } from '#types';
 import { createErrorMessage } from '../errors/createErrorMessage.js';
-import { toStoredCoverLetter } from '../coverLetters/coverLetterAdapters.js';
+import { toStoredCoverLetterDraft } from '../coverLetters/coverLetterDraft.js';
 
 type CoverLetterAsTextRequestBody = {
   coverLetterText: string;
@@ -37,8 +33,7 @@ function isValidCoverLetterAsTextRequestBody(
   return true;
 }
 
-// Scoped to the one write the client serves, so the connection opens after
-// segmentation and embedding instead of idling through those round trips.
+// Autosave performs only this short-lived database write; no provider work.
 async function storeCoverLetter(
   client: MongoClient,
   coverLetter: Omit<StoredCoverLetter, 'jobDuplicateKey'>,
@@ -89,10 +84,7 @@ export default async function uploadCoverLetterAsText(
   const { coverLetterText, jobDuplicateKey } = request.body;
   const client = new MongoClient(MONGODB_CONNECTION!);
   try {
-    const { segments } = await segmentCoverLetter(coverLetterText);
-    const coverLetter = toStoredCoverLetter(
-      await embedCoverLetterSegments(segments),
-    );
+    const coverLetter = toStoredCoverLetterDraft(coverLetterText);
     const coverLetterId = await storeCoverLetter(
       client,
       coverLetter,
