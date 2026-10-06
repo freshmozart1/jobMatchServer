@@ -29,7 +29,15 @@ const { default: uploadCV } = await import('./uploadCV.js');
 const job = { _id: { toHexString: () => 'job-object-id' } };
 const findOne = jest.fn<(filter: unknown) => Promise<typeof job>>();
 const findOneAndReplace =
-    jest.fn<(...args: unknown[]) => Promise<{ _id: string } | null>>();
+    jest.fn<
+        (
+            ...args: unknown[]
+        ) => Promise<{
+            value: null;
+            lastErrorObject: { upserted: string };
+            ok: number;
+        }>
+    >();
 
 function createRequest(body: unknown, file?: Express.Multer.File): Request {
     return { body, file } as Request;
@@ -59,7 +67,11 @@ describe('uploadCV', () => {
         connect.mockResolvedValue();
         close.mockResolvedValue();
         findOne.mockResolvedValue(job);
-        findOneAndReplace.mockResolvedValue({ _id: 'cv-id' });
+        findOneAndReplace.mockResolvedValue({
+            value: null,
+            lastErrorObject: { upserted: 'cv-id' },
+            ok: 1,
+        });
         getCollection.mockImplementation((_client: unknown, name: unknown) =>
             name === 'jobs' ? { findOne } : { findOneAndReplace },
         );
@@ -123,7 +135,11 @@ describe('uploadCV', () => {
         expect(findOneAndReplace).toHaveBeenCalledWith(
             { jobId: 'job-object-id' },
             { jobId: 'job-object-id', filePath },
-            { upsert: true, returnDocument: 'after' },
+            {
+                upsert: true,
+                returnDocument: 'before',
+                includeResultMetadata: true,
+            },
         );
         expect(status).toHaveBeenCalledWith(201);
         expect(json).toHaveBeenCalledWith({

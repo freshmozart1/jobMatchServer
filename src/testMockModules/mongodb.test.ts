@@ -1,4 +1,9 @@
 import { jest } from '@jest/globals';
+import {
+  MongoBulkWriteError,
+  MongoServerError,
+  MongoWriteConcernError,
+} from 'mongodb';
 
 export const connect = jest.fn<() => Promise<void>>();
 export const close = jest.fn<() => Promise<void>>();
@@ -17,6 +22,9 @@ export function createFind<T>() {
 
 export function mockMongoDbModule() {
   return jest.unstable_mockModule('mongodb', () => ({
+    MongoBulkWriteError,
+    MongoServerError,
+    MongoWriteConcernError,
     MongoClient: jest.fn().mockImplementation(() => ({
       connect,
       close,

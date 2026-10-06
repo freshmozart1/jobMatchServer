@@ -2,6 +2,23 @@
 
 All notable changes to this project are documented in this file.
 
+## v5.3.7
+
+### Fixed
+
+- Clean up staged CV/certificate files after validation and other definite
+  prewrite failures. Retrieve previous CV metadata atomically during
+  replacement and remove only a superseded, unreferenced managed file while
+  preserving the current `cvId`. Reconcile acknowledged partial certificate
+  writes against actual database records before removing uncommitted files;
+  never treat generated insert IDs as persistence evidence. Keep acknowledged
+  uploads across response/close failures, and conservatively retain files for
+  uncertain writes or failed ownership queries. Cleanup failures are logged
+  and can require later manual reconciliation. Coordinate active CV/application
+  downloads with replacement cleanup using per-job process-local leases, so
+  a selected old file remains available until existing readers finish; use
+  primary CV metadata for readers admitted after cleanup (closes #171).
+
 ## v5.3.6
 
 ### Fixed

@@ -39,7 +39,7 @@ const findOneJob =
       (StoredScrapedJob & { _id: { toHexString: () => string } }) | null
     >
   >();
-const findOneCv = jest.fn<(filter: unknown) => Promise<StoredCv | null>>();
+const findOneCv = jest.fn<(filter: unknown, options?: unknown) => Promise<StoredCv | null>>();
 const findOneUser = jest.fn<(filter: unknown) => Promise<StoredUser | null>>();
 const certToArray = createToArray<StoredCertificate>();
 const findCertificates = createFind<StoredCertificate>();
@@ -227,7 +227,10 @@ describe('getApplication', () => {
       jobDuplicateKey: duplicateKey,
     });
     expect(findOneJob).toHaveBeenCalledWith({ duplicateKey });
-    expect(findOneCv).toHaveBeenCalledWith({ jobId: mockJobId });
+    expect(findOneCv).toHaveBeenCalledWith(
+      { jobId: mockJobId },
+      { readPreference: 'primary', readConcern: { level: 'local' } },
+    );
     expect(mockLaunch).toHaveBeenCalledTimes(1);
     expect(mockSetContent).toHaveBeenCalledWith(
       expect.stringContaining(
