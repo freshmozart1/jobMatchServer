@@ -2,6 +2,25 @@
 
 All notable changes to this project are documented in this file.
 
+## v5.3.9
+
+### Fixed
+
+- Persist cover-letter autosaves verbatim without provider calls. Render raw
+  drafts directly in PDFs and derive segments/embeddings only for generation
+  similarity; preserve legacy segmented letters and avoid derived writeback
+  over newer drafts (closes #142).
+- Add first-run single-user setup through `POST /users/profile`, preserving
+  existing profiles during repeated or concurrent setup. Both PDF downloads
+  return actionable `409` guidance when the profile is missing (closes #144).
+- Convert the API's kilometre search radius to the nearest whole mile, with
+  a minimum of one, before forwarding it with a location to the scraper
+  (closes #145).
+- Default public errors to `Internal server error` while retaining curated
+  validation, missing-record, overflow and deadline messages. Sanitize escaped
+  Express errors and token-service failure details; keep original errors in
+  server logs and preserve started SSE/PDF response handling (closes #155).
+
 ## v5.3.8
 
 ### Fixed
