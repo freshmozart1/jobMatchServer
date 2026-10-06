@@ -409,7 +409,7 @@ Body: `{ "selectedText": string, "instruction": string, "coverLetterText": strin
 
 ### `POST /tokens/count`
 
-Body: `{ "text": string, "model"?: string }`. Proxies to the Python token service and returns the token count for the given text.
+Body: `{ "text": string, "model"?: string }`. Proxies to the Python token service and returns the token count for the given text. A connection failure returns `500` with `{ "error": "Error connecting to token service.", "details": "Internal server error" }`; the original rejection stays in server logs.
 
 ### `GET /application/:jobDuplicateKey`
 

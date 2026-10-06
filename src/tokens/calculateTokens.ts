@@ -13,11 +13,12 @@ export default async function countTokens(
       request.body.model,
     );
   } catch (error) {
+    console.error('Error connecting to token service.', error);
     response
       .status(500)
       .json({
         error: 'Error connecting to token service.',
-        details: error instanceof Error ? error.message : String(error),
+        details: 'Internal server error',
       });
     return;
   }
