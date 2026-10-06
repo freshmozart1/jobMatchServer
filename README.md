@@ -103,7 +103,7 @@ The test suite mocks `cover-letter-generator` entirely, so it can't catch a mode
 
 ## Runtime Behavior
 
-On startup the server spawns the Python token service, then starts listening on port `3000`. If the port is already in use, it automatically tries the next port until it finds one available.
+On startup the server spawns the Python token service, then starts listening on port `3000`. If the port is already in use, it automatically tries the next port until it finds one available. Startup does not print the MongoDB connection URI, which may contain credentials or secret query parameters.
 
 Example startup output:
 
@@ -198,7 +198,26 @@ client disconnect suppresses further frames while cleanup completes.
 
 ### `POST /jobs/create`
 
-Body: `{ "job": ScrapedJob, "like": boolean }`. Upserts the job into MongoDB keyed by `duplicateKey`, recording whether it was liked or disliked (used to rank future scrapes). Returns `{ "message": "Job created", "jobId": "..." }`.
+Body: `{ "job": ScrapedJob, "like": boolean }`. Upserts the job into MongoDB keyed by the exact `duplicateKey`, recording whether it was liked or disliked (used to rank future scrapes). Repeated saves replace only that job, preserving its database ID. Returns `201` with `{ "message": "Job created", "jobId": "..." }`.
+
+The body and job must be plain objects containing only the documented fields
+(see [Job Model](#job-model)); `like` belongs on the body, not inside `job`.
+Database-owned fields such as `_id` are not accepted. Validation runs before
+any database setup or access; malformed requests return `400` with `message`
+and `error` strings and do not write a job.
+
+- `duplicateKey` must be a string containing at least one non-whitespace
+  character. Objects, arrays, and MongoDB operators are rejected.
+- `sourceHostname`, `sourceUrl`, `title`, `company`, and `scrapedAt` must be
+  present as strings. Empty strings from scraper normalization remain valid.
+- `embedding` must be a non-empty array of finite numbers. No fixed vector
+  dimension is imposed by this endpoint.
+- `companyAddresses` must be an array (which may be empty). Each address must
+  contain exactly the four string fields shown in the model; empty strings
+  are valid when the scraper could not determine part of an address.
+- Optional `sourceJobId`, `location`, `descriptionText`, and `postedAt` must
+  be strings when present; optional `tags` must be an array of strings and
+  optional `match` must be a finite number. Omitted optional fields are valid.
 
 ### `POST /cover-letters/upload/text`
 
@@ -231,6 +250,14 @@ Returns whether certificates have been uploaded for the given job.
 ### `POST /cover-letters/create/text`
 
 Body: a job plus `{ "x"?: number }` (default `3`). Ranks all stored cover letters against the job using the [`cover-letter-generator`](https://github.com/freshmozart1/cover-letter-generator) package's `embedJob` and `getTopXSimilarCoverLetters`, then generates a new cover letter from the top `x` matches via the package's `generateCoverLetter`. Generation itself is delegated to that package, so the exact model it uses internally isn't documented here. Returns `{ "coverLetter": string, "saved": true, "coverLetterId": string }`. `saved: true` means the generator's exact embedded segments are already persisted under the request job's `duplicateKey`; clients should not immediately upload the unchanged generated text through `POST /cover-letters/upload/text`. The entire handler operation, including the MongoDB read, provider work, and generated-letter persistence, has a 5-minute deadline. If it expires, the route returns `504` with `{ "message": "Cover letter generation deadline exceeded", "error": "Request deadline exceeded" }` instead of the existing sanitized `500` used for provider or database failures. The deadline bounds how long the handler waits; this repository cannot cancel package-owned provider work, and a provider or MongoDB operation may still settle (and a MongoDB client may close) after the `504` response.
+
+`location`, `descriptionText`, `postedAt`, and `tags` are optional in the
+generation request and may be omitted from JSON, individually or together.
+If supplied, the first three must be strings and `tags` must be an array of
+strings; `null` and other invalid types return `400`. A missing description is
+passed to the generator as an empty string; missing location stays omitted.
+Successful requests still persist the generated letter and return the same
+`saved` and `coverLetterId` fields.
 
 ### `POST /cover-letters/revise/text`
 
