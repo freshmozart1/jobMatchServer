@@ -434,7 +434,14 @@ export async function scrapeJob(req: Request, res: Response): Promise<void> {
                         // buildSearchUrl without a location to centre it on, so it's
                         // only forwarded when both are present (#148).
                         ...(location !== undefined && distance !== undefined
-                            ? { distanceMiles: distance }
+                            ? // API radii are kilometres; the scraper sends whole
+                              // miles. One international mile is exactly 1.609344 km.
+                              {
+                                  distanceMiles: Math.max(
+                                      1,
+                                      Math.round(distance / 1.609344),
+                                  ),
+                              }
                             : {}),
                     },
                     signal: controller.signal,

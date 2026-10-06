@@ -1376,9 +1376,50 @@ describe('scrapeJob', () => {
                 keyword: 'TypeScript',
                 datePosted: 'day',
                 location: 'Berlin',
-                distanceMiles: 25,
+                distanceMiles: 16,
             },
         ]);
+    });
+
+    it.each([
+        [1, 1],
+        [2, 1],
+        [3, 2],
+        [25, 16],
+        [100, 62],
+    ])(
+        'converts a %i kilometre radius to %i whole miles',
+        async (distance, distanceMiles) => {
+            const capturedSearchParams = runScrapeCapturingSearchParams();
+            const { response, end } = createSseResponse();
+
+            await scrapeJob(
+                createRequest({ ...validBody, distance }),
+                response,
+            );
+
+            expect(capturedSearchParams).toEqual([
+                {
+                    keyword: 'TypeScript',
+                    datePosted: 'day',
+                    location: 'Berlin',
+                    distanceMiles,
+                },
+            ]);
+            expect(end).toHaveBeenCalledTimes(1);
+        },
+    );
+
+    it('omits an explicitly undefined radius from scraper search parameters', async () => {
+        const capturedSearchParams = runScrapeCapturingSearchParams();
+        const { response } = createSseResponse();
+
+        await scrapeJob(
+            createRequest({ ...validBody, distance: undefined }),
+            response,
+        );
+
+        expect(capturedSearchParams[0]).not.toHaveProperty('distanceMiles');
     });
 
     it('answers 400 naming the expected fields when the body is genuinely invalid', async () => {
