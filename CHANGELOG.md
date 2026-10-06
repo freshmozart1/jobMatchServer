@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented in this file.
 
+## v5.3.10
+
+### Fixed
+
+- Remove three stale Fallow complexity suppressions after source-test discovery
+  was corrected. Document the remaining `classifyResponse` suppression's
+  partial estimated coverage; runtime code and tests are unchanged (closes #159).
+
 ## v5.3.9
 
 ### Fixed
