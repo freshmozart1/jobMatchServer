@@ -81,21 +81,29 @@ describe('uploadCertificates', () => {
 
     it('returns 400 when jobDuplicateKey is not a string', async () => {
         const request = createRequest({});
-        const { response, status } = createResponse();
+        const { response, status, json } = createResponse();
 
         await uploadCertificates(request, response);
 
         expect(status).toHaveBeenCalledWith(400);
+        expect(json).toHaveBeenCalledWith({
+            message: 'Error uploading certificates',
+            error: 'jobDuplicateKey must be a string',
+        });
         expect(insertMany).not.toHaveBeenCalled();
     });
 
     it('returns 400 when no files are provided', async () => {
         const request = createRequest({ jobDuplicateKey: 'job-key' }, []);
-        const { response, status } = createResponse();
+        const { response, status, json } = createResponse();
 
         await uploadCertificates(request, response);
 
         expect(status).toHaveBeenCalledWith(400);
+        expect(json).toHaveBeenCalledWith({
+            message: 'Error uploading certificates',
+            error: 'At least one file is required',
+        });
         expect(insertMany).not.toHaveBeenCalled();
     });
 
@@ -164,4 +172,32 @@ describe('uploadCertificates', () => {
         await expect(access(pdfPath)).resolves.toBeUndefined();
         await expect(access(pngPath)).resolves.toBeUndefined();
     });
+    it.each([connect, findOne, insertMany])(
+        'sanitizes database failures and logs the original error',
+        async (operation) => {
+            const filePath = path.join(tmpDir, 'real.pdf');
+            await writeFile(filePath, '%PDF-1.7\n%%EOF');
+            const error = new Error(
+                'Synthetic MongoDB cluster.private.invalid failed',
+            );
+            operation.mockRejectedValue(error);
+            const request = createRequest({ jobDuplicateKey: 'job-key' }, [
+                multerFile(filePath, 'application/pdf'),
+            ]);
+            const { response, status, json } = createResponse();
+
+            await uploadCertificates(request, response);
+
+            expect(status).toHaveBeenCalledWith(500);
+            expect(json).toHaveBeenCalledWith({
+                message: 'Error uploading certificates',
+                error: 'Internal server error',
+            });
+            expect(console.error).toHaveBeenCalledWith(
+                'Error uploading certificates',
+                error,
+            );
+            expect(close).toHaveBeenCalledTimes(1);
+        },
+    );
 });

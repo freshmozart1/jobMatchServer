@@ -37,6 +37,7 @@ async function sendCv(
                 new Error('Invalid file path'),
                 'Error retrieving CV',
                 500,
+                'Invalid file path',
             );
             return;
         }
@@ -50,11 +51,15 @@ async function sendCv(
             });
         });
     } catch (error) {
+        const missingRecordError = [jobNotFoundError, cvNotFoundError].find(
+            (sentinel) => sentinel === error,
+        );
         createErrorMessage(
             response,
             error,
             'Error retrieving CV',
-            error === jobNotFoundError || error === cvNotFoundError ? 404 : 500,
+            missingRecordError ? 404 : 500,
+            missingRecordError?.message,
         );
     } finally {
         await client.close();

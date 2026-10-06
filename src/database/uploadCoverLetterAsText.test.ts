@@ -58,11 +58,10 @@ const insertBody = {
 };
 const upsertBody = { ...insertBody, jobDuplicateKey: 'job-key-1' };
 
-// Only the message is pinned: the raw error still echoed in `error` is slated
-// to be sanitized (#155).
-const uploadFailedResponse = expect.objectContaining({
+const uploadFailedResponse = {
   message: 'An error occurred while uploading the cover letter',
-});
+  error: 'Internal server error',
+};
 
 mockMongoDbModule();
 mockLocalDatabaseModule();
@@ -287,7 +286,8 @@ describe('uploadCoverLetterAsText', () => {
   ])(
     'returns 500 and closes the client exactly once when $name rejects',
     async ({ name, body, dbCall }) => {
-      dbCall.mockRejectedValue(new Error(`${name} failed`));
+      const error = new Error(`Synthetic ${name} cluster-private req-private`);
+      dbCall.mockRejectedValue(error);
       const request = createRequest(body);
       const { response, status, json } = createResponse();
 
@@ -296,6 +296,9 @@ describe('uploadCoverLetterAsText', () => {
       expect(status).toHaveBeenCalledTimes(1);
       expect(status).toHaveBeenCalledWith(500);
       expect(json).toHaveBeenCalledWith(uploadFailedResponse);
+      expect(console.error).toHaveBeenCalledWith(
+        'An error occurred while uploading the cover letter', error,
+      );
       expect(close).toHaveBeenCalledTimes(1);
     },
   );

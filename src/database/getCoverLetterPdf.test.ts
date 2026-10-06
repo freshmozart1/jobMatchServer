@@ -267,7 +267,7 @@ describe('getCoverLetterPdf', () => {
 
     expect(status).toHaveBeenCalledWith(500);
     expect(json).toHaveBeenCalledWith({
-      error: 'Connection failed',
+      error: 'Internal server error',
       message: 'Error retrieving cover letter',
     });
     expect(close).toHaveBeenCalledTimes(1);
@@ -305,7 +305,7 @@ describe('getCoverLetterPdf', () => {
     expect(status).toHaveBeenCalledWith(500);
     expect(json).toHaveBeenCalledWith({
       message: 'Error retrieving cover letter',
-      error: 'Synthetic layout evaluation failed',
+      error: 'Internal server error',
     });
     expect(mockPdf).not.toHaveBeenCalled();
     expect(setHeader).not.toHaveBeenCalled();

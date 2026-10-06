@@ -178,6 +178,13 @@ responses; preflight replies retain `204`, `GET,POST,OPTIONS`, and the
 
 ## API Endpoints
 
+HTTP errors produced by the shared handler helper keep the `{ message, error }`
+shape. Unexpected provider, database, and filesystem failures return the
+fixed `error: "Internal server error"` by default; detailed caught errors stay
+in server logs. Curated validation, missing-record, invalid-path, PDF overflow,
+and deadline messages remain explicit. Cover-letter create/revise retain their
+existing `error: "Provider request failed"` on unexpected failures.
+
 ### `GET /health`
 
 Lightweight process health check. Returns `{ "status": "ok" }`.

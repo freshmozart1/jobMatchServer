@@ -374,4 +374,34 @@ describe('createJobInDatabase', () => {
         expect(connect).toHaveBeenCalledTimes(2);
         expect(close).toHaveBeenCalledTimes(2);
     });
+    it.each([connect, findOneAndReplace])(
+        'sanitizes driver errors when creating a job',
+        async (operation) => {
+            const error = new Error(
+                'Synthetic MongoDB cluster.private.invalid failed',
+            );
+            operation.mockRejectedValue(error);
+            const request = createRequest<CreateJobInDatabaseRequestBody>({
+                body: { job: createJob<ScrapedJob>(), like: true },
+            });
+            const { response, status, json } = createResponse();
+            const log = jest
+                .spyOn(console, 'error')
+                .mockImplementation(() => {});
+            try {
+                await createJobInDatabase(request, response);
+                expect(status).toHaveBeenCalledWith(500);
+                expect(json).toHaveBeenCalledWith({
+                    message: 'Failed to create job in database',
+                    error: 'Internal server error',
+                });
+                expect(log).toHaveBeenCalledWith(
+                    'Failed to create job in database',
+                    error,
+                );
+            } finally {
+                log.mockRestore();
+            }
+        },
+    );
 });

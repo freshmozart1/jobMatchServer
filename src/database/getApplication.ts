@@ -95,11 +95,9 @@ async function mergeCertificatesIntoPdf(
     }
 }
 
-function isMissingApplicationRecord(error: unknown): boolean {
-    return (
-        error === coverLetterNotFoundError ||
-        error === jobNotFoundError ||
-        error === cvNotFoundError
+function getMissingApplicationRecordError(error: unknown): Error | undefined {
+    return [coverLetterNotFoundError, jobNotFoundError, cvNotFoundError].find(
+        (sentinel) => sentinel === error,
     );
 }
 
@@ -126,6 +124,7 @@ async function createApplication(
                 new Error('Invalid file path'),
                 'Error retrieving application',
                 500,
+                'Invalid file path',
             );
             return;
         }
@@ -175,14 +174,22 @@ async function createApplication(
             return;
         }
         if (error instanceof CoverLetterOverflowError) {
-            createErrorMessage(response, error, error.message, 422);
+            createErrorMessage(
+                response,
+                error,
+                error.message,
+                422,
+                error.message,
+            );
             return;
         }
+        const missingRecordError = getMissingApplicationRecordError(error);
         createErrorMessage(
             response,
             error,
             'Error retrieving application',
-            isMissingApplicationRecord(error) ? 404 : 500,
+            missingRecordError ? 404 : 500,
+            missingRecordError?.message,
         );
     } finally {
         await client.close();

@@ -1017,6 +1017,7 @@ describe('scrapeJob', () => {
         expect(json).toHaveBeenCalledWith(
             expect.objectContaining({
                 message: 'Failed to connect to MongoDB.',
+                error: 'Internal server error',
             }),
         );
     });

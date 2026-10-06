@@ -77,6 +77,7 @@ export default async function uploadCoverLetterAsText(
       invalidCoverLetterAsTextRequestBodyError,
       'An error occurred while uploading the cover letter',
       400,
+      invalidCoverLetterAsTextRequestBodyError.message,
     );
     return;
   }

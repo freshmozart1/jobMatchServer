@@ -33,11 +33,15 @@ export default async function getCVStatus(
 
     response.status(200).json({ message: 'CV exists' });
   } catch (error) {
+    const missingRecordError = [jobNotFoundError, cvNotFoundError].find(
+      (sentinel) => sentinel === error,
+    );
     createErrorMessage(
       response,
       error,
       'Error checking CV status',
-      error === jobNotFoundError || error === cvNotFoundError ? 404 : 500,
+      missingRecordError ? 404 : 500,
+      missingRecordError?.message,
     );
   } finally {
     await client?.close();

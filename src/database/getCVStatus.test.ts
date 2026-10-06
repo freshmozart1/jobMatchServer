@@ -111,7 +111,7 @@ describe('getCVStatus', () => {
 
     expect(status).toHaveBeenCalledWith(500);
     expect(json).toHaveBeenCalledWith({
-      error: 'DB connection failed',
+      error: 'Internal server error',
       message: 'Error checking CV status',
     });
     expect(close).toHaveBeenCalledTimes(1);

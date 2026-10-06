@@ -108,6 +108,7 @@ export default async function generateCoverLetterAsText(
             '',
             'Invalid request body. Please provide all required fields with correct types.',
             400,
+            '',
         );
         return;
     }

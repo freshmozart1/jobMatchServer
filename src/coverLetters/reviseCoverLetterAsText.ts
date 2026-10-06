@@ -50,6 +50,7 @@ export default async function reviseCoverLetterAsText(
             '',
             'Invalid request body. Please provide non-empty selectedText, instruction, coverLetterText, job.title, and job.company strings, with optional string job.location and job.description fields.',
             400,
+            '',
         );
         return;
     }
@@ -61,6 +62,7 @@ export default async function reviseCoverLetterAsText(
             '',
             'Invalid request body. selectedText must occur in coverLetterText.',
             400,
+            '',
         );
         return;
     }

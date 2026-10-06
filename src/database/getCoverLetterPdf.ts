@@ -53,16 +53,25 @@ export default async function getCoverLetterPdf(
             return;
         }
         if (error instanceof CoverLetterOverflowError) {
-            createErrorMessage(response, error, error.message, 422);
+            createErrorMessage(
+                response,
+                error,
+                error.message,
+                422,
+                error.message,
+            );
             return;
         }
+        const missingRecordError = [
+            coverLetterNotFoundError,
+            jobNotFoundError,
+        ].find((sentinel) => sentinel === error);
         createErrorMessage(
             response,
             error,
             'Error retrieving cover letter',
-            error === coverLetterNotFoundError || error === jobNotFoundError
-                ? 404
-                : 500,
+            missingRecordError ? 404 : 500,
+            missingRecordError?.message,
         );
     } finally {
         await client.close();
