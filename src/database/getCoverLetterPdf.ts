@@ -1,9 +1,9 @@
 import type { Request, Response } from 'express';
 import { createErrorMessage } from '../errors/createErrorMessage.js';
 import type { StoredCoverLetter } from '#types';
-import { findUserProfile, UserProfileMissingError } from './userProfile.js';
+import { findUserProfile } from './userProfile.js';
+import { handleKnownCoverLetterPdfError } from './handleKnownCoverLetterPdfError.js';
 import {
-    CoverLetterOverflowError,
     coverLetterToHtml,
     renderCoverLetterPdf,
 } from './coverLetterPdf.js';
@@ -48,20 +48,7 @@ export default async function getCoverLetterPdf(
         );
         response.end(Buffer.from(pdfBytes));
     } catch (error) {
-        if (error instanceof UserProfileMissingError) {
-            createErrorMessage(response, error, error.message, 409, error.message);
-            return;
-        }
-        if (error instanceof CoverLetterOverflowError) {
-            createErrorMessage(
-                response,
-                error,
-                error.message,
-                422,
-                error.message,
-            );
-            return;
-        }
+        if (handleKnownCoverLetterPdfError(response, error)) return;
         const missingRecordError = [
             coverLetterNotFoundError,
             jobNotFoundError,

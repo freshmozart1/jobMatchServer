@@ -6,7 +6,8 @@
 // Verified 2026-07.
 import type { Request, Response } from 'express';
 import { withCvReadLease } from './cvFileAccess.js';
-import { findUserProfile, UserProfileMissingError } from './userProfile.js';
+import { findUserProfile } from './userProfile.js';
+import { handleKnownCoverLetterPdfError } from './handleKnownCoverLetterPdfError.js';
 import { addCertificateImagePage } from './certificateImagePage.js';
 import { readFile } from 'fs/promises';
 import type { MongoClient, WithId } from 'mongodb';
@@ -22,7 +23,6 @@ import type {
     StoredUser,
 } from '#types';
 import {
-    CoverLetterOverflowError,
     coverLetterToHtml,
     renderCoverLetterPdf,
 } from './coverLetterPdf.js';
@@ -169,20 +169,7 @@ async function createApplication(
         );
         response.end(Buffer.from(mergedBytes));
     } catch (error) {
-        if (error instanceof UserProfileMissingError) {
-            createErrorMessage(response, error, error.message, 409, error.message);
-            return;
-        }
-        if (error instanceof CoverLetterOverflowError) {
-            createErrorMessage(
-                response,
-                error,
-                error.message,
-                422,
-                error.message,
-            );
-            return;
-        }
+        if (handleKnownCoverLetterPdfError(response, error)) return;
         const missingRecordError = getMissingApplicationRecordError(error);
         createErrorMessage(
             response,
