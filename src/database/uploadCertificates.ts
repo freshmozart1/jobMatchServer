@@ -50,6 +50,7 @@ export default async function uploadCertificates(
                 new Error('jobDuplicateKey must be a string'),
                 'Error uploading certificates',
                 400,
+                'jobDuplicateKey must be a string',
             );
             return;
         }
@@ -59,6 +60,7 @@ export default async function uploadCertificates(
                 new Error('At least one file is required'),
                 'Error uploading certificates',
                 400,
+                'At least one file is required',
             );
             return;
         }
@@ -71,6 +73,7 @@ export default async function uploadCertificates(
                 ),
                 'Error uploading certificates',
                 400,
+                `File "${invalidFile.originalname}" is not a valid PDF, JPEG, or PNG file`,
             );
             return;
         }
@@ -101,6 +104,7 @@ export default async function uploadCertificates(
             error,
             'Error uploading certificates',
             error === jobNotFoundError ? 404 : 500,
+            error === jobNotFoundError ? jobNotFoundError.message : undefined,
         );
     } finally {
         await ownership.cleanup();

@@ -6,6 +6,8 @@
 // Verified 2026-07.
 import type { Request, Response } from 'express';
 import { withCvReadLease } from './cvFileAccess.js';
+import { findUserProfile } from './userProfile.js';
+import { handleKnownCoverLetterPdfError } from './handleKnownCoverLetterPdfError.js';
 import { addCertificateImagePage } from './certificateImagePage.js';
 import { readFile } from 'fs/promises';
 import type { MongoClient, WithId } from 'mongodb';
@@ -21,7 +23,6 @@ import type {
     StoredUser,
 } from '#types';
 import {
-    CoverLetterOverflowError,
     coverLetterToHtml,
     renderCoverLetterPdf,
 } from './coverLetterPdf.js';
@@ -31,7 +32,6 @@ import {
     findJobAndCvByDuplicateKey,
     getCollection,
     jobNotFoundError,
-    USER_ID,
 } from './database.js';
 
 const coverLetterNotFoundError = new Error('Cover letter not found');
@@ -58,10 +58,7 @@ async function loadApplicationRecords(
         jobDuplicateKey,
     );
 
-    const user = await getCollection<StoredUser>(client, 'users').findOne({
-        _id: USER_ID,
-    });
-    if (!user) throw new Error('User not found');
+    const user = await findUserProfile(client);
 
     return { coverLetter, job, cv, user };
 }
@@ -98,11 +95,9 @@ async function mergeCertificatesIntoPdf(
     }
 }
 
-function isMissingApplicationRecord(error: unknown): boolean {
-    return (
-        error === coverLetterNotFoundError ||
-        error === jobNotFoundError ||
-        error === cvNotFoundError
+function getMissingApplicationRecordError(error: unknown): Error | undefined {
+    return [coverLetterNotFoundError, jobNotFoundError, cvNotFoundError].find(
+        (sentinel) => sentinel === error,
     );
 }
 
@@ -129,6 +124,7 @@ async function createApplication(
                 new Error('Invalid file path'),
                 'Error retrieving application',
                 500,
+                'Invalid file path',
             );
             return;
         }
@@ -173,15 +169,14 @@ async function createApplication(
         );
         response.end(Buffer.from(mergedBytes));
     } catch (error) {
-        if (error instanceof CoverLetterOverflowError) {
-            createErrorMessage(response, error, error.message, 422);
-            return;
-        }
+        if (handleKnownCoverLetterPdfError(response, error)) return;
+        const missingRecordError = getMissingApplicationRecordError(error);
         createErrorMessage(
             response,
             error,
             'Error retrieving application',
-            isMissingApplicationRecord(error) ? 404 : 500,
+            missingRecordError ? 404 : 500,
+            missingRecordError?.message,
         );
     } finally {
         await client.close();

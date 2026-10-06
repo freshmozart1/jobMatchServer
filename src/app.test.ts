@@ -6,6 +6,17 @@ import type { AddressInfo } from 'node:net';
 // Keep the real app, Express middleware and HTTP transport; unrelated routes
 // must never load their database/provider/scraper modules for these tests.
 const unusedHandler = jest.fn();
+const profileHandler = jest.fn<
+    (
+        request: import('express').Request,
+        response: import('express').Response,
+    ) => void
+>((_request, response) => {
+    response.status(201).json({ message: 'User profile created' });
+});
+jest.unstable_mockModule('#database/createUserProfile.js', () => ({
+    default: profileHandler,
+}));
 jest.unstable_mockModule('#scrapers/linkedin/scrapeJob.js', () => ({
     scrapeJob: unusedHandler,
 }));
@@ -93,7 +104,95 @@ async function expectAllowed(baseUrl: string, origin: string): Promise<void> {
     expect(preflight.headers.get('Vary')).toBe('Origin');
 }
 
+describe('app upload validation public errors', () => {
+    it.each([
+        ['/cv/upload', 'file', 'Error uploading CV', 'file must be a PDF'],
+        [
+            '/certificates/upload',
+            'files',
+            'Error uploading certificates',
+            'file "synthetic.txt" is not a PDF, JPEG, or PNG',
+        ],
+    ])(
+        'keeps curated file-filter messages on %s',
+        async (route, field, message, error) => {
+            jest.spyOn(console, 'error').mockImplementation(() => {});
+            const baseUrl = await startApp();
+            const form = new FormData();
+            form.append(
+                field,
+                new Blob(['synthetic invalid content'], { type: 'text/plain' }),
+                'synthetic.txt',
+            );
+
+            const response = await fetch(`${baseUrl}${route}`, {
+                method: 'POST',
+                body: form,
+            });
+
+            expect(response.status).toBe(400);
+            expect(await response.json()).toEqual({ message, error });
+        },
+    );
+
+    it('keeps a curated Multer validation error', async () => {
+        jest.spyOn(console, 'error').mockImplementation(() => {});
+        const baseUrl = await startApp();
+        const form = new FormData();
+        form.append(
+            'unexpected-field',
+            new Blob(['%PDF-1.7'], { type: 'application/pdf' }),
+            'synthetic.pdf',
+        );
+
+        const response = await fetch(`${baseUrl}/cv/upload`, {
+            method: 'POST',
+            body: form,
+        });
+
+        expect(response.status).toBe(400);
+        expect(await response.json()).toEqual({
+            message: 'Error uploading CV',
+            error: 'Unexpected file field',
+        });
+    });
+
+    it('sanitizes unexpected multipart parser errors', async () => {
+        jest.spyOn(console, 'error').mockImplementation(() => {});
+        const baseUrl = await startApp();
+
+        const response = await fetch(`${baseUrl}/cv/upload`, {
+            method: 'POST',
+            headers: {
+                'Content-Type':
+                    'multipart/form-data; boundary=synthetic-boundary',
+            },
+            body: 'synthetic truncated form',
+        });
+
+        expect(response.status).toBe(400);
+        expect(await response.json()).toEqual({
+            message: 'Error uploading CV',
+            error: 'Internal server error',
+        });
+    });
+});
+
 describe('app CORS policy', () => {
+    it('wires profile setup through the JSON body middleware', async () => {
+        const body = { name: 'Synthetic Applicant' };
+        const response = await fetch(`${await startApp()}/users/profile`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+        expect(response.status).toBe(201);
+        expect(profileHandler).toHaveBeenCalledTimes(1);
+        expect(profileHandler.mock.calls[0]?.[0].body).toEqual(body);
+        expect(await response.json()).toEqual({
+            message: 'User profile created',
+        });
+    });
     it.each([
         'http://localhost:5173',
         'http://127.0.0.1:5173',

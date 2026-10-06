@@ -1,8 +1,9 @@
 import type { Request, Response } from 'express';
 import { createErrorMessage } from '../errors/createErrorMessage.js';
-import type { StoredCoverLetter, StoredUser } from '#types';
+import type { StoredCoverLetter } from '#types';
+import { findUserProfile } from './userProfile.js';
+import { handleKnownCoverLetterPdfError } from './handleKnownCoverLetterPdfError.js';
 import {
-    CoverLetterOverflowError,
     coverLetterToHtml,
     renderCoverLetterPdf,
 } from './coverLetterPdf.js';
@@ -11,7 +12,6 @@ import {
     findJobByDuplicateKey,
     getCollection,
     jobNotFoundError,
-    USER_ID,
 } from './database.js';
 
 const coverLetterNotFoundError = new Error('Cover letter not found');
@@ -36,10 +36,7 @@ export default async function getCoverLetterPdf(
 
         const job = await findJobByDuplicateKey(client, jobDuplicateKey);
 
-        const user = await getCollection<StoredUser>(client, 'users').findOne({
-            _id: USER_ID,
-        });
-        if (!user) throw new Error('User not found');
+        const user = await findUserProfile(client);
 
         const html = coverLetterToHtml(coverLetter, job, user);
         const pdfBytes = await renderCoverLetterPdf(html);
@@ -51,17 +48,17 @@ export default async function getCoverLetterPdf(
         );
         response.end(Buffer.from(pdfBytes));
     } catch (error) {
-        if (error instanceof CoverLetterOverflowError) {
-            createErrorMessage(response, error, error.message, 422);
-            return;
-        }
+        if (handleKnownCoverLetterPdfError(response, error)) return;
+        const missingRecordError = [
+            coverLetterNotFoundError,
+            jobNotFoundError,
+        ].find((sentinel) => sentinel === error);
         createErrorMessage(
             response,
             error,
             'Error retrieving cover letter',
-            error === coverLetterNotFoundError || error === jobNotFoundError
-                ? 404
-                : 500,
+            missingRecordError ? 404 : 500,
+            missingRecordError?.message,
         );
     } finally {
         await client.close();

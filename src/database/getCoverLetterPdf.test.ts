@@ -3,6 +3,7 @@ import type { StoredCoverLetter, StoredScrapedJob, StoredUser } from '#types';
 import {
   getCollection,
   mockLocalDatabaseModule,
+  USER_ID,
 } from '../testMockModules/localDatabase.test.js';
 import {
   close,
@@ -150,6 +151,11 @@ describe('getCoverLetterPdf', () => {
       jobDuplicateKey: duplicateKey,
     });
     expect(findOneJob).toHaveBeenCalledWith({ duplicateKey });
+    expect(findOneUser).toHaveBeenCalledWith({ _id: USER_ID });
+    expect(mockSetContent).toHaveBeenCalledWith(
+      expect.stringContaining(mockUser.name),
+      { waitUntil: 'load' },
+    );
     expect(mockLaunch).toHaveBeenCalledTimes(1);
     expect(mockSetContent).toHaveBeenCalledWith(
       expect.stringContaining(
@@ -173,6 +179,31 @@ describe('getCoverLetterPdf', () => {
     expect(json).not.toHaveBeenCalled();
     expect(connect).toHaveBeenCalledTimes(1);
     expect(close).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders the latest authoritative draft without stale segmented text', async () => {
+    const coverLetterText =
+      'Application for Engineer\n\nDear Team,\n\nLatest <draft> & edit\nStill writing';
+    findOneCoverLetter.mockResolvedValue({
+      ...mockCoverLetter,
+      coverLetterText,
+    });
+    const request = createJobDuplicateKeyRequest(duplicateKey);
+    const { response, status, json } = createResponse();
+    const { end } = mockResponseWithHeaders(response);
+
+    await getCoverLetterPdf(request, response);
+
+    const renderedHtml = mockSetContent.mock.calls[0]?.[0] ?? '';
+    expect(renderedHtml).toContain(
+      '<div class="body draft">Application for Engineer\n\nDear Team,\n\nLatest &lt;draft&gt; &amp; edit\nStill writing</div>',
+    );
+    expect(renderedHtml).toContain('<div class="subject"></div>');
+    expect(renderedHtml).not.toContain('I have experience.');
+    expect(renderedHtml).not.toContain('Best regards,');
+    expect(end).toHaveBeenCalledWith(Buffer.from(mockCoverLetterPdfBytes));
+    expect(status).not.toHaveBeenCalled();
+    expect(json).not.toHaveBeenCalled();
   });
 
   it('returns 404 when the cover letter is not found', async () => {
@@ -208,19 +239,22 @@ describe('getCoverLetterPdf', () => {
     expect(close).toHaveBeenCalledTimes(1);
   });
 
-  it('returns 500 when the user is not found', async () => {
+  it('returns actionable 409 when the user profile needs setup', async () => {
     findOneUser.mockResolvedValue(null);
     const request = createJobDuplicateKeyRequest(duplicateKey);
     const { response, status, json } = createResponse();
+    const { setHeader, end } = mockResponseWithHeaders(response);
 
     await getCoverLetterPdf(request, response);
 
-    expect(status).toHaveBeenCalledWith(500);
+    expect(status).toHaveBeenCalledWith(409);
     expect(json).toHaveBeenCalledWith({
-      error: 'User not found',
-      message: 'Error retrieving cover letter',
+      error: 'User profile is not configured. Create it with POST /users/profile before downloading PDFs.',
+      message: 'User profile is not configured. Create it with POST /users/profile before downloading PDFs.',
     });
     expect(mockLaunch).not.toHaveBeenCalled();
+    expect(setHeader).not.toHaveBeenCalled();
+    expect(end).not.toHaveBeenCalled();
     expect(close).toHaveBeenCalledTimes(1);
   });
 
@@ -233,7 +267,7 @@ describe('getCoverLetterPdf', () => {
 
     expect(status).toHaveBeenCalledWith(500);
     expect(json).toHaveBeenCalledWith({
-      error: 'Connection failed',
+      error: 'Internal server error',
       message: 'Error retrieving cover letter',
     });
     expect(close).toHaveBeenCalledTimes(1);
@@ -271,7 +305,7 @@ describe('getCoverLetterPdf', () => {
     expect(status).toHaveBeenCalledWith(500);
     expect(json).toHaveBeenCalledWith({
       message: 'Error retrieving cover letter',
-      error: 'Synthetic layout evaluation failed',
+      error: 'Internal server error',
     });
     expect(mockPdf).not.toHaveBeenCalled();
     expect(setHeader).not.toHaveBeenCalled();

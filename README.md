@@ -22,15 +22,15 @@ Not yet implemented:
 
 - Scheduled/recurring scraping jobs
 - Authenticated LinkedIn session support
-- Multi-user support (the application/user record is currently a single hardcoded user)
+- Multi-user support (every request uses one profile with a fixed identity; create it with `POST /users/profile`)
 
 ## Architecture
 
 1. **Express server** (`src/app.ts`) exposes all HTTP endpoints and handles CORS for a local frontend; `src/server/listen.ts` and `src/server/shutdown.ts` handle port-binding fallback and graceful shutdown of the Playwright browser and token service; `src/index.ts` is the thin entrypoint that wires them together.
 2. **LinkedIn scraping layer** (`src/scrapers/linkedin/scrapeJob.ts`) invokes the `linkedin-job-scraper` package to gather job search results and extracts job postings and company addresses.
 3. **Embeddings layer** (`src/embeddings/`) computes OpenAI embeddings for jobs and compares a new job's embedding against the average embedding of previously liked/disliked jobs to produce a match score.
-4. **MongoDB storage layer** (`src/database/`) persists jobs (deduplicated by `duplicateKey`), cover letters (with per-segment embeddings), CVs, certificates, and users.
-5. **Cover letter pipeline**: `src/database/uploadCoverLetterAsText.ts` stores uploaded cover letters segmented and embedded, and `src/coverLetters/` ranks stored letters against a target job and generates a new one from the top matches. Segmentation, embedding, ranking, and generation are all delegated to the `cover-letter-generator` package — jobMatchServer keeps MongoDB access, the Express layer, and the adapters between its `StoredCoverLetter` shape and the package's types.
+4. **MongoDB storage layer** (`src/database/`) persists jobs (deduplicated by `duplicateKey`), cover letters (verbatim drafts or generated letters with per-segment embeddings), CVs, certificates, and users.
+5. **Cover letter pipeline**: `src/database/uploadCoverLetterAsText.ts` stores uploaded drafts verbatim without provider calls, and `src/coverLetters/` ranks stored letters against a target job and generates a new one from the top matches. Segmentation, embedding, ranking, and generation are all delegated to the `cover-letter-generator` package — jobMatchServer keeps MongoDB access, the Express layer, and the adapters between its `StoredCoverLetter` shape and the package's types.
 6. **Token service** (`src/tokenService/tokenService.py`) is a small Flask + `tiktoken` process spawned as a subprocess at startup, used to count prompt tokens since Node has no exact equivalent of OpenAI's tokenizer.
 7. **Application assembly** (`src/database/getApplication.ts`) renders the generated cover letter to a PDF with Puppeteer and merges it with the stored CV and any certificates into a single downloadable PDF.
 8. **Consumer applications** call these endpoints (or read MongoDB directly) to drive a job search/apply workflow.
@@ -86,6 +86,26 @@ Start the built server:
 ```bash
 npm start
 ```
+
+Before downloading a cover letter or application for the first time, create
+your single-user profile. Write a local `profile.json` containing your own
+details using the [profile endpoint shape](#post-usersprofile), then send it
+to the running server (adjust the port if startup selected another one):
+
+```bash
+curl --fail-with-body http://localhost:3000/users/profile \
+    -H 'Content-Type: application/json' \
+    --data-binary @profile.json
+```
+
+This inserts the profile into the `jobMatch.users` collection at the fixed
+identity already used by both PDF downloads. No manual ObjectId insertion or
+sample candidate facts are needed. It returns `201` once; repeating setup
+returns `409` and preserves the existing profile, including a profile from an
+older installation. Until setup succeeds, both PDF download routes return
+`409` with an instruction to call `POST /users/profile`. This remains a
+single-user service without authentication; profile setup has the same access
+boundary as the other write endpoints.
 
 Run the test suite (builds first, then runs Jest against `dist/`):
 
@@ -158,9 +178,50 @@ responses; preflight replies retain `204`, `GET,POST,OPTIONS`, and the
 
 ## API Endpoints
 
+HTTP errors produced by the shared handler helper keep the `{ message, error }`
+shape. Unexpected provider, database, and filesystem failures return the
+fixed `error: "Internal server error"` by default; detailed caught errors stay
+in server logs. Curated validation, missing-record, invalid-path, PDF overflow,
+and deadline messages remain explicit. Cover-letter create/revise retain their
+existing `error: "Provider request failed"` on unexpected failures. A final
+Express error handler also returns generic `500` JSON when an error escapes
+before a route's local catch, such as an invalid database URI. Parser errors
+retain their `4xx` status with a fixed `Invalid request` message. If response
+headers have already been sent, Express closes the response instead of
+appending an error body to an SSE stream or PDF.
+
 ### `GET /health`
 
 Lightweight process health check. Returns `{ "status": "ok" }`.
+
+### `POST /users/profile`
+
+Creates the single profile used in the sender block of cover-letter and
+application PDFs. Supply your own values in this shape:
+
+```ts
+{
+    name: string;
+    email: string;
+    tel: string;
+    address: {
+        streetAddress: string;
+        city: string;
+        postalCode: string;
+        countryCode: string;
+    };
+}
+```
+
+Every field is required and must be a nonblank string. The body and address
+must be plain objects with only these fields; `_id`, extra fields and
+MongoDB operators are rejected with `400` before any database access. Values
+are stored as supplied. The server assigns the existing single-user identity,
+`6a3d03b1dba1b11cee01161c`, and returns `201` with
+`{ "message": "User profile created", "userId": "6a3d03b1dba1b11cee01161c" }`.
+An existing profile or concurrent repeat returns `409` with
+`{ "message": "User profile already exists and was not changed", "error": "User profile already exists and was not changed" }`.
+This setup endpoint never replaces or updates a profile.
 
 ### `POST /scrape/linkedin`
 
@@ -181,11 +242,13 @@ Body:
 keyword). `datePosted` is one of `"day"`, `"week"`, or `"month"`. `location` is
 optional — omit it, or send `""`, to search without narrowing to a city, and the
 param is simply not sent to LinkedIn; any other non-string value is rejected.
-`distance` is optional too — omit it, or send a positive integer, but it is
-only forwarded to LinkedIn (as `distanceMiles`) when `location` is also
+`distance` is an optional radius in **kilometres** — omit it, or send a positive
+integer. The server divides it by 1.609344 (kilometres per international mile),
+rounds to the nearest whole mile with a minimum of 1, and forwards it to
+LinkedIn as `distanceMiles` only when `location` is also
 present; a `distance` sent without a `location` is accepted but never reaches
 LinkedIn, since a radius is meaningless without a location to centre it on,
-and any other value is rejected. The response
+and any other value is rejected. For example, 25 km becomes 16 miles. The response
 is an SSE stream. It starts with a `: ping` comment, sends a `: keepalive`
 comment every 15 seconds, and carries these JSON values in `data:` frames:
 
@@ -255,7 +318,11 @@ and `error` strings and do not write a job.
 
 ### `POST /cover-letters/upload/text`
 
-Body: `{ "coverLetterText": string, "jobDuplicateKey"?: string }`. Segments the text into salutation/introduction/main body/conclusion/greetings (heuristic, with an LLM fallback), embeds each segment, and stores it — upserted against the given job if `jobDuplicateKey` is provided.
+Body: `{ "coverLetterText": string, "jobDuplicateKey"?: string }`. Persists the exact draft text, including whitespace and unfinished passages, without segmentation or embedding calls. Upserts against the given job if `jobDuplicateKey` is provided; otherwise inserts a new record. Returns `201` with `{ "message": "Cover letter uploaded", "coverLetterId": "..." }` after database cleanup.
+
+The stored `coverLetterText` is authoritative. The six legacy segment fields remain present for compatibility, with the whole draft in `mainBody`, the other fields empty, and all embeddings `null`; replacing a record removes stale generated segments and embeddings. Segmentation failures cannot prevent autosave because autosave does not invoke segmentation.
+
+PDF downloads render the exact raw draft as escaped text beginning at the usual subject position, preserving its line breaks and whitespace without provider calls. Existing generated/legacy segmented letters retain their subject and paragraph layout. Only a deliberate generation request derives raw-draft segments and embeddings for similarity matching, after closing the database read client. These derived artifacts are computed per generation request, used in memory, and never cached or written back over a potentially newer autosave. A derivation/provider failure can fail generation while the saved draft remains intact.
 
 ### `GET /cover-letters/:jobDuplicateKey`
 
@@ -326,7 +393,7 @@ Returns whether certificates have been uploaded for the given job.
 
 ### `POST /cover-letters/create/text`
 
-Body: a job plus `{ "x"?: number }` (default `3`). Ranks all stored cover letters against the job using the [`cover-letter-generator`](https://github.com/freshmozart1/cover-letter-generator) package's `embedJob` and `getTopXSimilarCoverLetters`, then generates a new cover letter from the top `x` matches via the package's `generateCoverLetter`. Generation itself is delegated to that package, so the exact model it uses internally isn't documented here. Returns `{ "coverLetter": string, "saved": true, "coverLetterId": string }`. `saved: true` means the generator's exact embedded segments are already persisted under the request job's `duplicateKey`; clients should not immediately upload the unchanged generated text through `POST /cover-letters/upload/text`. The entire handler operation, including the MongoDB read, provider work, and generated-letter persistence, has a 5-minute deadline. If it expires, the route returns `504` with `{ "message": "Cover letter generation deadline exceeded", "error": "Request deadline exceeded" }` instead of the existing sanitized `500` used for provider or database failures. The deadline bounds how long the handler waits; this repository cannot cancel package-owned provider work, and a provider or MongoDB operation may still settle (and a MongoDB client may close) after the `504` response.
+Body: a job plus `{ "x"?: number }` (default `3`). Prepares stored cover letters by deriving raw-draft segments and embeddings when needed, then embeds the target job and ranks those letters using the [`cover-letter-generator`](https://github.com/freshmozart1/cover-letter-generator) package's `embedJob` and `getTopXSimilarCoverLetters`. Generates a new cover letter from the top `x` matches via the package's `generateCoverLetter`. Generation itself is delegated to that package, so the exact model it uses internally isn't documented here. Returns `{ "coverLetter": string, "saved": true, "coverLetterId": string }`. `saved: true` means the generator's exact embedded segments are already persisted under the request job's `duplicateKey`; clients should not immediately upload the unchanged generated text through `POST /cover-letters/upload/text`. The entire handler operation, including the MongoDB read, provider work, and generated-letter persistence, has a 5-minute deadline. If it expires, the route returns `504` with `{ "message": "Cover letter generation deadline exceeded", "error": "Request deadline exceeded" }` instead of the existing sanitized `500` used for provider or database failures. The deadline bounds how long the handler waits; this repository cannot cancel package-owned provider work, and a provider or MongoDB operation may still settle (and a MongoDB client may close) after the `504` response.
 
 `location`, `descriptionText`, `postedAt`, and `tags` are optional in the
 generation request and may be omitted from JSON, individually or together.
@@ -342,7 +409,7 @@ Body: `{ "selectedText": string, "instruction": string, "coverLetterText": strin
 
 ### `POST /tokens/count`
 
-Body: `{ "text": string, "model"?: string }`. Proxies to the Python token service and returns the token count for the given text.
+Body: `{ "text": string, "model"?: string }`. Proxies to the Python token service and returns the token count for the given text. A connection failure returns `500` with `{ "error": "Error connecting to token service.", "details": "Internal server error" }`; the original rejection stays in server logs.
 
 ### `GET /application/:jobDuplicateKey`
 
@@ -400,6 +467,7 @@ The `duplicateKey` is stable across scrape runs and used to detect jobs that hav
 - Nodemon watches TypeScript files in `src` and runs the entry point through the `ts-node` ESM loader.
 - TypeScript strict mode is enabled (`noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`).
 - Tests run against compiled `dist/` output, not source TypeScript — always `npm run build` before running Jest directly.
+- For an offline real-browser draft/PDF acceptance check after building, run `node scripts/check-cover-letter-draft-pdf.mjs`. It uses synthetic letters and a local Puppeteer browser, verifies normal raw/legacy one-page output and overflowing draft rejection, and writes preview artifacts to a temporary directory.
 - CI has two workflows: `.github/workflows/test.yml` runs `npm run test:once` on every push and pull request, and `.github/workflows/generator-model-smoke.yml` runs `npm run smoke:generator-model` weekly, on manual dispatch, and on pull requests that change the `cover-letter-generator` pin, the `openai` SDK version, or the smoke check itself. Pull requests that can't see the `OPENAI_API_KEY` secret (from a fork or Dependabot) skip the smoke check, while a scheduled or manual run without the secret fails.
 
 ## Responsible Scraping

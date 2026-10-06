@@ -56,6 +56,7 @@ export default async function uploadCV(
                 new Error('jobDuplicateKey must be a string'),
                 'Error uploading CV',
                 400,
+                'jobDuplicateKey must be a string',
             );
             return;
         }
@@ -65,6 +66,7 @@ export default async function uploadCV(
                 new Error('file is required'),
                 'Error uploading CV',
                 400,
+                'file is required',
             );
             return;
         }
@@ -79,6 +81,7 @@ export default async function uploadCV(
                 new Error('file must be a PDF'),
                 'Error uploading CV',
                 400,
+                'file must be a PDF',
             );
             return;
         }
@@ -99,6 +102,7 @@ export default async function uploadCV(
             error,
             'Error uploading CV',
             error === jobNotFoundError ? 404 : 500,
+            error === jobNotFoundError ? jobNotFoundError.message : undefined,
         );
     } finally {
         await ownership.cleanup();

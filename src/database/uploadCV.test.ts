@@ -28,16 +28,13 @@ const { default: uploadCV } = await import('./uploadCV.js');
 
 const job = { _id: { toHexString: () => 'job-object-id' } };
 const findOne = jest.fn<(filter: unknown) => Promise<typeof job>>();
-const findOneAndReplace =
-    jest.fn<
-        (
-            ...args: unknown[]
-        ) => Promise<{
-            value: null;
-            lastErrorObject: { upserted: string };
-            ok: number;
-        }>
-    >();
+const findOneAndReplace = jest.fn<
+    (...args: unknown[]) => Promise<{
+        value: null;
+        lastErrorObject: { upserted: string };
+        ok: number;
+    }>
+>();
 
 function createRequest(body: unknown, file?: Express.Multer.File): Request {
     return { body, file } as Request;
@@ -84,21 +81,29 @@ describe('uploadCV', () => {
 
     it('returns 400 when jobDuplicateKey is not a string', async () => {
         const request = createRequest({});
-        const { response, status } = createResponse();
+        const { response, status, json } = createResponse();
 
         await uploadCV(request, response);
 
         expect(status).toHaveBeenCalledWith(400);
+        expect(json).toHaveBeenCalledWith({
+            message: 'Error uploading CV',
+            error: 'jobDuplicateKey must be a string',
+        });
         expect(findOneAndReplace).not.toHaveBeenCalled();
     });
 
     it('returns 400 when no file is provided', async () => {
         const request = createRequest({ jobDuplicateKey: 'job-key' });
-        const { response, status } = createResponse();
+        const { response, status, json } = createResponse();
 
         await uploadCV(request, response);
 
         expect(status).toHaveBeenCalledWith(400);
+        expect(json).toHaveBeenCalledWith({
+            message: 'Error uploading CV',
+            error: 'file is required',
+        });
         expect(findOneAndReplace).not.toHaveBeenCalled();
     });
 
@@ -148,4 +153,33 @@ describe('uploadCV', () => {
         });
         await expect(access(filePath)).resolves.toBeUndefined();
     });
+    it.each([connect, findOne, findOneAndReplace])(
+        'sanitizes database failures and logs the original error',
+        async (operation) => {
+            const filePath = path.join(tmpDir, 'real.pdf');
+            await writeFile(filePath, '%PDF-1.7\n%%EOF');
+            const error = new Error(
+                'Synthetic MongoDB cluster.private.invalid failed',
+            );
+            operation.mockRejectedValue(error);
+            const request = createRequest(
+                { jobDuplicateKey: 'job-key' },
+                multerFile(filePath, 'application/pdf'),
+            );
+            const { response, status, json } = createResponse();
+
+            await uploadCV(request, response);
+
+            expect(status).toHaveBeenCalledWith(500);
+            expect(json).toHaveBeenCalledWith({
+                message: 'Error uploading CV',
+                error: 'Internal server error',
+            });
+            expect(console.error).toHaveBeenCalledWith(
+                'Error uploading CV',
+                error,
+            );
+            expect(close).toHaveBeenCalledTimes(1);
+        },
+    );
 });

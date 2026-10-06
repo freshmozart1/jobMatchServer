@@ -1,6 +1,6 @@
 {
     "name": "linkedinjobscraper",
-    "version": "5.3.8",
+    "version": "5.3.9",
     "description": "A server that continously scrapes new Jobs from LinkedIn collects them in a database",
     "license": "ISC",
     "author": "freshmozart",

@@ -1,11 +1,14 @@
 {
-    "entry": ["src/**/*.test.ts"],
+    "entry": ["src/**/*.test.ts", "scripts/check-cover-letter-draft-pdf.mjs"],
     "ignoreDependencies": ["@jest/globals"],
     "framework": [
         {
             "name": "jest-src-tests",
             "enablers": ["jest"],
-            "entryPoints": ["src/**/*.test.ts"],
+            "entryPoints": [
+                "src/**/*.test.ts",
+                "scripts/check-cover-letter-draft-pdf.mjs"
+            ],
             "entryPointRole": "test"
         }
     ]

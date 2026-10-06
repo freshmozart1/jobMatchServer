@@ -34,13 +34,15 @@ export default async function getCertificatesStatus(
 
     response.status(200).json({ message: 'Certificates exist' });
   } catch (error) {
+    const missingRecordError = [jobNotFoundError, certificatesNotFoundError].find(
+      (sentinel) => sentinel === error,
+    );
     createErrorMessage(
       response,
       error,
       'Error checking certificates status',
-      error === jobNotFoundError || error === certificatesNotFoundError
-        ? 404
-        : 500,
+      missingRecordError ? 404 : 500,
+      missingRecordError?.message,
     );
   } finally {
     await client?.close();

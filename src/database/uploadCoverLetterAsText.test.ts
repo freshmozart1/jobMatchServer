@@ -8,7 +8,6 @@ import {
 } from '@jest/globals';
 import type { Request } from 'express';
 import type { StoredCoverLetter, CoverLetterAsTextRequestBody } from '#types';
-import type { CoverLetter, CoverLetterSegments } from 'cover-letter-generator';
 import {
   mockLocalDatabaseModule,
   getCollection,
@@ -47,33 +46,6 @@ const findOneAndReplace =
     ) => Promise<{ _id: string } | null>
   >();
 
-const segments = {
-  subject: 'Subject: Application',
-  salutation: 'Dear Hiring Manager,',
-  introduction: 'I am excited to apply.',
-  mainBody: 'I build software.',
-  conclusion: 'I look forward to speaking with you.',
-  greetings: 'Best regards\nOle',
-} satisfies CoverLetterSegments;
-
-const coverLetterFromPackage = {
-  subject: { text: segments.subject, embedding: [0.1] },
-  salutation: { text: segments.salutation, embedding: [0.2] },
-  introduction: { text: segments.introduction, embedding: [0.3] },
-  mainBody: { text: segments.mainBody, embedding: [0.4] },
-  conclusion: { text: segments.conclusion, embedding: [0.5] },
-  greetings: { text: segments.greetings },
-} satisfies CoverLetter;
-
-const storedCoverLetter = {
-  subject: { text: segments.subject, embedding: [0.1] },
-  salutation: { text: segments.salutation, embedding: [0.2] },
-  introduction: { text: segments.introduction, embedding: [0.3] },
-  mainBody: { text: segments.mainBody, embedding: [0.4] },
-  conclusion: { text: segments.conclusion, embedding: [0.5] },
-  greetings: { text: segments.greetings, embedding: null },
-} satisfies StoredCoverLetter;
-
 const invalidRequestBodyError = {
   error:
     'Invalid request body. Please provide a non-empty coverLetterText string and a non-empty jobDuplicateKey string.',
@@ -86,11 +58,10 @@ const insertBody = {
 };
 const upsertBody = { ...insertBody, jobDuplicateKey: 'job-key-1' };
 
-// Only the message is pinned: the raw error still echoed in `error` is slated
-// to be sanitized (#155).
-const uploadFailedResponse = expect.objectContaining({
+const uploadFailedResponse = {
   message: 'An error occurred while uploading the cover letter',
-});
+  error: 'Internal server error',
+};
 
 mockMongoDbModule();
 mockLocalDatabaseModule();
@@ -125,12 +96,10 @@ describe('uploadCoverLetterAsText', () => {
     close.mockResolvedValue();
     insertOne.mockResolvedValue({ insertedId: insertedCoverLetterId });
     findOneAndReplace.mockResolvedValue({ _id: upsertedCoverLetterId });
-    segmentCoverLetter.mockResolvedValue({
-      segments,
-      confidence: 0.95,
-      source: 'heuristic',
-    });
-    embedCoverLetterSegments.mockResolvedValue(coverLetterFromPackage);
+    segmentCoverLetter.mockRejectedValue(new Error('Segmentation unavailable'));
+    embedCoverLetterSegments.mockRejectedValue(
+      new Error('Embedding unavailable'),
+    );
     getCollection.mockReturnValue({ insertOne, findOneAndReplace });
   });
 
@@ -138,17 +107,33 @@ describe('uploadCoverLetterAsText', () => {
     jest.restoreAllMocks();
   });
 
-  it('segments, embeds, stores the cover letter, and responds with the inserted id', async () => {
+  it('persists an unfinished draft verbatim without any provider calls and responds with its id', async () => {
     const coverLetterText =
-      'Dear Hiring Manager,\n\nI am excited to apply.\n\nBest regards\nOle';
+      '  Subject: Application\r\n\r\nDear Hiring Manager,\n\nI am still writing  ';
     const request = createRequest({ coverLetterText });
     const { response, status, json } = createResponse();
 
     await uploadCoverLetterAsText(request, response);
 
-    expect(segmentCoverLetter).toHaveBeenCalledWith(coverLetterText);
-    expect(embedCoverLetterSegments).toHaveBeenCalledWith(segments);
-    expect(insertOne).toHaveBeenCalledWith(storedCoverLetter);
+    expect(segmentCoverLetter).not.toHaveBeenCalled();
+    expect(embedCoverLetterSegments).not.toHaveBeenCalled();
+    expect(insertOne).toHaveBeenCalledWith(
+      expect.objectContaining({
+        coverLetterText,
+        mainBody: { text: coverLetterText, embedding: null },
+      }),
+    );
+    for (const name of [
+      'subject',
+      'salutation',
+      'introduction',
+      'conclusion',
+      'greetings',
+    ] as const)
+      expect(insertOne.mock.calls[0]?.[0][name]).toEqual({
+        text: '',
+        embedding: null,
+      });
     expect(findOneAndReplace).not.toHaveBeenCalled();
     expect(status).toHaveBeenCalledWith(201);
     expect(json).toHaveBeenCalledWith({
@@ -167,11 +152,15 @@ describe('uploadCoverLetterAsText', () => {
 
     await uploadCoverLetterAsText(request, response);
 
-    expect(segmentCoverLetter).toHaveBeenCalledWith(coverLetterText);
-    expect(embedCoverLetterSegments).toHaveBeenCalledWith(segments);
+    expect(segmentCoverLetter).not.toHaveBeenCalled();
+    expect(embedCoverLetterSegments).not.toHaveBeenCalled();
     expect(findOneAndReplace).toHaveBeenCalledWith(
       { jobDuplicateKey },
-      { ...storedCoverLetter, jobDuplicateKey },
+      expect.objectContaining({
+        coverLetterText,
+        jobDuplicateKey,
+        mainBody: { text: coverLetterText, embedding: null },
+      }),
       { upsert: true, returnDocument: 'after' },
     );
     expect(insertOne).not.toHaveBeenCalled();
@@ -218,61 +207,87 @@ describe('uploadCoverLetterAsText', () => {
 
   it.each([
     { name: 'insertOne', body: insertBody, write: insertOne },
-    { name: 'findOneAndReplace', body: upsertBody, write: findOneAndReplace },
+    {
+      name: 'findOneAndReplace',
+      body: upsertBody,
+      write: findOneAndReplace,
+    },
   ])(
-    'finishes segmenting and embedding before connecting, and closes the client after $name',
+    'connects, writes using $name, and closes before confirming save',
     async ({ body, write }) => {
-      const embeddingSettled = jest.fn();
-      embedCoverLetterSegments.mockImplementation(async () => {
-        // Settle on a later event-loop turn, so a handler that connected
-        // alongside the model calls would reach connect() before this marker.
-        await new Promise<void>((resolve) => setImmediate(resolve));
-        embeddingSettled();
-        return coverLetterFromPackage;
-      });
       const request = createRequest(body);
       const { response, status } = createResponse();
 
       await uploadCoverLetterAsText(request, response);
 
       expect(status).toHaveBeenCalledWith(201);
-      // Embedding consumes segmentation's result, so it settling before
-      // connect() bounds both model round trips.
-      expect(firstCall(embeddingSettled)).toBeLessThan(firstCall(connect));
       expect(firstCall(connect)).toBeLessThan(firstCall(write));
       expect(firstCall(write)).toBeLessThan(firstCall(close));
       expect(close).toHaveBeenCalledTimes(1);
+      expect(firstCall(close)).toBeLessThan(firstCall(status));
     },
   );
 
-  it.each([
-    { name: 'segmentCoverLetter', modelCall: segmentCoverLetter },
-    { name: 'embedCoverLetterSegments', modelCall: embedCoverLetterSegments },
-  ])(
-    'returns 500 without connecting when $name rejects',
-    async ({ name, modelCall }) => {
-      modelCall.mockRejectedValue(new Error(`${name} failed`));
-      const request = createRequest(insertBody);
-      const { response, status, json } = createResponse();
-
-      await uploadCoverLetterAsText(request, response);
-
-      expect(status).toHaveBeenCalledTimes(1);
-      expect(status).toHaveBeenCalledWith(500);
-      expect(json).toHaveBeenCalledWith(uploadFailedResponse);
-      expect(connect).not.toHaveBeenCalled();
-      expect(insertOne).not.toHaveBeenCalled();
-    },
-  );
+  it('replaces repeated autosaves with only the latest exact draft and clears old derived data', async () => {
+    let saved: StoredCoverLetter = {
+      jobDuplicateKey: 'job-key-1',
+      subject: { text: 'Old subject', embedding: [1] },
+      salutation: { text: 'Old greeting', embedding: [1] },
+      introduction: { text: 'Old intro', embedding: [1] },
+      mainBody: { text: 'Old body', embedding: [1] },
+      conclusion: { text: 'Old ending', embedding: [1] },
+      greetings: { text: 'Old signature', embedding: [1] },
+    };
+    findOneAndReplace.mockImplementation(async (_filter, replacement) => {
+      saved = replacement;
+      return { _id: upsertedCoverLetterId };
+    });
+    const drafts = [
+      'Subject only',
+      'Subject only\n\nDear Team,',
+      '  Subject only\r\n\r\nDear Team,\n\nLatest unfinished edit  ',
+    ];
+    for (const coverLetterText of drafts) {
+      const { response, status } = createResponse();
+      await uploadCoverLetterAsText(
+        createRequest({
+          coverLetterText,
+          jobDuplicateKey: 'job-key-1',
+        }),
+        response,
+      );
+      expect(status).toHaveBeenCalledWith(201);
+      expect(saved.coverLetterText).toBe(coverLetterText);
+      expect(saved.mainBody.text).toBe(coverLetterText);
+    }
+    for (const name of [
+      'subject',
+      'salutation',
+      'introduction',
+      'mainBody',
+      'conclusion',
+      'greetings',
+    ] as const)
+      expect(saved[name].embedding).toBeNull();
+    expect(saved.subject.text).toBe('');
+    expect(saved.greetings.text).toBe('');
+    expect(segmentCoverLetter).not.toHaveBeenCalled();
+    expect(embedCoverLetterSegments).not.toHaveBeenCalled();
+  });
 
   it.each([
     { name: 'connect', body: insertBody, dbCall: connect },
     { name: 'insertOne', body: insertBody, dbCall: insertOne },
-    { name: 'findOneAndReplace', body: upsertBody, dbCall: findOneAndReplace },
+    {
+      name: 'findOneAndReplace',
+      body: upsertBody,
+      dbCall: findOneAndReplace,
+    },
   ])(
     'returns 500 and closes the client exactly once when $name rejects',
     async ({ name, body, dbCall }) => {
-      dbCall.mockRejectedValue(new Error(`${name} failed`));
+      const error = new Error(`Synthetic ${name} cluster-private req-private`);
+      dbCall.mockRejectedValue(error);
       const request = createRequest(body);
       const { response, status, json } = createResponse();
 
@@ -281,6 +296,9 @@ describe('uploadCoverLetterAsText', () => {
       expect(status).toHaveBeenCalledTimes(1);
       expect(status).toHaveBeenCalledWith(500);
       expect(json).toHaveBeenCalledWith(uploadFailedResponse);
+      expect(console.error).toHaveBeenCalledWith(
+        'An error occurred while uploading the cover letter', error,
+      );
       expect(close).toHaveBeenCalledTimes(1);
     },
   );

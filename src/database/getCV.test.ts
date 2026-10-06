@@ -105,4 +105,31 @@ describe('getCV', () => {
     });
     expect(close).toHaveBeenCalledTimes(1);
   });
+  it('preserves the curated invalid-path error without opening a file', async () => {
+    findOneCv.mockResolvedValue({ ...storedCv, filePath: '../private.pdf' });
+    const { response, status, json } = createResponse();
+
+    await getCV(createJobDuplicateKeyRequest(duplicateKey), response);
+
+    expect(status).toHaveBeenCalledWith(500);
+    expect(json).toHaveBeenCalledWith({ message: 'Error retrieving CV', error: 'Invalid file path' });
+    expect(sendFile).not.toHaveBeenCalled();
+  });
+
+  it('sanitizes driver connection errors', async () => {
+    const error = new Error('Synthetic MongoDB cluster.private.invalid connection failed');
+    connect.mockRejectedValue(error);
+    const { response, status, json } = createResponse();
+    const log = jest.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      await getCV(createJobDuplicateKeyRequest(duplicateKey), response);
+
+      expect(status).toHaveBeenCalledWith(500);
+      expect(json).toHaveBeenCalledWith({ message: 'Error retrieving CV', error: 'Internal server error' });
+      expect(log).toHaveBeenCalledWith('Error retrieving CV', error);
+      expect(close).toHaveBeenCalledTimes(1);
+    } finally {
+      log.mockRestore();
+    }
+  });
 });

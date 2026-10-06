@@ -7,6 +7,7 @@ import multer from 'multer';
 
 import { scrapeJob } from '#scrapers/linkedin/scrapeJob.js';
 import createJobInDatabase from '#database/createJobInDatabase.js';
+import createUserProfile from '#database/createUserProfile.js';
 import uploadCoverLetterAsText from '#database/uploadCoverLetterAsText.js';
 import generateCoverLetterAsText from './coverLetters/generateCoverLettersAsText.js';
 import reviseCoverLetterAsText from './coverLetters/reviseCoverLetterAsText.js';
@@ -22,6 +23,7 @@ import { createErrorMessage } from './errors/createErrorMessage.js';
 import isAllowedCvMimetype from './utils/isAllowedCvMimetype.js';
 import isAllowedCertificateMimetype from './utils/isAllowedCertificateMimetype.js';
 import createCorsMiddleware from './server/cors.js';
+import handleUnhandledError from './server/errorHandler.js';
 
 export const app = express();
 
@@ -37,9 +39,13 @@ app.post('/scrape/linkedin', scrapeJob);
 
 app.post('/jobs/create', createJobInDatabase);
 
+app.post('/users/profile', createUserProfile);
+
 app.post('/cover-letters/upload/text', uploadCoverLetterAsText);
 
 app.get('/cover-letters/:jobDuplicateKey', getCoverLetterPdf);
+
+class UploadFilterError extends Error {}
 
 function handleUploadFilterError(customMessage: string) {
     return (
@@ -48,7 +54,12 @@ function handleUploadFilterError(customMessage: string) {
         response: Response,
         _next: NextFunction,
     ): void => {
-        createErrorMessage(response, error, customMessage, 400);
+        const publicError =
+            error instanceof UploadFilterError ||
+            error instanceof multer.MulterError
+                ? error.message
+                : undefined;
+        createErrorMessage(response, error, customMessage, 400, publicError);
     };
 }
 
@@ -60,7 +71,7 @@ const upload = multer({
         callback: multer.FileFilterCallback,
     ): void => {
         if (!isAllowedCvMimetype(file.mimetype)) {
-            callback(new Error('file must be a PDF'));
+            callback(new UploadFilterError('file must be a PDF'));
             return;
         }
         callback(null, true);
@@ -89,7 +100,7 @@ const uploadCertificateFiles = multer({
     ): void => {
         if (!isAllowedCertificateMimetype(file.mimetype)) {
             callback(
-                new Error(
+                new UploadFilterError(
                     `file "${file.originalname}" is not a PDF, JPEG, or PNG`,
                 ),
             );
@@ -112,3 +123,7 @@ app.post('/cover-letters/revise/text', reviseCoverLetterAsText);
 app.post('/tokens/count', countTokens);
 
 app.get('/application/:jobDuplicateKey', getApplication);
+
+// Also catches constructor failures before a handler's local try/catch and
+// rejected async handlers. Keep this after every route and upload error filter.
+app.use(handleUnhandledError);
