@@ -5,6 +5,8 @@
 // filenames (uploadCV.ts, uploadCertificates.ts), not raw user input.
 // Verified 2026-07.
 import type { Request, Response } from 'express';
+import { withCvReadLease } from './cvFileAccess.js';
+import { addCertificateImagePage } from './certificateImagePage.js';
 import { readFile } from 'fs/promises';
 import type { MongoClient, WithId } from 'mongodb';
 import path from 'path';
@@ -18,7 +20,11 @@ import type {
     StoredScrapedJob,
     StoredUser,
 } from '#types';
-import { coverLetterToHtml, renderCoverLetterPdf } from './coverLetterPdf.js';
+import {
+    CoverLetterOverflowError,
+    coverLetterToHtml,
+    renderCoverLetterPdf,
+} from './coverLetterPdf.js';
 import {
     createDatabaseClient,
     cvNotFoundError,
@@ -81,22 +87,10 @@ async function mergeCertificatesIntoPdf(
                 certificate.mimeType === 'image/jpg'
             ) {
                 const img = await merged.embedJpg(certificateBytes);
-                const certPage = merged.addPage([595.28, 841.89]);
-                certPage.drawImage(img, {
-                    x: 0,
-                    y: 0,
-                    width: 595.28,
-                    height: 841.89,
-                });
+                addCertificateImagePage(merged, img);
             } else if (certificate.mimeType === 'image/png') {
                 const img = await merged.embedPng(certificateBytes);
-                const certPage = merged.addPage([595.28, 841.89]);
-                certPage.drawImage(img, {
-                    x: 0,
-                    y: 0,
-                    width: 595.28,
-                    height: 841.89,
-                });
+                addCertificateImagePage(merged, img);
             }
         } catch {
             continue;
@@ -104,7 +98,15 @@ async function mergeCertificatesIntoPdf(
     }
 }
 
-export default async function getApplication(
+function isMissingApplicationRecord(error: unknown): boolean {
+    return (
+        error === coverLetterNotFoundError ||
+        error === jobNotFoundError ||
+        error === cvNotFoundError
+    );
+}
+
+async function createApplication(
     request: Request<{ jobDuplicateKey: string }>,
     response: Response,
 ): Promise<void> {
@@ -171,17 +173,26 @@ export default async function getApplication(
         );
         response.end(Buffer.from(mergedBytes));
     } catch (error) {
+        if (error instanceof CoverLetterOverflowError) {
+            createErrorMessage(response, error, error.message, 422);
+            return;
+        }
         createErrorMessage(
             response,
             error,
             'Error retrieving application',
-            error === coverLetterNotFoundError ||
-                error === jobNotFoundError ||
-                error === cvNotFoundError
-                ? 404
-                : 500,
+            isMissingApplicationRecord(error) ? 404 : 500,
         );
     } finally {
         await client.close();
     }
+}
+
+export default function getApplication(
+    request: Request<{ jobDuplicateKey: string }>,
+    response: Response,
+): Promise<void> {
+    return withCvReadLease(request.params.jobDuplicateKey, () =>
+        createApplication(request, response),
+    );
 }

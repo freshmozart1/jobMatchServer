@@ -1,9 +1,3 @@
-// fallow-ignore-file security-sink
-// One flagged sink, verified 2026-07:
-// - response.setHeader('Access-Control-Allow-Origin', origin): origin is
-//   checked against ALLOWED_ORIGINS/LAN_ORIGIN_PATTERN before use (see the
-//   CORS middleware below) — only a fixed allowlist of values ever reaches
-//   the header.
 import express, {
     type NextFunction,
     type Request,
@@ -27,36 +21,11 @@ import getCoverLetterPdf from '#database/getCoverLetterPdf.js';
 import { createErrorMessage } from './errors/createErrorMessage.js';
 import isAllowedCvMimetype from './utils/isAllowedCvMimetype.js';
 import isAllowedCertificateMimetype from './utils/isAllowedCertificateMimetype.js';
+import createCorsMiddleware from './server/cors.js';
 
 export const app = express();
 
-const ALLOWED_ORIGINS = new Set([
-    'http://localhost:5173',
-    'http://127.0.0.1:5173',
-]);
-const LAN_ORIGIN_PATTERN = /^http:\/\/192\.168\.\d+\.\d+:5173$/;
-
-app.use((request: Request, response: Response, next): void => {
-    const origin = request.get('origin');
-
-    if (
-        origin &&
-        (ALLOWED_ORIGINS.has(origin) || LAN_ORIGIN_PATTERN.test(origin))
-    ) {
-        response.setHeader('Access-Control-Allow-Origin', origin);
-        response.setHeader('Vary', 'Origin');
-    }
-
-    response.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
-    response.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-
-    if (request.method === 'OPTIONS') {
-        response.sendStatus(204);
-        return;
-    }
-
-    next();
-});
+app.use(createCorsMiddleware(process.env['CORS_ALLOWED_ORIGINS']));
 
 app.use(express.json({ limit: '64kb' }));
 

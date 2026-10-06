@@ -30,7 +30,10 @@ const job = { _id: { toHexString: () => 'job-object-id' } };
 const findOne = jest.fn<(filter: unknown) => Promise<typeof job>>();
 const insertMany =
     jest.fn<
-        (docs: unknown[]) => Promise<{ insertedIds: Record<number, string> }>
+        (
+            docs: unknown[],
+            options?: unknown,
+        ) => Promise<{ insertedIds: Record<number, string> }>
     >();
 
 function createRequest(body: unknown, files?: Express.Multer.File[]): Request {
@@ -136,20 +139,23 @@ describe('uploadCertificates', () => {
 
         await uploadCertificates(request, response);
 
-        expect(insertMany).toHaveBeenCalledWith([
-            {
-                jobId: 'job-object-id',
-                filePath: pdfPath,
-                originalName: 'cert.pdf',
-                mimeType: 'application/pdf',
-            },
-            {
-                jobId: 'job-object-id',
-                filePath: pngPath,
-                originalName: 'cert.png',
-                mimeType: 'image/png',
-            },
-        ]);
+        expect(insertMany).toHaveBeenCalledWith(
+            [
+                {
+                    jobId: 'job-object-id',
+                    filePath: pdfPath,
+                    originalName: 'cert.pdf',
+                    mimeType: 'application/pdf',
+                },
+                {
+                    jobId: 'job-object-id',
+                    filePath: pngPath,
+                    originalName: 'cert.png',
+                    mimeType: 'image/png',
+                },
+            ],
+            { ordered: true },
+        );
         expect(status).toHaveBeenCalledWith(201);
         expect(json).toHaveBeenCalledWith({
             message: 'Certificates uploaded',

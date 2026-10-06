@@ -68,7 +68,7 @@ describe('isValidGenerateCoverLetterAsTextRequestBody', () => {
         );
     });
 
-    it('accepts a body with optional fields absent', () => {
+    it('accepts a body with optional fields explicitly undefined', () => {
         const { location, descriptionText, postedAt, tags, ...rest } =
             validBase;
         void location;
@@ -321,6 +321,122 @@ describe('generateCoverLetterAsText', () => {
         expect(connect).toHaveBeenCalledTimes(2);
         expect(close).toHaveBeenCalledTimes(2);
     });
+
+    it.each([
+        { name: 'location', omitted: ['location'] },
+        { name: 'descriptionText', omitted: ['descriptionText'] },
+        { name: 'postedAt', omitted: ['postedAt'] },
+        { name: 'tags', omitted: ['tags'] },
+        {
+            name: 'all optional job fields',
+            omitted: ['location', 'descriptionText', 'postedAt', 'tags'],
+        },
+    ])(
+        'generates and persists a letter when JSON omits $name',
+        async ({ omitted }) => {
+            const job = createJob<ScrapedJob>();
+            // The frontend removes embedding; JSON removes undefined optional fields.
+            const body = JSON.parse(
+                JSON.stringify({
+                    ...job,
+                    embedding: undefined,
+                    ...Object.fromEntries(
+                        omitted.map((field) => [field, undefined]),
+                    ),
+                }),
+            ) as Record<string, unknown>;
+            for (const field of omitted)
+                expect(Object.hasOwn(body, field)).toBe(false);
+            const request = createRequest<ScrapedJob & { x?: number }>({
+                body,
+            });
+            const { response, status, json } = createResponse();
+
+            await generateCoverLetterAsText(request, response);
+
+            const generatorJob = {
+                title: job.title,
+                company: job.company,
+                description: omitted.includes('descriptionText')
+                    ? ''
+                    : (job.descriptionText ?? ''),
+                ...(omitted.includes('location')
+                    ? {}
+                    : { location: job.location }),
+            };
+            expect(embedJob).toHaveBeenCalledWith(generatorJob);
+            expect(getTopXSimilarCoverLetters).toHaveBeenCalledWith(
+                3,
+                jobEmbedding,
+                [expectedPackageCoverLetter],
+            );
+            expect(generateCoverLetter).toHaveBeenCalledWith(generatorJob, [
+                getGeneratorCoverLetterTextSegments(matchedCoverLetter),
+            ]);
+            expect(findOneAndReplace).toHaveBeenCalledWith(
+                { jobDuplicateKey: job.duplicateKey },
+                {
+                    ...storedGeneratedCoverLetter,
+                    jobDuplicateKey: job.duplicateKey,
+                },
+                { upsert: true, returnDocument: 'after' },
+            );
+            expect(status).toHaveBeenCalledWith(200);
+            expect(json).toHaveBeenCalledWith({
+                coverLetter: expect.stringContaining('Generated main body'),
+                saved: true,
+                coverLetterId: savedCoverLetterId,
+            });
+            expect(connect).toHaveBeenCalledTimes(2);
+            expect(close).toHaveBeenCalledTimes(2);
+        },
+    );
+
+    it.each([
+        { location: null },
+        { location: 42 },
+        { location: [] },
+        { descriptionText: false },
+        { descriptionText: null },
+        { descriptionText: {} },
+        { postedAt: 42 },
+        { postedAt: null },
+        { postedAt: [] },
+        { tags: null },
+        { tags: 'Full-time' },
+        { tags: ['Full-time', 42] },
+        { tags: [null] },
+        { tags: {} },
+    ])(
+        'rejects an invalid present optional value in JSON: %j',
+        async (invalidField) => {
+            const body: unknown = JSON.parse(
+                JSON.stringify({
+                    ...createJob<ScrapedJob>(),
+                    ...invalidField,
+                }),
+            );
+            const request = createRequest<ScrapedJob & { x?: number }>({
+                body,
+            });
+            const { response, status, json } = createResponse();
+
+            await generateCoverLetterAsText(request, response);
+
+            expect(status).toHaveBeenCalledWith(400);
+            expect(json).toHaveBeenCalledWith({
+                message:
+                    'Invalid request body. Please provide all required fields with correct types.',
+                error: '',
+            });
+            expect(connect).not.toHaveBeenCalled();
+            expect(getCollection).not.toHaveBeenCalled();
+            expect(embedJob).not.toHaveBeenCalled();
+            expect(getTopXSimilarCoverLetters).not.toHaveBeenCalled();
+            expect(generateCoverLetter).not.toHaveBeenCalled();
+            expect(findOneAndReplace).not.toHaveBeenCalled();
+        },
+    );
 
     it('defaults x to 3 when the x key is absent entirely from the request body', async () => {
         const request = createRequest<ScrapedJob & { x?: number }>({
