@@ -44,7 +44,7 @@ Not yet implemented:
 - Puppeteer (cover letter HTML → PDF rendering)
 - `pdf-lib` (merging cover letter, CV, and certificate PDFs)
 - OpenAI SDK (`text-embedding-3-small` embeddings for job-liking ranking)
-- `cover-letter-generator` (cover letter ranking and generation)
+- `cover-letter-generator` v0.11.5 (cover letter ranking and generation)
 - Python 3 + Flask + `tiktoken` (token-counting microservice)
 - Multer (file uploads)
 - Jest (tests), ESLint and Prettier
@@ -409,6 +409,12 @@ Returns whether certificates have been uploaded for the given job.
 ### `POST /cover-letters/create/text`
 
 Body: a job plus `{ "x"?: number }` (default `3`). Prepares stored cover letters by deriving raw-draft segments and embeddings when needed, then embeds the target job and ranks those letters using the [`cover-letter-generator`](https://github.com/freshmozart1/cover-letter-generator) package's `embedJob` and `getTopXSimilarCoverLetters`. Generates a new cover letter from the top `x` matches via the package's `generateCoverLetter`. Generation itself is delegated to that package, so the exact model it uses internally isn't documented here. Returns `{ "coverLetter": string, "saved": true, "coverLetterId": string }`. `saved: true` means the generator's exact embedded segments are already persisted under the request job's `duplicateKey`; clients should not immediately upload the unchanged generated text through `POST /cover-letters/upload/text`. The entire handler operation, including the MongoDB read, provider work, and generated-letter persistence, has a 5-minute deadline. If it expires, the route returns `504` with `{ "message": "Cover letter generation deadline exceeded", "error": "Request deadline exceeded" }` instead of the existing sanitized `500` used for provider or database failures. The deadline bounds how long the handler waits; this repository cannot cancel package-owned provider work, and a provider or MongoDB operation may still settle (and a MongoDB client may close) after the `504` response.
+
+The pinned generator uses `cosine-similarity` v1.0.3 for weighted segment
+ranking, keeping scores finite for large and tiny nonzero embeddings. Missing
+segment embeddings are skipped. The package retains `NaN` for zero or empty
+vectors and throws on mismatched dimensions; ranking parameters and return
+types are unchanged.
 
 `location`, `descriptionText`, `postedAt`, and `tags` are optional in the
 generation request and may be omitted from JSON, individually or together.

@@ -1,6 +1,6 @@
 {
     "name": "linkedinjobscraper",
-    "version": "5.3.13",
+    "version": "5.3.14",
     "description": "A server that continously scrapes new Jobs from LinkedIn collects them in a database",
     "license": "ISC",
     "author": "freshmozart",
@@ -67,7 +67,7 @@
         "wait-on": "^9.1.0"
     },
     "dependencies": {
-        "cover-letter-generator": "github:freshmozart1/cover-letter-generator#v0.11.0",
+        "cover-letter-generator": "github:freshmozart1/cover-letter-generator#v0.11.5",
         "express": "^5.2.1",
         "linkedin-job-scraper": "github:freshmozart1/linkedin-job-scraper#v0.13.5",
         "mongodb": "^7.5.0",
@@ -82,7 +82,7 @@
         }
     },
     "allowScripts": {
-        "github:freshmozart1/cover-letter-generator#eef3d64ff2c69e66a978c7f040de4d823619c37c": true,
+        "github:freshmozart1/cover-letter-generator#eb65a1a912fe9b3db62f57361fba5b63286dd760": true,
         "github:freshmozart1/linkedin-job-scraper#26633cabd213f8cdb8f907d28952d3533655d7a3": true
     }
 }
