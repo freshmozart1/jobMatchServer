@@ -2,6 +2,22 @@
 
 All notable changes to this project are documented in this file.
 
+## v5.3.13
+
+### Fixed
+
+- Upgrade `linkedin-job-scraper` from v0.13.0 to v0.13.5, pinning its release
+  commit in the lockfile and install-script authorization. The upstream fixes
+  reject unsuccessful or missing initial search responses and redirects away
+  from guest search, preserve company-lookup failure provenance and retry/cache
+  behavior, retain cancellation/run-budget outcomes during discovery, and clean
+  obsolete build output during Git dependency preparation (closes #187).
+- Add offline adapter regressions for initial navigation errors reaching the
+  existing SSE error path with database, stream and keepalive cleanup. Preserve
+  the server's address DTO: missing upstream addresses become `[]`, populated
+  address order is retained, and nullable address fields become empty strings.
+  Request options and SSE frame shapes are unchanged (#187).
+
 ## v5.3.12
 
 ### Changed
