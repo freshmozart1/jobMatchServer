@@ -2,6 +2,24 @@
 
 All notable changes to this project are documented in this file.
 
+## v5.3.14
+
+### Fixed
+
+- Upgrade `cover-letter-generator` from v0.11.0 to v0.11.5 and its transitive
+  `cosine-similarity` dependency to v1.0.3. The released numerical stability
+  fixes retain finite signed cover-letter ranking scores for large and tiny
+  nonzero embeddings; corrected TypeScript declarations accept readonly
+  vectors. Pin the reviewed generator release in the lockfile and exact
+  install-script authorization, preserving `allow-git=all` (#186).
+- Add real installed-generator ranking regressions through the server's
+  stored-letter adapter at scales `1`, `1e300` and `1e-300`, checking descending
+  scores, original object references and zero provider calls. Generator ranking
+  retains its zero/empty-vector `NaN` and mismatched-dimension rules; independent
+  liked/disliked-job cosine scoring keeps its zero-vector result of `0`.
+  Persistence, deadlines, error handling and HTTP contracts remain unchanged
+  (closes #186).
+
 ## v5.3.13
 
 ### Fixed
