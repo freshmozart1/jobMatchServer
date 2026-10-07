@@ -1,18 +1,13 @@
 import type { Request, Response } from 'express';
-import { MongoClient, type ObjectId } from 'mongodb';
+import { MongoClient } from 'mongodb';
 import {
   connectionStringConfigured,
-  getCollection,
   MONGODB_CONNECTION,
 } from './database.js';
-import type { StoredCoverLetter } from '#types';
+import type { CoverLetterAsTextRequestBody } from '#types';
 import { createErrorMessage } from '../errors/createErrorMessage.js';
 import { toStoredCoverLetterDraft } from '../coverLetters/coverLetterDraft.js';
-
-type CoverLetterAsTextRequestBody = {
-  coverLetterText: string;
-  jobDuplicateKey?: string;
-};
+import { storeCoverLetter } from './storeCoverLetter.js';
 
 function isValidCoverLetterAsTextRequestBody(
   body: unknown,
@@ -31,34 +26,6 @@ function isValidCoverLetterAsTextRequestBody(
   )
     return false;
   return true;
-}
-
-// Autosave performs only this short-lived database write; no provider work.
-async function storeCoverLetter(
-  client: MongoClient,
-  coverLetter: Omit<StoredCoverLetter, 'jobDuplicateKey'>,
-  jobDuplicateKey: string | undefined,
-): Promise<ObjectId | undefined> {
-  try {
-    await client.connect();
-    const coverLettersCollection = getCollection<StoredCoverLetter>(
-      client,
-      'coverLetters',
-    );
-
-    if (jobDuplicateKey) {
-      const upserted = await coverLettersCollection.findOneAndReplace(
-        { jobDuplicateKey },
-        { ...coverLetter, jobDuplicateKey },
-        { upsert: true, returnDocument: 'after' },
-      );
-      return upserted?._id;
-    }
-    const result = await coverLettersCollection.insertOne(coverLetter);
-    return result.insertedId;
-  } finally {
-    await client.close();
-  }
 }
 
 export default async function uploadCoverLetterAsText(

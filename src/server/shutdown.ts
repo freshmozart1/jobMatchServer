@@ -1,6 +1,5 @@
 import type { Server } from 'node:http';
 
-import { closeAllTrackedBrowserServers } from '#utils/trackedPlaywrightBrowsers.js';
 import { killTokenServiceProcess } from '../tokenService/startTokenService.js';
 
 let activeServer: Server | undefined;
@@ -42,21 +41,19 @@ export function registerShutdownHandlers(): void {
         isShuttingDown = true;
         console.log(`Received ${signal}, shutting down...`);
 
-        void closeAllTrackedBrowserServers().finally(() => {
-            killTokenServiceProcess();
+        killTokenServiceProcess();
 
-            if (!activeServer) {
-                process.exit(0);
+        if (!activeServer) {
+            process.exit(0);
+        }
+
+        activeServer.close((error?: Error) => {
+            if (error) {
+                console.error(error);
+                process.exit(1);
             }
 
-            activeServer.close((error?: Error) => {
-                if (error) {
-                    console.error(error);
-                    process.exit(1);
-                }
-
-                process.exit(0);
-            });
+            process.exit(0);
         });
     };
 
@@ -68,17 +65,12 @@ export function registerShutdownHandlers(): void {
 
     // nodemon restarts by sending SIGUSR2 (its default restart signal, see its
     // README's "graceful reload" section), not SIGINT/SIGTERM, so without this
-    // handler every dev-loop restart bypasses `shutdown` above entirely and kills
-    // the process with no cleanup, orphaning any in-flight Playwright browser.
-    // Clean up, then re-signal SIGTERM (already handled by `shutdown`) so
-    // nodemon's restart proceeds. This assumes a nodemon-managed local dev
+    // handler every dev-loop restart bypasses `shutdown` above entirely. Re-signal
+    // SIGTERM so the token service and HTTP listener use the same cleanup path
+    // and nodemon's restart proceeds. This assumes a nodemon-managed local dev
     // process — this project currently has no other deployment/process-manager
     // path, so no environment gating is added here.
     process.on('SIGUSR2', () => {
-        closeAllTrackedBrowserServers()
-            .catch(() => undefined)
-            .finally(() => {
-                process.kill(process.pid, 'SIGTERM');
-            });
+        process.kill(process.pid, 'SIGTERM');
     });
 }

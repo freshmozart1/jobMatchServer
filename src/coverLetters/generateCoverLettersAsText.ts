@@ -20,6 +20,7 @@ import {
     MONGODB_CONNECTION,
 } from '#database/database.js';
 import { createErrorMessage } from '../errors/createErrorMessage.js';
+import { storeCoverLetter } from '#database/storeCoverLetter.js';
 import {
     hasOptionalPositiveIntegerProp,
     hasOptionalStringArrayProp,
@@ -32,7 +33,9 @@ export const GENERATE_COVER_LETTER_DEADLINE_MS = 5 * 60 * 1000;
 
 type GenerateCoverLetterAsTextRequestBody = ScrapedJob & { x?: number };
 
-function isValidScrapedJobBody(body: unknown): boolean {
+export function isValidGenerateCoverLetterAsTextRequestBody(
+    body: unknown,
+): body is GenerateCoverLetterAsTextRequestBody {
     return (
         typeof body === 'object' &&
         body !== null &&
@@ -45,17 +48,7 @@ function isValidScrapedJobBody(body: unknown): boolean {
         hasOptionalStringProp(body, 'postedAt') &&
         hasStringProp(body, 'scrapedAt') &&
         hasOptionalStringArrayProp(body, 'tags') &&
-        hasStringProp(body, 'duplicateKey')
-    );
-}
-
-export function isValidGenerateCoverLetterAsTextRequestBody(
-    body: unknown,
-): body is GenerateCoverLetterAsTextRequestBody {
-    return (
-        isValidScrapedJobBody(body) &&
-        typeof body === 'object' &&
-        body !== null &&
+        hasStringProp(body, 'duplicateKey') &&
         hasOptionalPositiveIntegerProp(body, 'x')
     );
 }
@@ -70,29 +63,6 @@ async function findStoredCoverLetters(
         return await getCollection<StoredCoverLetter>(client, 'coverLetters')
             .find()
             .toArray();
-    } finally {
-        await client.close();
-    }
-}
-
-// Use a fresh, short-lived client for the post-generation write so no MongoDB
-// connection remains open during the model round trips.
-async function storeGeneratedCoverLetter(
-    client: MongoClient,
-    coverLetter: Omit<StoredCoverLetter, 'jobDuplicateKey'>,
-    jobDuplicateKey: string,
-): Promise<WithId<StoredCoverLetter>['_id'] | undefined> {
-    try {
-        await client.connect();
-        const savedCoverLetter = await getCollection<StoredCoverLetter>(
-            client,
-            'coverLetters',
-        ).findOneAndReplace(
-            { jobDuplicateKey },
-            { ...coverLetter, jobDuplicateKey },
-            { upsert: true, returnDocument: 'after' },
-        );
-        return savedCoverLetter?._id;
     } finally {
         await client.close();
     }
@@ -149,7 +119,7 @@ export default async function generateCoverLetterAsText(
 
             const generated = await generateCoverLetter(job, exampleSegments);
             const writeClient = new MongoClient(MONGODB_CONNECTION!);
-            const coverLetterId = await storeGeneratedCoverLetter(
+            const coverLetterId = await storeCoverLetter(
                 writeClient,
                 toStoredCoverLetter(generated),
                 jobData.duplicateKey,

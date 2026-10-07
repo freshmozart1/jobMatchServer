@@ -3,30 +3,15 @@ import { OpenAI } from 'openai';
 
 const EMBEDDING_MODEL = 'text-embedding-3-small';
 
-async function embedMany(inputs: string[]): Promise<TextEmbedding[]> {
+export async function embed(input: string): Promise<TextEmbedding> {
   const client = new OpenAI();
   const response = await client.embeddings.create({
     model: EMBEDDING_MODEL,
-    input: inputs,
+    input: [input],
   });
-  const embeddings = response.data.map(
-    (embeddingResponse) => embeddingResponse.embedding,
-  );
+  const embedding = response.data[0]?.embedding;
 
-  if (
-    embeddings.length !== inputs.length ||
-    embeddings.some((embedding) => !embedding)
-  ) {
-    throw new Error('OpenAI did not return an embedding');
-  }
-
-  return embeddings;
-}
-
-export async function embed(input: string): Promise<TextEmbedding> {
-  const [embedding] = await embedMany([input]);
-
-  if (!embedding) {
+  if (response.data.length !== 1 || !embedding) {
     throw new Error('OpenAI did not return an embedding');
   }
 

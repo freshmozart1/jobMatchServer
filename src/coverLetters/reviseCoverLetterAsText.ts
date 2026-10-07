@@ -2,6 +2,7 @@ import type { ReviseCoverLetterAsTextRequestBody } from '#types';
 import type { Request, Response } from 'express';
 import { reviseCoverLetterText } from 'cover-letter-generator';
 import { createErrorMessage } from '../errors/createErrorMessage.js';
+import { hasOptionalStringProp } from '../utils/requestBodyValidators.js';
 import { DeadlineExceededError, withDeadline } from '../utils/withDeadline.js';
 
 export const REVISE_COVER_LETTER_DEADLINE_MS = 60 * 1000;
@@ -9,12 +10,6 @@ export const REVISE_COVER_LETTER_DEADLINE_MS = 60 * 1000;
 function isNonEmptyStringProp(object: object, key: string): boolean {
     const value = (object as Record<string, unknown>)[key];
     return typeof value === 'string' && value.trim().length > 0;
-}
-
-function hasOptionalStringProp(object: object, key: string): boolean {
-    if (!(key in object)) return true;
-    const value = (object as Record<string, unknown>)[key];
-    return value === undefined || typeof value === 'string';
 }
 
 export function isValidReviseCoverLetterAsTextRequestBody(

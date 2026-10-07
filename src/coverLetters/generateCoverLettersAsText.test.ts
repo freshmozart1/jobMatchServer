@@ -327,6 +327,22 @@ describe('generateCoverLetterAsText', () => {
         expect(close).toHaveBeenCalledTimes(2);
     });
 
+    it('preserves keyed replacement when generation receives an empty duplicateKey', async () => {
+        const request = createRequest<ScrapedJob>({
+            body: { ...createJob<ScrapedJob>(), duplicateKey: '' },
+        });
+        const { response, status } = createResponse();
+
+        await generateCoverLetterAsText(request, response);
+
+        expect(findOneAndReplace).toHaveBeenCalledWith(
+            { jobDuplicateKey: '' },
+            { ...storedGeneratedCoverLetter, jobDuplicateKey: '' },
+            { upsert: true, returnDocument: 'after' },
+        );
+        expect(status).toHaveBeenCalledWith(200);
+    });
+
     it('derives fresh similarity segments only on deliberate generation, after the database closes', async () => {
         const rawText = 'Latest raw draft\r\n\r\nStill unfinished  ';
         const draft = {
