@@ -327,6 +327,68 @@ describe('scrapeJob', () => {
         expect(end).toHaveBeenCalledTimes(1);
     });
 
+    it('normalizes failed company lookups with null addresses to an empty DTO array', async () => {
+        findOne.mockResolvedValue(null);
+        runScrapeWithResult(successfulResult({ companyAddresses: null }));
+        const { response, write } = createSseResponse();
+
+        await scrapeJob(createRequest(validBody), response);
+
+        expect(dataFrames(write).find((frame) => frame.type === 'job')).toEqual(
+            {
+                type: 'job',
+                job: expect.objectContaining({ companyAddresses: [] }),
+            },
+        );
+    });
+
+    it('preserves populated address order while normalizing nullable address fields', async () => {
+        findOne.mockResolvedValue(null);
+        runScrapeWithResult(
+            successfulResult({
+                companyAddresses: [
+                    {
+                        streetAddress: 'Primary Street 1',
+                        city: 'Berlin',
+                        postalCode: '10115',
+                        countryCode: 'DE',
+                    },
+                    {
+                        streetAddress: null,
+                        city: 'Wien',
+                        postalCode: null,
+                        countryCode: 'AT',
+                    },
+                ],
+            }),
+        );
+        const { response, write } = createSseResponse();
+
+        await scrapeJob(createRequest(validBody), response);
+
+        expect(dataFrames(write).find((frame) => frame.type === 'job')).toEqual(
+            {
+                type: 'job',
+                job: expect.objectContaining({
+                    companyAddresses: [
+                        {
+                            streetAddress: 'Primary Street 1',
+                            city: 'Berlin',
+                            postalCode: '10115',
+                            countryCode: 'DE',
+                        },
+                        {
+                            streetAddress: '',
+                            city: 'Wien',
+                            postalCode: '',
+                            countryCode: 'AT',
+                        },
+                    ],
+                }),
+            },
+        );
+    });
+
     it.each(['lookup', 'embedding', 'matching'] as const)(
         'handles a %s rejection before the scrape settles and continues with later jobs',
         async (stage) => {
@@ -1072,6 +1134,44 @@ describe('scrapeJob', () => {
             keyword: 'TypeScript',
         });
     });
+
+    it.each([
+        'LinkedIn search navigation failed: HTTP 429. Retry later or check LinkedIn guest access.',
+        'LinkedIn search navigation returned no HTTP response; guest search results could not be verified.',
+        'LinkedIn search navigation did not reach the guest search page (https://www.linkedin.com/authwall). Check LinkedIn guest access before retrying.',
+    ])(
+        'reports initial navigation failure and cleans up the stream: %s',
+        async (reason) => {
+            jest.useFakeTimers();
+            runScrapeRejectingWith(new Error(reason));
+            const { response, write, end } = createSseResponse();
+
+            await scrapeJob(createRequest(validBody), response);
+
+            expect(write.mock.calls[0]?.[0]).toBe(': ping\n\n');
+            expect(dataFrames(write)).toEqual([
+                {
+                    type: 'error',
+                    error: 'Scrape failed',
+                    reason,
+                    keyword: 'TypeScript',
+                },
+            ]);
+            expect(findOne).not.toHaveBeenCalled();
+            expect(mockCreateJobEmbedding).not.toHaveBeenCalled();
+            expect(mockComputeJobMatch).not.toHaveBeenCalled();
+            expect(close).toHaveBeenCalledTimes(1);
+            expect(end).toHaveBeenCalledTimes(1);
+            expect(close.mock.invocationCallOrder[0]).toBeLessThan(
+                end.mock.invocationCallOrder[0]!,
+            );
+            expect(jest.getTimerCount()).toBe(0);
+
+            const writesAfterFailure = write.mock.calls.length;
+            await jest.advanceTimersByTimeAsync(30_000);
+            expect(write).toHaveBeenCalledTimes(writesAfterFailure);
+        },
+    );
 
     it('stringifies a non-Error rejection into the failure frame reason', async () => {
         runScrapeRejectingWith('boom');

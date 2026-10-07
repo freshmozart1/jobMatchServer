@@ -40,7 +40,7 @@ Not yet implemented:
 - Node.js, TypeScript (`nodenext` module resolution, strict mode)
 - Express 5
 - MongoDB (official `mongodb` driver)
-- `linkedin-job-scraper` (LinkedIn scraping)
+- `linkedin-job-scraper` v0.13.5 (LinkedIn scraping)
 - Puppeteer (cover letter HTML → PDF rendering)
 - `pdf-lib` (merging cover letter, CV, and certificate PDFs)
 - OpenAI SDK (`text-embedding-3-small` embeddings for job-liking ranking)
@@ -284,6 +284,17 @@ so a successful retry removes an earlier failure from the count. For each
 keyword, the route skips already-stored cards before clicking when possible,
 extracts and embeds new jobs, computes their like/dislike match score, and
 filters any remaining duplicates before emitting a job frame.
+
+If the initial LinkedIn search returns an unsuccessful or missing HTTP
+response, or redirects outside the guest-search route, the stream emits an
+error frame with `error: "Scrape failed"`, the affected keyword, and a reason
+identifying the navigation failure. The browser, database client and keepalive
+timer are cleaned up before the stream ends. A successful search with no
+matches completes normally.
+
+Missing company addresses, including a failed upstream company lookup, are
+returned as `companyAddresses: []`. Populated addresses retain upstream order
+(primary address first), and nullable address fields become empty strings.
 
 A database lookup, embedding, or scoring failure for an individual job emits
 an error frame with `error: "Job processing failed"`, its keyword, and a
