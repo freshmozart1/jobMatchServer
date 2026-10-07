@@ -26,7 +26,7 @@ Not yet implemented:
 
 ## Architecture
 
-1. **Express server** (`src/app.ts`) exposes all HTTP endpoints and handles CORS for a local frontend; `src/server/listen.ts` and `src/server/shutdown.ts` handle port-binding fallback and graceful shutdown of the Playwright browser and token service; `src/index.ts` is the thin entrypoint that wires them together.
+1. **Express server** (`src/app.ts`) exposes all HTTP endpoints and handles CORS for a local frontend; `src/server/listen.ts` and `src/server/shutdown.ts` handle port-binding fallback and graceful shutdown of the HTTP listener and token service; `src/index.ts` is the thin entrypoint that wires them together.
 2. **LinkedIn scraping layer** (`src/scrapers/linkedin/scrapeJob.ts`) invokes the `linkedin-job-scraper` package to gather job search results and extracts job postings and company addresses.
 3. **Embeddings layer** (`src/embeddings/`) computes OpenAI embeddings for jobs and compares a new job's embedding against the average embedding of previously liked/disliked jobs to produce a match score.
 4. **MongoDB storage layer** (`src/database/`) persists jobs (deduplicated by `duplicateKey`), cover letters (verbatim drafts or generated letters with per-segment embeddings), CVs, certificates, and users.
@@ -294,6 +294,10 @@ client stay open until all pending job processing has settled, and a
 client disconnect suppresses further frames while cleanup completes.
 
 ### `POST /jobs/create`
+
+For the Postman `job` request, set `scrapedJob` to the complete JSON job from a
+`/scrape/linkedin` job frame, including its embedding and company addresses.
+
 
 Body: `{ "job": ScrapedJob, "like": boolean }`. Upserts the job into MongoDB keyed by the exact `duplicateKey`, recording whether it was liked or disliked (used to rank future scrapes). Repeated saves replace only that job, preserving its database ID. Returns `201` with `{ "message": "Job created", "jobId": "..." }`.
 

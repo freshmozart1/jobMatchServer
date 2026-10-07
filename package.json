@@ -59,7 +59,6 @@
         "eslint": "^10.8.0",
         "jest": "^30.4.2",
         "nodemon": "^3.1.14",
-        "playwright": "^1.62.0",
         "prettier": "^3.9.6",
         "qs": "^6.16.0",
         "ts-node": "^10.9.2",
@@ -76,6 +75,11 @@
         "openai": "^6.49.0",
         "pdf-lib": "^1.17.1",
         "puppeteer": "^25.4.0"
+    },
+    "overrides": {
+        "concurrently": {
+            "shell-quote": "1.11.0"
+        }
     },
     "allowScripts": {
         "github:freshmozart1/cover-letter-generator#eef3d64ff2c69e66a978c7f040de4d823619c37c": true,
