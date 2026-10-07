@@ -2,6 +2,29 @@
 
 All notable changes to this project are documented in this file.
 
+## v5.3.12
+
+### Changed
+
+- Remove obsolete LinkedIn URL/address/error helpers and the unused local
+  Playwright lifecycle stack with their obsolete tests. Preserve upstream
+  scraper browser ownership and token-service/HTTP shutdown cleanup (#185).
+- Share the short-lived cover-letter persistence implementation between
+  generation and autosave, preserving database cleanup ordering, stored
+  content, response shapes, and deadlines. Simplify request validation and
+  the single-input embedding request without changing their contracts (#185).
+- Remove the unused direct Playwright dependency and 17 unrelated spec-kit
+  Python packages, retaining the Flask/tiktoken dependency closure (#185).
+- Remove the retired Postman ranking request and stale captured job example.
+  The job-create request now uses a complete streamed job, including its
+  actual embedding, through the `scrapedJob` variable (#185).
+
+### Security
+
+- Update `proxy-addr` to `2.0.8`, apply a scoped `shell-quote` `1.11.0`
+  override for `concurrently`, and update Werkzeug to `3.1.9` to address
+  their published advisories (#185).
+
 ## v5.3.11
 
 ### Changed
